@@ -38,11 +38,21 @@ def event_loop():
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Create async test client for API testing."""
+    # Reset global database engines to avoid connection pool issues
+    import src.db.client as db_client
+    db_client._pg_engine = None
+    db_client._mz_engine = None
+    db_client._pg_session_factory = None
+    db_client._mz_session_factory = None
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         yield client
+
+    # Cleanup connections after test
+    await db_client.close_connections()
 
 
 # =============================================================================

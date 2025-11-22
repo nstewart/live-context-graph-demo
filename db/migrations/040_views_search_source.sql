@@ -24,19 +24,20 @@ SELECT
     -- Order lines (aggregated)
     COALESCE(
         (
-            SELECT json_agg(
-                json_build_object(
+            SELECT json_agg(line_data)
+            FROM (
+                SELECT json_build_object(
                     'line_id', ol_lines.subject_id,
                     'product_id', MAX(CASE WHEN ol_lines.predicate = 'line_product' THEN ol_lines.object_value END),
                     'quantity', MAX(CASE WHEN ol_lines.predicate = 'quantity' THEN ol_lines.object_value END)::INT,
                     'line_amount', MAX(CASE WHEN ol_lines.predicate = 'line_amount' THEN ol_lines.object_value END)::DECIMAL(10,2)
-                )
-            )
-            FROM triples ol_ref
-            JOIN triples ol_lines ON ol_lines.subject_id = ol_ref.subject_id
-            WHERE ol_ref.predicate = 'line_of_order'
-                AND ol_ref.object_value = ofm.order_id
-            GROUP BY ol_lines.subject_id
+                ) AS line_data
+                FROM triples ol_ref
+                JOIN triples ol_lines ON ol_lines.subject_id = ol_ref.subject_id
+                WHERE ol_ref.predicate = 'line_of_order'
+                    AND ol_ref.object_value = ofm.order_id
+                GROUP BY ol_lines.subject_id
+            ) subq
         ),
         '[]'::json
     ) AS order_lines,
