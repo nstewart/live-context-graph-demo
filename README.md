@@ -3,7 +3,7 @@
 A forkable, batteries-included repository demonstrating how to build a **digital twin** of FreshMart's same-day grocery delivery operations using:
 
 - **PostgreSQL** as a triple store with ontology validation
-- **Materialize Emulator** (PostgreSQL-based) for live operational views
+- **Materialize Emulator** for real-time materialized views with admin console
 - **OpenSearch** for full-text search and discovery
 - **LangGraph Agents** with tools for AI-powered operations assistance
 - **React Admin UI** for managing the ontology and browsing operations
@@ -25,6 +25,7 @@ docker-compose up -d
 # 4. Access the services
 # - Admin UI: http://localhost:5173
 # - API Docs: http://localhost:8080/docs
+# - Materialize Console: http://localhost:6874
 # - OpenSearch: http://localhost:9200
 ```
 
@@ -53,7 +54,7 @@ The system will automatically:
                ▼                                    ▼
 ┌──────────────────────────┐         ┌──────────────────────────┐
 │     PostgreSQL           │         │   Materialize Emulator    │
-│     Port: 5432           │────────▶│      Port: 6875           │
+│     Port: 5432           │────────▶│  Console: 6874 SQL: 6875  │
 │  • ontology_classes      │         │  • orders_flat_mz         │
 │  • ontology_properties   │         │  • store_inventory_mz     │
 │  • triples               │         │  • courier_schedule_mz    │

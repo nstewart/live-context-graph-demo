@@ -175,8 +175,8 @@ The triple validator enforces:
 
 ### Current Architecture (Development)
 
-- Single PostgreSQL instance
-- PostgreSQL-based Materialize emulator
+- Single PostgreSQL instance with logical replication enabled
+- Materialize Emulator with admin console (http://localhost:6874)
 - Single-node OpenSearch
 - In-process sync worker
 

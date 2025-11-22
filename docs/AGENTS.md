@@ -97,11 +97,11 @@ schema = await get_ontology()
 
 ### write_triples
 
-Create or update data in the knowledge graph.
+Create or update data in the knowledge graph. If a triple already exists with the same subject and predicate, it will be updated rather than creating a duplicate.
 
 **Parameters**:
 - `triples` (list[dict]): Triples to write
-- `validate` (bool): Validate against ontology (default True)
+- `validate_ontology` (bool): Validate against ontology (default True)
 
 **Example**:
 ```python
@@ -120,9 +120,11 @@ results = await write_triples([
 ### CLI - Interactive Mode
 
 ```bash
-# Start the agent
+# Start the agent service
 docker-compose --profile agent up -d
-docker-compose exec agents python -m src.main
+
+# Start interactive chat
+docker-compose exec -it agents python -m src.main chat
 
 # Example conversation
 You: Show all orders that are out for delivery
@@ -139,7 +141,21 @@ Assistant: I'll update order FM-1002 to DELIVERED...
 
 ```bash
 # Run a single query
-python -m src.main "Show all orders for customer Alex Thompson"
+docker-compose exec agents python -m src.main chat "Show all orders for customer Alex Thompson"
+```
+
+### HTTP API
+
+The agent service exposes an HTTP API on port 8081:
+
+```bash
+# Health check
+curl http://localhost:8081/health
+
+# Chat with the agent
+curl -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Show all OUT_FOR_DELIVERY orders"}'
 ```
 
 ### Programmatic Usage
@@ -270,8 +286,9 @@ OPENAI_API_KEY=sk-...
 Edit `config.py` to change the default model:
 
 ```python
-model_name: str = "gpt-4-turbo-preview"  # OpenAI
-# or use Claude via ANTHROPIC_API_KEY
+llm_model: str = "claude-sonnet-4-20250514"  # Anthropic (default)
+# or
+llm_model: str = "gpt-4-turbo"  # OpenAI
 ```
 
 ## Safety & Limits
