@@ -3,7 +3,10 @@
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import requires_db
 
+
+@requires_db
 class TestOrdersAPI:
     """Tests for /freshmart/orders endpoints."""
 
@@ -106,6 +109,7 @@ class TestOrdersAPI:
         assert response.status_code in [200, 404]
 
 
+@requires_db
 class TestStoresAPI:
     """Tests for /freshmart/stores endpoints."""
 
@@ -151,6 +155,7 @@ class TestStoresAPI:
         assert response.status_code in [200, 404]
 
 
+@requires_db
 class TestInventoryAPI:
     """Tests for /freshmart/stores/inventory endpoint."""
 
@@ -199,6 +204,7 @@ class TestInventoryAPI:
         assert response2.status_code == 200
 
 
+@requires_db
 class TestCouriersAPI:
     """Tests for /freshmart/couriers endpoints."""
 

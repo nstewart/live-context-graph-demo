@@ -3,7 +3,10 @@
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import requires_db
 
+
+@requires_db
 class TestOntologyClassesAPI:
     """Tests for /ontology/classes endpoints."""
 
@@ -72,6 +75,7 @@ class TestOntologyClassesAPI:
         assert response.status_code == 404
 
 
+@requires_db
 class TestOntologyPropertiesAPI:
     """Tests for /ontology/properties endpoints."""
 
@@ -141,6 +145,7 @@ class TestOntologyPropertiesAPI:
         assert response.status_code == 400
 
 
+@requires_db
 class TestOntologySchemaAPI:
     """Tests for /ontology/schema endpoint."""
 

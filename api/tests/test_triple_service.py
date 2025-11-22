@@ -178,10 +178,12 @@ class TestCreateTriple:
     @pytest.mark.asyncio
     async def test_validates_triple_when_validation_enabled(self, validating_service, mock_session):
         """Validates triple before creation when enabled."""
+        from src.triples.models import ValidationErrorDetail
+
         # Mock validator to return invalid result
         mock_validation_result = ValidationResult(
             is_valid=False,
-            errors=[MagicMock(error_type="test_error", message="Test error")]
+            errors=[ValidationErrorDetail(error_type="test_error", message="Test error")]
         )
         mock_validator = AsyncMock()
         mock_validator.validate.return_value = mock_validation_result
@@ -284,13 +286,16 @@ class TestListSubjects:
         """Filters subjects by class name."""
         # Mock ontology service for class lookup
         now = datetime.now()
-        mock_ont_class = MagicMock(
-            id=1,
-            class_name="Customer",
-            prefix="customer",
-            created_at=now,
-            updated_at=now,
-        )
+
+        # Create a proper mock row object with the required attributes
+        class MockOntClass:
+            id = 1
+            class_name = "Customer"
+            prefix = "customer"
+            description = "A customer"
+            parent_class_id = None
+            created_at = now
+            updated_at = now
 
         # First call returns ontology class, second returns subjects
         call_count = 0
@@ -301,7 +306,7 @@ class TestListSubjects:
             mock_result = MagicMock()
             if call_count == 1:
                 # Ontology class lookup
-                mock_result.fetchone.return_value = mock_ont_class
+                mock_result.fetchone.return_value = MockOntClass()
             else:
                 # Subject list
                 mock_result.fetchall.return_value = [MagicMock(subject_id="customer:101")]
@@ -367,7 +372,9 @@ class TestTripleValidationError:
 
     def test_stores_validation_result(self):
         """Exception stores validation result."""
-        errors = [MagicMock(error_type="test", message="Test error")]
+        from src.triples.models import ValidationErrorDetail
+
+        errors = [ValidationErrorDetail(error_type="test", message="Test error")]
         validation_result = ValidationResult(is_valid=False, errors=errors)
 
         error = TripleValidationError(validation_result)

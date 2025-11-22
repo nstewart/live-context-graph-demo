@@ -3,7 +3,10 @@
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import requires_db
 
+
+@requires_db
 class TestTriplesAPI:
     """Tests for /triples endpoints."""
 
@@ -162,6 +165,7 @@ class TestTriplesAPI:
         assert response.status_code == 404
 
 
+@requires_db
 class TestSubjectsAPI:
     """Tests for /triples/subjects endpoints."""
 
@@ -207,6 +211,7 @@ class TestSubjectsAPI:
         assert response.status_code == 404
 
 
+@requires_db
 class TestValidationAPI:
     """Tests for /triples/validate endpoint."""
 

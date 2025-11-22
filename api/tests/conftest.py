@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures for API tests."""
 
 import asyncio
+import os
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,6 +12,19 @@ from httpx import ASGITransport, AsyncClient
 from src.main import app
 from src.ontology.models import OntologyClass, OntologyProperty
 from src.triples.models import Triple
+
+
+# Check if database is available for integration tests
+def is_db_available():
+    """Check if database connection is configured."""
+    return os.environ.get("DATABASE_URL") or os.environ.get("PG_HOST")
+
+
+# Skip marker for integration tests when DB not available
+requires_db = pytest.mark.skipif(
+    not is_db_available(),
+    reason="Database not available - set DATABASE_URL or PG_HOST to run integration tests"
+)
 
 
 @pytest.fixture(scope="session")

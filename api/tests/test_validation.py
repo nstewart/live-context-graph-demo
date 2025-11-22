@@ -11,9 +11,9 @@ class MockOntologyService:
 
     def __init__(self):
         self.classes = {
-            1: {"id": 1, "class_name": "Customer", "prefix": "customer"},
-            2: {"id": 2, "class_name": "Order", "prefix": "order"},
-            3: {"id": 3, "class_name": "Store", "prefix": "store"},
+            1: {"id": 1, "class_name": "Customer", "prefix": "customer", "parent_class_id": None},
+            2: {"id": 2, "class_name": "Order", "prefix": "order", "parent_class_id": None},
+            3: {"id": 3, "class_name": "Store", "prefix": "store", "parent_class_id": None},
         }
         self.properties = {
             "customer_name": {
