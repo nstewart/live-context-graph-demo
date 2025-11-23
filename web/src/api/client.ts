@@ -102,6 +102,13 @@ export interface CourierSchedule {
   }>
 }
 
+export interface CustomerInfo {
+  customer_id: string
+  customer_name: string | null
+  customer_email: string | null
+  customer_address: string | null
+}
+
 // API functions
 export const ontologyApi = {
   listClasses: () => apiClient.get<OntologyClass[]>('/ontology/classes'),
@@ -143,6 +150,7 @@ export const freshmartApi = {
   listStores: () => apiClient.get<StoreInfo[]>('/freshmart/stores'),
   getStore: (storeId: string) =>
     apiClient.get<StoreInfo>(`/freshmart/stores/${encodeURIComponent(storeId)}`),
+  listCustomers: () => apiClient.get<CustomerInfo[]>('/freshmart/customers'),
   listCouriers: (params?: { status?: string }) =>
     apiClient.get<CourierSchedule[]>('/freshmart/couriers', { params }),
 }

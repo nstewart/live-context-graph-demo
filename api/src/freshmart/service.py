@@ -261,6 +261,36 @@ class FreshMartService:
         return stores
 
     # =========================================================================
+    # Customers
+    # =========================================================================
+
+    async def list_customers(self) -> list["CustomerInfo"]:
+        """List all customers from Materialize."""
+        from src.freshmart.models import CustomerInfo
+
+        # Use customers_flat view (no MV suffix needed as it's a regular view)
+        view = "customers_flat"
+
+        result = await self.session.execute(
+            text(f"""
+                SELECT customer_id, customer_name, customer_email, customer_address
+                FROM {view}
+                ORDER BY customer_name
+            """)
+        )
+        rows = result.fetchall()
+
+        return [
+            CustomerInfo(
+                customer_id=row.customer_id,
+                customer_name=row.customer_name,
+                customer_email=row.customer_email,
+                customer_address=row.customer_address,
+            )
+            for row in rows
+        ]
+
+    # =========================================================================
     # Couriers
     # =========================================================================
 

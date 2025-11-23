@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { freshmartApi, triplesApi, OrderFlat, TripleCreate } from '../api/client'
+import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo } from '../api/client'
 import { formatAmount } from '../test/utils'
 import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X } from 'lucide-react'
 
@@ -51,12 +51,16 @@ function OrderFormModal({
   order,
   onSave,
   isLoading,
+  stores,
+  customers,
 }: {
   isOpen: boolean
   onClose: () => void
   order?: OrderFlat
   onSave: (data: OrderFormData, isEdit: boolean) => void
   isLoading: boolean
+  stores: StoreInfo[]
+  customers: CustomerInfo[]
 }) {
   const [formData, setFormData] = useState<OrderFormData>(initialFormData)
 
@@ -124,26 +128,36 @@ function OrderFormModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer ID *</label>
-              <input
-                type="text"
+              <label className="block text-sm font-medium text-gray-700 mb-1">Customer *</label>
+              <select
                 required
                 value={formData.customer_id}
                 onChange={e => setFormData({ ...formData, customer_id: e.target.value })}
-                placeholder="customer:101"
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
-              />
+              >
+                <option value="">Select a customer...</option>
+                {customers.map(customer => (
+                  <option key={customer.customer_id} value={customer.customer_id}>
+                    {customer.customer_name || 'Unknown'} ({customer.customer_id})
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Store ID *</label>
-              <input
-                type="text"
+              <label className="block text-sm font-medium text-gray-700 mb-1">Store *</label>
+              <select
                 required
                 value={formData.store_id}
                 onChange={e => setFormData({ ...formData, store_id: e.target.value })}
-                placeholder="store:BK-01"
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
-              />
+              >
+                <option value="">Select a store...</option>
+                {stores.map(store => (
+                  <option key={store.store_id} value={store.store_id}>
+                    {store.store_name || 'Unknown'} ({store.store_id})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <div>
@@ -257,6 +271,16 @@ export default function OrdersDashboardPage() {
   const { data: orders, isLoading, error } = useQuery({
     queryKey: ['orders'],
     queryFn: () => freshmartApi.listOrders().then(r => r.data),
+  })
+
+  const { data: stores = [] } = useQuery({
+    queryKey: ['stores'],
+    queryFn: () => freshmartApi.listStores().then(r => r.data),
+  })
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => freshmartApi.listCustomers().then(r => r.data),
   })
 
   const createMutation = useMutation({
@@ -450,6 +474,8 @@ export default function OrdersDashboardPage() {
         order={editingOrder}
         onSave={handleSave}
         isLoading={createMutation.isPending || updateMutation.isPending}
+        stores={stores}
+        customers={customers}
       />
 
       {/* Delete Confirmation */}

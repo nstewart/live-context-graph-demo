@@ -8,6 +8,8 @@ import { mockOrders, mockOrderSubjectInfo } from '../test/mocks'
 vi.mock('../api/client', () => ({
   freshmartApi: {
     listOrders: vi.fn(),
+    listStores: vi.fn(),
+    listCustomers: vi.fn(),
   },
   triplesApi: {
     createBatch: vi.fn(),
@@ -36,9 +38,20 @@ const renderWithClient = (ui: React.ReactElement) => {
   )
 }
 
+const mockStores = [
+  { store_id: 'store:BK-01', store_name: 'Brooklyn Heights', store_address: '123 Main St', store_zone: 'Brooklyn', store_status: 'ACTIVE', store_capacity_orders_per_hour: 50, inventory_items: [] },
+]
+
+const mockCustomers = [
+  { customer_id: 'customer:101', customer_name: 'Alex Thompson', customer_email: 'alex@example.com', customer_address: '456 Oak Ave' },
+]
+
 describe('OrdersDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default mocks for stores and customers
+    vi.mocked(freshmartApi.listStores).mockResolvedValue({ data: mockStores } as never)
+    vi.mocked(freshmartApi.listCustomers).mockResolvedValue({ data: mockCustomers } as never)
   })
 
   describe('Rendering', () => {
@@ -115,6 +128,8 @@ describe('OrdersDashboardPage', () => {
 
     it('has required form fields', async () => {
       vi.mocked(freshmartApi.listOrders).mockResolvedValue({ data: [] } as never)
+      vi.mocked(freshmartApi.listStores).mockResolvedValue({ data: [] } as never)
+      vi.mocked(freshmartApi.listCustomers).mockResolvedValue({ data: [] } as never)
       renderWithClient(<OrdersDashboardPage />)
 
       fireEvent.click(screen.getByText('Create Order'))
@@ -122,8 +137,8 @@ describe('OrdersDashboardPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/Order Number/)).toBeInTheDocument()
         expect(screen.getByText(/Status/)).toBeInTheDocument()
-        expect(screen.getByText(/Customer ID/)).toBeInTheDocument()
-        expect(screen.getByText(/Store ID/)).toBeInTheDocument()
+        expect(screen.getByText(/Customer \*/)).toBeInTheDocument()
+        expect(screen.getByText(/Store \*/)).toBeInTheDocument()
       })
     })
 
@@ -135,18 +150,23 @@ describe('OrdersDashboardPage', () => {
 
       fireEvent.click(screen.getByText('Create Order'))
 
+      // Wait for dropdowns to be populated with options
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Alex Thompson (customer:101)')).toBeInTheDocument()
       })
 
-      // Fill out form - find inputs by placeholder
+      // Fill out form - find inputs by placeholder or role
       const orderNumberInput = screen.getByPlaceholderText('FM-1001')
-      const customerIdInput = screen.getByPlaceholderText('customer:101')
-      const storeIdInput = screen.getByPlaceholderText('store:BK-01')
-
       fireEvent.change(orderNumberInput, { target: { value: 'FM-9999' } })
-      fireEvent.change(customerIdInput, { target: { value: 'customer:999' } })
-      fireEvent.change(storeIdInput, { target: { value: 'store:TEST-01' } })
+
+      // Select customer and store from dropdowns
+      const selects = screen.getAllByRole('combobox')
+      // First select is Status, second is Customer, third is Store
+      const customerSelect = selects[1]
+      const storeSelect = selects[2]
+
+      fireEvent.change(customerSelect, { target: { value: 'customer:101' } })
+      fireEvent.change(storeSelect, { target: { value: 'store:BK-01' } })
 
       // Submit form - the submit button text is "Create" not "Create Order"
       const submitButtons = screen.getAllByRole('button')

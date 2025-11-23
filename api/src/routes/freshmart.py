@@ -11,6 +11,7 @@ from src.config import get_settings
 from src.db.client import get_mz_session_factory, get_pg_session_factory
 from src.freshmart.models import (
     CourierSchedule,
+    CustomerInfo,
     OrderFilter,
     OrderFlat,
     StoreInfo,
@@ -132,6 +133,17 @@ async def list_inventory(
         limit=limit,
         offset=offset,
     )
+
+
+# =============================================================================
+# Customers
+# =============================================================================
+
+
+@router.get("/customers", response_model=list[CustomerInfo])
+async def list_customers(service: FreshMartService = Depends(get_freshmart_service)):
+    """List all customers."""
+    return await service.list_customers()
 
 
 @router.get("/stores/{store_id:path}", response_model=StoreInfo)
