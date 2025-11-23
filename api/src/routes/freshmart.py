@@ -14,6 +14,7 @@ from src.freshmart.models import (
     CustomerInfo,
     OrderFilter,
     OrderFlat,
+    ProductInfo,
     StoreInfo,
     StoreInventory,
 )
@@ -144,6 +145,17 @@ async def list_inventory(
 async def list_customers(service: FreshMartService = Depends(get_freshmart_service)):
     """List all customers."""
     return await service.list_customers()
+
+
+# =============================================================================
+# Products
+# =============================================================================
+
+
+@router.get("/products", response_model=list[ProductInfo])
+async def list_products(service: FreshMartService = Depends(get_freshmart_service)):
+    """List all products."""
+    return await service.list_products()
 
 
 @router.get("/stores/{store_id:path}", response_model=StoreInfo)

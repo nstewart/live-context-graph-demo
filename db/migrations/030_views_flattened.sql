@@ -126,6 +126,25 @@ FROM customer_subjects cs
 LEFT JOIN triples t ON t.subject_id = cs.subject_id
 GROUP BY cs.subject_id;
 
+-- Products Flattened View
+-- Shows all products with their attributes
+CREATE OR REPLACE VIEW products_flat AS
+WITH product_subjects AS (
+    SELECT DISTINCT subject_id
+    FROM triples
+    WHERE subject_id LIKE 'product:%'
+)
+SELECT
+    ps.subject_id AS product_id,
+    MAX(CASE WHEN t.predicate = 'product_name' THEN t.object_value END) AS product_name,
+    MAX(CASE WHEN t.predicate = 'category' THEN t.object_value END) AS category,
+    MAX(CASE WHEN t.predicate = 'unit_price' THEN t.object_value END)::DECIMAL(10,2) AS unit_price,
+    MAX(CASE WHEN t.predicate = 'perishable' THEN t.object_value END)::BOOLEAN AS perishable,
+    MAX(t.updated_at) AS effective_updated_at
+FROM product_subjects ps
+LEFT JOIN triples t ON t.subject_id = ps.subject_id
+GROUP BY ps.subject_id;
+
 -- Insert migration record
 INSERT INTO schema_migrations (version) VALUES ('030_views_flattened')
 ON CONFLICT (version) DO NOTHING;

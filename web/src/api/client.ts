@@ -109,6 +109,14 @@ export interface CustomerInfo {
   customer_address: string | null
 }
 
+export interface ProductInfo {
+  product_id: string
+  product_name: string | null
+  category: string | null
+  unit_price: number | null
+  perishable: boolean | null
+}
+
 // API functions
 export interface OntologyPropertyCreate {
   prop_name: string
@@ -177,6 +185,7 @@ export const freshmartApi = {
   getStore: (storeId: string) =>
     apiClient.get<StoreInfo>(`/freshmart/stores/${encodeURIComponent(storeId)}`),
   listCustomers: () => apiClient.get<CustomerInfo[]>('/freshmart/customers'),
+  listProducts: () => apiClient.get<ProductInfo[]>('/freshmart/products'),
   listCouriers: (params?: { status?: string }) =>
     apiClient.get<CourierSchedule[]>('/freshmart/couriers', { params }),
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { freshmartApi, triplesApi, StoreInfo, StoreInventory, TripleCreate } from '../api/client'
+import { freshmartApi, triplesApi, StoreInfo, StoreInventory, TripleCreate, ProductInfo } from '../api/client'
 import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package } from 'lucide-react'
 
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
@@ -184,6 +184,7 @@ function InventoryFormModal({
   onClose,
   inventory,
   storeId,
+  products,
   onSave,
   isLoading,
 }: {
@@ -191,6 +192,7 @@ function InventoryFormModal({
   onClose: () => void
   inventory?: StoreInventory
   storeId: string
+  products: ProductInfo[]
   onSave: (data: InventoryFormData, isEdit: boolean) => void
   isLoading: boolean
 }) {
@@ -242,15 +244,20 @@ function InventoryFormModal({
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Product ID *</label>
-            <input
-              type="text"
+            <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+            <select
               required
               value={formData.product_id}
               onChange={e => setFormData({ ...formData, product_id: e.target.value })}
-              placeholder="product:MILK-001"
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
-            />
+            >
+              <option value="">Select a product...</option>
+              {products.map(p => (
+                <option key={p.product_id} value={p.product_id}>
+                  {p.product_name || 'Unknown'} ({p.product_id})
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Stock Level *</label>
@@ -304,6 +311,11 @@ export default function StoresInventoryPage() {
     queryFn: () => freshmartApi.listStores().then(r => r.data),
   })
 
+  const { data: products = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => freshmartApi.listProducts().then(r => r.data),
+  })
+
   const createStoreMutation = useMutation({
     mutationFn: async (data: StoreFormData) => {
       const storeId = `store:${data.store_id}`
@@ -318,7 +330,7 @@ export default function StoresInventoryPage() {
           subject_id: storeId,
           predicate: 'store_capacity_orders_per_hour',
           object_value: data.store_capacity_orders_per_hour,
-          object_type: 'integer',
+          object_type: 'int',
         })
       }
       return triplesApi.createBatch(triples)
@@ -341,7 +353,7 @@ export default function StoresInventoryPage() {
         { predicate: 'store_status', value: data.store_status, type: 'string' },
       ]
       if (data.store_capacity_orders_per_hour) {
-        fields.push({ predicate: 'store_capacity_orders_per_hour', value: data.store_capacity_orders_per_hour, type: 'integer' })
+        fields.push({ predicate: 'store_capacity_orders_per_hour', value: data.store_capacity_orders_per_hour, type: 'int' })
       }
       for (const field of fields) {
         const existing = subjectInfo.triples.find(t => t.predicate === field.predicate)
@@ -374,7 +386,7 @@ export default function StoresInventoryPage() {
       const triples: TripleCreate[] = [
         { subject_id: inventoryId, predicate: 'inventory_store', object_value: data.store_id, object_type: 'entity_ref' },
         { subject_id: inventoryId, predicate: 'inventory_product', object_value: data.product_id, object_type: 'entity_ref' },
-        { subject_id: inventoryId, predicate: 'stock_level', object_value: data.stock_level, object_type: 'integer' },
+        { subject_id: inventoryId, predicate: 'stock_level', object_value: data.stock_level, object_type: 'int' },
       ]
       if (data.replenishment_eta) {
         triples.push({
@@ -399,7 +411,7 @@ export default function StoresInventoryPage() {
       const updates: Promise<unknown>[] = []
       const fields: { predicate: string; value: string; type: TripleCreate['object_type'] }[] = [
         { predicate: 'inventory_product', value: data.product_id, type: 'entity_ref' },
-        { predicate: 'stock_level', value: data.stock_level, type: 'integer' },
+        { predicate: 'stock_level', value: data.stock_level, type: 'int' },
       ]
       if (data.replenishment_eta) {
         fields.push({ predicate: 'replenishment_eta', value: new Date(data.replenishment_eta).toISOString(), type: 'timestamp' })
@@ -612,6 +624,7 @@ export default function StoresInventoryPage() {
           }}
           inventory={editingInventory.inventory}
           storeId={editingInventory.storeId}
+          products={products}
           onSave={handleSaveInventory}
           isLoading={createInventoryMutation.isPending || updateInventoryMutation.isPending}
         />

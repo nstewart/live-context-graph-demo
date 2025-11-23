@@ -45,6 +45,7 @@ class FreshMartService:
             "courier_schedule_flat": "courier_schedule_mv",
             "stores_flat": "stores_mv",
             "customers_flat": "customers_mv",
+            "products_flat": "products_mv",
         }
         if self.use_materialize:
             return mz_views.get(base_name, base_name)
@@ -241,7 +242,7 @@ class FreshMartService:
         )
 
     async def list_stores(self) -> list[StoreInfo]:
-        """List all stores."""
+        """List all stores with their inventory."""
         view = self._get_view("stores_flat")
 
         result = await self.session.execute(
@@ -254,6 +255,15 @@ class FreshMartService:
         )
         rows = result.fetchall()
 
+        # Fetch all inventory at once and group by store_id
+        all_inventory = await self.list_store_inventory(limit=10000)
+        inventory_by_store: dict[str, list[StoreInventory]] = {}
+        for inv in all_inventory:
+            if inv.store_id:
+                if inv.store_id not in inventory_by_store:
+                    inventory_by_store[inv.store_id] = []
+                inventory_by_store[inv.store_id].append(inv)
+
         return [
             StoreInfo(
                 store_id=row.store_id,
@@ -262,7 +272,7 @@ class FreshMartService:
                 store_zone=row.store_zone,
                 store_status=row.store_status,
                 store_capacity_orders_per_hour=row.store_capacity_orders_per_hour,
-                inventory_items=[],  # Don't fetch inventory for list view
+                inventory_items=inventory_by_store.get(row.store_id, []),
             )
             for row in rows
         ]
@@ -292,6 +302,36 @@ class FreshMartService:
                 customer_name=row.customer_name,
                 customer_email=row.customer_email,
                 customer_address=row.customer_address,
+            )
+            for row in rows
+        ]
+
+    # =========================================================================
+    # Products
+    # =========================================================================
+
+    async def list_products(self) -> list["ProductInfo"]:
+        """List all products using materialized view."""
+        from src.freshmart.models import ProductInfo
+
+        view = self._get_view("products_flat")
+
+        result = await self.session.execute(
+            text(f"""
+                SELECT product_id, product_name, category, unit_price, perishable
+                FROM {view}
+                ORDER BY product_name
+            """)
+        )
+        rows = result.fetchall()
+
+        return [
+            ProductInfo(
+                product_id=row.product_id,
+                product_name=row.product_name,
+                category=row.category,
+                unit_price=row.unit_price,
+                perishable=row.perishable,
             )
             for row in rows
         ]
