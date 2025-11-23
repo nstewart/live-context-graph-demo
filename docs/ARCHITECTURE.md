@@ -151,15 +151,45 @@ ontology_properties (id, prop_name, domain_class_id, range_kind, range_class_id,
 triples (id, subject_id, predicate, object_value, object_type, timestamps)
 ```
 
-### Materialized Views
+### Materialize Three-Tier Architecture
 
-```sql
--- Denormalized operational views
-orders_flat_mz (order_id, order_number, status, customer_id, store_id, ...)
-store_inventory_mz (inventory_id, store_id, product_id, stock_level, ...)
-courier_schedule_mz (courier_id, name, status, tasks JSON, ...)
-orders_search_source (enriched order data for OpenSearch)
+Materialize uses a three-tier architecture for optimal resource allocation:
+
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Three-Tier Architecture                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGEST CLUSTER (25cc)        │  COMPUTE CLUSTER (25cc)                     │
+│  • pg_source                  │  • (reserved for future                     │
+│  • Replicates triples table   │     complex transformations)                │
+│  • Logical replication        │                                             │
+├───────────────────────────────┴─────────────────────────────────────────────┤
+│                        SERVING CLUSTER (25cc)                                │
+│  • Indexes on views for low-latency queries                                  │
+│  • orders_flat_idx, store_inventory_idx, orders_search_source_idx           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Views** (regular views, not materialized):
+```sql
+-- Flattened entity views
+orders_flat (order_id, order_number, status, customer_id, store_id, ...)
+store_inventory (inventory_id, store_id, product_id, stock_level, ...)
+customers_flat, stores_flat, delivery_tasks_flat
+
+-- Enriched view for OpenSearch sync
+orders_search_source (joins orders with customers, stores, delivery tasks)
+```
+
+**Indexes** (in serving cluster):
+```sql
+-- Indexes make views queryable with low latency
+CREATE INDEX orders_flat_idx IN CLUSTER serving ON orders_flat (order_id);
+CREATE INDEX store_inventory_idx IN CLUSTER serving ON store_inventory (inventory_id);
+CREATE INDEX orders_search_source_idx IN CLUSTER serving ON orders_search_source (order_id);
+```
+
+Access the Materialize Console at http://localhost:6874 to monitor clusters, sources, views, and indexes.
 
 ## Validation Layer
 

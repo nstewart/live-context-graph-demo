@@ -32,8 +32,21 @@ docker-compose up -d
 The system will automatically:
 - Run database migrations
 - Seed demo data (5 stores, 15 products, 15 customers, 20 orders)
-- Initialize Materialize views
 - Sync orders to OpenSearch
+
+### Initialize Materialize (First Run)
+
+After the first `docker-compose up`, initialize Materialize to set up the PostgreSQL source and views:
+
+```bash
+# Option 1: Run the init script from host (requires psql)
+./db/materialize/init.sh
+
+# Option 2: Run from within the mz container
+docker-compose exec mz psql -U materialize -h localhost -p 6875 -f /init_materialize.sql
+```
+
+You can verify the setup by visiting the Materialize Console at http://localhost:6874 and checking that sources and views exist.
 
 ## Architecture
 
@@ -55,9 +68,9 @@ The system will automatically:
 ┌──────────────────────────┐         ┌──────────────────────────┐
 │     PostgreSQL           │         │   Materialize Emulator    │
 │     Port: 5432           │────────▶│  Console: 6874 SQL: 6875  │
-│  • ontology_classes      │         │  • orders_flat_mz         │
-│  • ontology_properties   │         │  • store_inventory_mz     │
-│  • triples               │         │  • courier_schedule_mz    │
+│  • ontology_classes      │         │  Three-Tier Architecture: │
+│  • ontology_properties   │         │  • ingest: pg_source      │
+│  • triples               │         │  • serving: indexes       │
 └──────────────────────────┘         └───────────┬──────────────┘
                                                  │
                                                  ▼

@@ -32,6 +32,8 @@ services:
       - "${MZ_PORT:-6875}:6875"          # SQL interface
       - "6876:6876"
       - "6877:6877"
+    volumes:
+      - ./db/materialize/init_materialize.sql:/init_materialize.sql:ro
     depends_on:
       db:
         condition: service_healthy

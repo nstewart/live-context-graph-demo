@@ -31,10 +31,17 @@ class Settings(BaseSettings):
 
     @property
     def mz_dsn(self) -> str:
-        """Get Materialize connection string."""
+        """Get Materialize connection string for SQLAlchemy."""
         if self.mz_external_url:
             return self.mz_external_url
         return f"postgresql+asyncpg://{self.mz_user}:{self.mz_password}@{self.mz_host}:{self.mz_port}/{self.mz_database}"
+
+    @property
+    def mz_conninfo(self) -> str:
+        """Get Materialize connection string for psycopg."""
+        if self.mz_external_url:
+            return self.mz_external_url
+        return f"host={self.mz_host} port={self.mz_port} user={self.mz_user} password={self.mz_password} dbname={self.mz_database}"
 
     @property
     def os_url(self) -> str:

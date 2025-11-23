@@ -1,6 +1,5 @@
 # Database
-asyncpg==0.29.0
-sqlalchemy[asyncio]==2.0.25
+psycopg[binary]==3.1.18
 
 # OpenSearch
 opensearch-py==2.4.2

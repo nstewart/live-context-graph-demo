@@ -1,47 +1,62 @@
--- Materialize Initialization Script (Three-Tier Architecture)
--- Sets up PostgreSQL source connection, clusters, views, and indexes
--- Run this after Materialize starts: psql -h localhost -p 6875 -U materialize -f init_materialize.sql
+#!/bin/bash
+# Initialize Materialize with Three-Tier Architecture
+# Run this after docker-compose up to set up Materialize
+#
+# Architecture:
+#   ingest cluster  -> Sources (PostgreSQL connection)
+#   compute cluster -> (reserved for future transformations)
+#   serving cluster -> Indexes on views
 
--- =============================================================================
--- Three-Tier Architecture: ingest -> compute -> serving
--- - ingest: Sources that connect to external systems
--- - compute: Views that transform data
--- - serving: Indexes that serve queries
--- =============================================================================
+set -e
 
--- =============================================================================
--- Create Clusters (if not exists, skip if already created)
--- =============================================================================
--- Note: CREATE CLUSTER IF NOT EXISTS is not supported, so we use exception handling in shell
+MZ_HOST=${MZ_HOST:-localhost}
+MZ_PORT=${MZ_PORT:-6875}
 
--- =============================================================================
--- Create secret for PostgreSQL password
--- =============================================================================
-CREATE SECRET IF NOT EXISTS pgpass AS 'postgres';
+echo "Waiting for Materialize to be ready..."
+until psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "SELECT 1" > /dev/null 2>&1; do
+    echo "Materialize is not ready yet, waiting..."
+    sleep 2
+done
+echo "Materialize is ready!"
 
--- =============================================================================
--- Create connection to PostgreSQL
--- =============================================================================
+echo "Setting up Three-Tier Architecture clusters..."
+
+# Create clusters (ignore errors if already exist)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER ingest (SIZE = '25cc');" 2>/dev/null || echo "ingest cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER compute (SIZE = '25cc');" 2>/dev/null || echo "compute cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER serving (SIZE = '25cc');" 2>/dev/null || echo "serving cluster already exists"
+
+echo "Creating PostgreSQL connection..."
+
+# Create secret
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE SECRET IF NOT EXISTS pgpass AS 'postgres';" || true
+
+# Create connection
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE CONNECTION IF NOT EXISTS pg_connection TO POSTGRES (
     HOST 'db',
     PORT 5432,
     USER 'postgres',
     PASSWORD SECRET pgpass,
     DATABASE 'freshmart'
-);
+);" || true
 
--- =============================================================================
--- Create source from PostgreSQL in ingest cluster
--- (requires publication 'mz_source' to exist in PostgreSQL)
--- =============================================================================
+echo "Creating source in ingest cluster..."
+
+# Create source in ingest cluster
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
     FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source')
-    FOR ALL TABLES;
+    FOR ALL TABLES;" || true
 
--- =============================================================================
--- Orders Flattened View
--- =============================================================================
+echo "Waiting for source to hydrate..."
+sleep 5
+
+echo "Creating views..."
+
+# Create views (one at a time due to Materialize transaction requirements)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS orders_flat AS
 SELECT
     subject_id AS order_id,
@@ -55,11 +70,9 @@ SELECT
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'order:%'
-GROUP BY subject_id;
+GROUP BY subject_id;" || true
 
--- =============================================================================
--- Store Inventory View
--- =============================================================================
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS store_inventory AS
 SELECT
     subject_id AS inventory_id,
@@ -70,11 +83,9 @@ SELECT
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'inventory:%'
-GROUP BY subject_id;
+GROUP BY subject_id;" || true
 
--- =============================================================================
--- Helper Views
--- =============================================================================
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS customers_flat AS
 SELECT
     subject_id AS customer_id,
@@ -84,8 +95,9 @@ SELECT
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'customer:%'
-GROUP BY subject_id;
+GROUP BY subject_id;" || true
 
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS stores_flat AS
 SELECT
     subject_id AS store_id,
@@ -95,8 +107,9 @@ SELECT
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'store:%'
-GROUP BY subject_id;
+GROUP BY subject_id;" || true
 
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS delivery_tasks_flat AS
 SELECT
     subject_id AS task_id,
@@ -107,11 +120,9 @@ SELECT
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'task:%'
-GROUP BY subject_id;
+GROUP BY subject_id;" || true
 
--- =============================================================================
--- Orders Search Source View (for OpenSearch sync)
--- =============================================================================
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS orders_search_source AS
 SELECT
     o.order_id,
@@ -135,11 +146,32 @@ SELECT
 FROM orders_flat o
 LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
-LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id;
+LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id;" || true
 
--- =============================================================================
--- Indexes in serving cluster (makes views queryable with low latency)
--- =============================================================================
-CREATE INDEX IF NOT EXISTS orders_flat_idx IN CLUSTER serving ON orders_flat (order_id);
-CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory (inventory_id);
-CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source (order_id);
+echo "Creating indexes in serving cluster..."
+
+# Create indexes in serving cluster (makes views queryable with low latency)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_flat_idx IN CLUSTER serving ON orders_flat (order_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory (inventory_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source (order_id);" || true
+
+echo "Verifying setup..."
+echo ""
+echo "=== Clusters ==="
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, replicas FROM (SHOW CLUSTERS) WHERE name IN ('ingest', 'compute', 'serving');"
+
+echo ""
+echo "=== Views ==="
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name FROM (SHOW VIEWS);"
+
+echo ""
+echo "=== Indexes ==="
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, on AS view_name, cluster FROM (SHOW INDEXES);"
+
+echo ""
+echo "=== Order Count ==="
+COUNT=$(psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SET CLUSTER = serving; SELECT count(*) FROM orders_search_source;")
+echo "Orders in Materialize: $COUNT"
+
+echo ""
+echo "Materialize three-tier initialization complete!"
