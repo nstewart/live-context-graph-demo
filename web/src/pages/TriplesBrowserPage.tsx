@@ -433,7 +433,7 @@ export default function TriplesBrowserPage() {
                 onChange={e => setEntityTypeFilter(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 appearance-none bg-white"
               >
-                <option value="">All entity types ({subjectCounts?.total?.toLocaleString() || 0})</option>
+                <option value="">All entity types ({entityTypes.length})</option>
                 {entityTypes.map(type => (
                   <option key={type} value={type}>
                     {type} ({(subjectCounts?.by_type[type] || 0).toLocaleString()})
@@ -451,7 +451,7 @@ export default function TriplesBrowserPage() {
                 {totalPages > 1 && ` (page ${page + 1}/${totalPages})`}
               </span>
             </div>
-            <div className="max-h-80 overflow-y-auto">
+            <div className="max-h-[calc(100vh-20rem)] overflow-y-auto">
               {subjectsLoading ? (
                 <div className="p-4 text-center text-gray-500">Loading...</div>
               ) : filteredSubjects.length === 0 ? (
