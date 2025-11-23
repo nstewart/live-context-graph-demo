@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo } from '../api/client'
 import { useZeroQuery } from '../hooks/useZeroQuery'
@@ -422,9 +422,19 @@ export default function OrdersDashboardPage() {
     setDeleteConfirm(order)
   }
 
+  // Sort orders by order_number for stable display
+  const sortedOrders = useMemo(() => {
+    if (!orders) return []
+    return [...orders].sort((a, b) => {
+      const aNum = a.order_number || ''
+      const bNum = b.order_number || ''
+      return aNum.localeCompare(bNum)
+    })
+  }, [orders])
+
   // Calculate stats from ALL orders (not paginated)
-  const ordersByStatus =
-    orders?.reduce(
+  const ordersByStatus = useMemo(() => {
+    return sortedOrders.reduce(
       (acc, order) => {
         const status = order.order_status || 'Unknown'
         if (!acc[status]) acc[status] = []
@@ -432,14 +442,15 @@ export default function OrdersDashboardPage() {
         return acc
       },
       {} as Record<string, OrderFlat[]>
-    ) || {}
+    )
+  }, [sortedOrders])
 
   // Pagination calculations
-  const totalOrders = orders?.length || 0
+  const totalOrders = sortedOrders.length
   const totalPages = Math.ceil(totalOrders / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
-  const paginatedOrders = orders?.slice(startIndex, endIndex) || []
+  const paginatedOrders = sortedOrders.slice(startIndex, endIndex)
 
   return (
     <div className="p-6">

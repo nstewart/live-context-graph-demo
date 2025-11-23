@@ -263,45 +263,62 @@ export function ZeroProvider({ children, url: customUrl }: ZeroProviderProps) {
             // Get a COPY of the current data to avoid mutations
             const currentData = [...(next.get(collection) || [])]
 
+            // Group changes by ID to handle Materialize differential updates
+            // Materialize sends: INSERT (new state) + DELETE (old state) for updates
+            const changesByItemId = new Map<string, { insert?: any; delete?: any }>()
             changes.forEach((change: any) => {
               const changeId = change.data.id || change.data.order_id
-              console.log(`Applying ${change.operation} to ${collection}:`, changeId, change.data)
+              if (!changesByItemId.has(changeId)) {
+                changesByItemId.set(changeId, {})
+              }
+              const itemChanges = changesByItemId.get(changeId)!
+              if (change.operation === 'insert' || change.operation === 'update') {
+                itemChanges.insert = change
+              } else if (change.operation === 'delete') {
+                itemChanges.delete = change
+              }
+            })
 
-              switch (change.operation) {
-                case 'insert':
-                case 'update':
-                  // Find existing item or add new one
-                  const existingIndex = currentData.findIndex((item: any) => {
-                    const itemId = item.id || item.order_id
-                    return itemId === changeId
-                  })
-                  if (existingIndex >= 0) {
-                    console.log(`  → Updating existing item at index ${existingIndex}`)
-                    console.log(`     Old:`, currentData[existingIndex].order_status || currentData[existingIndex].status)
-                    console.log(`     New:`, change.data.order_status || change.data.status)
-                    currentData[existingIndex] = change.data
-                  } else {
-                    console.log(`  → Adding new item (not found in ${currentData.length} items)`)
-                    if (currentData.length > 0 && currentData.length < 10) {
-                      console.log(`     Current IDs:`, currentData.map((item: any) => item.id || item.order_id).slice(0, 5))
-                    }
-                    currentData.push(change.data)
-                  }
-                  break
+            // Apply consolidated changes: if both INSERT and DELETE exist, only apply INSERT
+            changesByItemId.forEach((itemChanges, changeId) => {
+              if (itemChanges.insert) {
+                // INSERT or UPDATE: apply the new state
+                const change = itemChanges.insert
+                console.log(`Applying ${change.operation} to ${collection}:`, changeId, change.data)
 
-                case 'delete':
-                  const deleteIndex = currentData.findIndex((item: any) => {
-                    const itemId = item.id || item.order_id
-                    return itemId === changeId
-                  })
-                  if (deleteIndex >= 0) {
-                    console.log(`  → Deleting item at index ${deleteIndex}`)
-                    currentData.splice(deleteIndex, 1)
-                  } else {
-                    // Idempotent: item may have been deleted by a previous change in a multi-step update
-                    console.log(`  → Delete skipped (item already removed or not present)`)
-                  }
-                  break
+                const existingIndex = currentData.findIndex((item: any) => {
+                  const itemId = item.id || item.order_id
+                  return itemId === changeId
+                })
+                if (existingIndex >= 0) {
+                  console.log(`  → Updating existing item at index ${existingIndex}`)
+                  console.log(`     Old:`, currentData[existingIndex].order_status || currentData[existingIndex].status)
+                  console.log(`     New:`, change.data.order_status || change.data.status)
+                  currentData[existingIndex] = change.data
+                } else {
+                  console.log(`  → Adding new item (not found in ${currentData.length} items)`)
+                  currentData.push(change.data)
+                }
+
+                // If there's also a DELETE, it's just the old state - ignore it
+                if (itemChanges.delete) {
+                  console.log(`  → Ignoring accompanying DELETE (Materialize differential update)`)
+                }
+              } else if (itemChanges.delete) {
+                // Only DELETE without INSERT: actual deletion
+                const change = itemChanges.delete
+                console.log(`Applying delete to ${collection}:`, changeId)
+
+                const deleteIndex = currentData.findIndex((item: any) => {
+                  const itemId = item.id || item.order_id
+                  return itemId === changeId
+                })
+                if (deleteIndex >= 0) {
+                  console.log(`  → Deleting item at index ${deleteIndex}`)
+                  currentData.splice(deleteIndex, 1)
+                } else {
+                  console.log(`  → Delete skipped (item not found)`)
+                }
               }
             })
 
