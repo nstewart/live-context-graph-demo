@@ -8,6 +8,7 @@ vi.mock('../api/client', () => ({
   triplesApi: {
     listSubjects: vi.fn(),
     getSubject: vi.fn(),
+    getSubjectCounts: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -55,6 +56,16 @@ const mockProperties = [
   { id: 4, prop_name: 'store_name', domain_class_id: 2, range_kind: 'string', range_class_id: null, is_multi_valued: false, is_required: true, description: 'Store name', domain_class_name: 'Store', range_class_name: null, created_at: '', updated_at: '' },
 ]
 
+const mockSubjectCounts = {
+  total: 6,
+  by_type: {
+    order: 2,
+    customer: 2,
+    store: 1,
+    courier: 1,
+  },
+}
+
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
@@ -76,6 +87,7 @@ describe('TriplesBrowserPage', () => {
     vi.clearAllMocks()
     vi.mocked(ontologyApi.listClasses).mockResolvedValue({ data: mockClasses } as never)
     vi.mocked(ontologyApi.listProperties).mockResolvedValue({ data: mockProperties } as never)
+    vi.mocked(triplesApi.getSubjectCounts).mockResolvedValue({ data: mockSubjectCounts } as never)
   })
 
   describe('Rendering', () => {
@@ -109,7 +121,8 @@ describe('TriplesBrowserPage', () => {
       renderWithClient(<TriplesBrowserPage />)
 
       await waitFor(() => {
-        expect(screen.getByText('All entity types')).toBeInTheDocument()
+        // Dropdown now shows counts: "All entity types (6)"
+        expect(screen.getByText('All entity types (6)')).toBeInTheDocument()
       })
     })
 
@@ -195,6 +208,7 @@ describe('TriplesBrowserPage', () => {
       const entityTypeSelect = selects.find(s => s.textContent?.includes('All entity types'))
       fireEvent.change(entityTypeSelect || selects[0], { target: { value: 'order' } })
 
+      // After filter change, the count comes from subjectCounts.by_type['order'] = 2
       await waitFor(() => {
         expect(screen.getByText('2 total')).toBeInTheDocument()
       })

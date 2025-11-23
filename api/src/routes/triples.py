@@ -153,15 +153,27 @@ async def delete_triple(triple_id: int, service: TripleService = Depends(get_tri
 # =============================================================================
 
 
+@router.get("/subjects/counts")
+async def get_subject_counts(service: TripleService = Depends(get_triple_service)):
+    """
+    Get counts of subjects by entity type.
+
+    Returns total count and breakdown by entity type (prefix).
+    Useful for building entity type filters in the UI.
+    """
+    return await service.get_subject_counts()
+
+
 @router.get("/subjects/list", response_model=list[str])
 async def list_subjects(
     class_name: Optional[str] = Query(default=None, description="Filter by class name"),
+    prefix: Optional[str] = Query(default=None, description="Filter by subject prefix (e.g., 'order')"),
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0, ge=0),
     service: TripleService = Depends(get_triple_service),
 ):
-    """List distinct subject IDs, optionally filtered by class."""
-    return await service.list_subjects(class_name=class_name, limit=limit, offset=offset)
+    """List distinct subject IDs, optionally filtered by class or prefix."""
+    return await service.list_subjects(class_name=class_name, prefix=prefix, limit=limit, offset=offset)
 
 
 @router.get("/subjects/{subject_id:path}", response_model=SubjectInfo)

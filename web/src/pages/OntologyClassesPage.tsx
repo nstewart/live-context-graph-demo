@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { ontologyApi, OntologyClass } from '../api/client'
+import { ontologyApi } from '../api/client'
 import { Plus, Database } from 'lucide-react'
 
 export default function OntologyClassesPage() {

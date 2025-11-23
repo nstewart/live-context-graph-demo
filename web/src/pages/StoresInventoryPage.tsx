@@ -330,7 +330,7 @@ export default function StoresInventoryPage() {
           subject_id: storeId,
           predicate: 'store_capacity_orders_per_hour',
           object_value: data.store_capacity_orders_per_hour,
-          object_type: 'int',
+          object_type: 'integer',
         })
       }
       return triplesApi.createBatch(triples)
@@ -353,7 +353,7 @@ export default function StoresInventoryPage() {
         { predicate: 'store_status', value: data.store_status, type: 'string' },
       ]
       if (data.store_capacity_orders_per_hour) {
-        fields.push({ predicate: 'store_capacity_orders_per_hour', value: data.store_capacity_orders_per_hour, type: 'int' })
+        fields.push({ predicate: 'store_capacity_orders_per_hour', value: data.store_capacity_orders_per_hour, type: 'integer' })
       }
       for (const field of fields) {
         const existing = subjectInfo.triples.find(t => t.predicate === field.predicate)
@@ -386,14 +386,14 @@ export default function StoresInventoryPage() {
       const triples: TripleCreate[] = [
         { subject_id: inventoryId, predicate: 'inventory_store', object_value: data.store_id, object_type: 'entity_ref' },
         { subject_id: inventoryId, predicate: 'inventory_product', object_value: data.product_id, object_type: 'entity_ref' },
-        { subject_id: inventoryId, predicate: 'stock_level', object_value: data.stock_level, object_type: 'int' },
+        { subject_id: inventoryId, predicate: 'stock_level', object_value: data.stock_level, object_type: 'integer' },
       ]
       if (data.replenishment_eta) {
         triples.push({
           subject_id: inventoryId,
           predicate: 'replenishment_eta',
           object_value: new Date(data.replenishment_eta).toISOString(),
-          object_type: 'timestamp',
+          object_type: 'datetime',
         })
       }
       return triplesApi.createBatch(triples)
@@ -411,10 +411,10 @@ export default function StoresInventoryPage() {
       const updates: Promise<unknown>[] = []
       const fields: { predicate: string; value: string; type: TripleCreate['object_type'] }[] = [
         { predicate: 'inventory_product', value: data.product_id, type: 'entity_ref' },
-        { predicate: 'stock_level', value: data.stock_level, type: 'int' },
+        { predicate: 'stock_level', value: data.stock_level, type: 'integer' },
       ]
       if (data.replenishment_eta) {
-        fields.push({ predicate: 'replenishment_eta', value: new Date(data.replenishment_eta).toISOString(), type: 'timestamp' })
+        fields.push({ predicate: 'replenishment_eta', value: new Date(data.replenishment_eta).toISOString(), type: 'datetime' })
       }
       for (const field of fields) {
         const existing = subjectInfo.triples.find(t => t.predicate === field.predicate)

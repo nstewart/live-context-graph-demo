@@ -9,7 +9,7 @@ export default function SettingsPage() {
     retry: false,
   })
 
-  const { data: ready, error: readyError } = useQuery({
+  const { data: ready } = useQuery({
     queryKey: ['ready'],
     queryFn: () => healthApi.ready().then(r => r.data),
     retry: false,

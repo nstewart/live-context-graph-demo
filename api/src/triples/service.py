@@ -236,14 +236,19 @@ class TripleService:
         )
         return result.rowcount
 
-    async def list_subjects(self, class_name: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[str]:
-        """List distinct subject IDs, optionally filtered by class."""
-        if class_name:
-            # Get class prefix
+    async def list_subjects(
+        self, class_name: Optional[str] = None, prefix: Optional[str] = None, limit: int = 100, offset: int = 0
+    ) -> list[str]:
+        """List distinct subject IDs, optionally filtered by class or prefix."""
+        # Determine prefix from class_name if provided
+        filter_prefix = prefix
+        if class_name and not filter_prefix:
             ont_class = await self.ontology_service.get_class_by_name(class_name)
             if not ont_class:
                 return []
+            filter_prefix = ont_class.prefix
 
+        if filter_prefix:
             result = await self.session.execute(
                 text("""
                     SELECT DISTINCT subject_id
@@ -252,7 +257,7 @@ class TripleService:
                     ORDER BY subject_id
                     LIMIT :limit OFFSET :offset
                 """),
-                {"prefix_pattern": f"{ont_class.prefix}:%", "limit": limit, "offset": offset},
+                {"prefix_pattern": f"{filter_prefix}:%", "limit": limit, "offset": offset},
             )
         else:
             result = await self.session.execute(
@@ -267,3 +272,25 @@ class TripleService:
 
         rows = result.fetchall()
         return [row.subject_id for row in rows]
+
+    async def get_subject_counts(self) -> dict:
+        """Get counts of subjects by entity type (prefix) and total count."""
+        result = await self.session.execute(
+            text("""
+                SELECT
+                    SPLIT_PART(subject_id, ':', 1) AS entity_type,
+                    COUNT(DISTINCT subject_id) AS count
+                FROM triples
+                GROUP BY SPLIT_PART(subject_id, ':', 1)
+                ORDER BY count DESC, entity_type
+            """)
+        )
+        rows = result.fetchall()
+
+        by_type = {row.entity_type: row.count for row in rows}
+        total = sum(by_type.values())
+
+        return {
+            "total": total,
+            "by_type": by_type,
+        }

@@ -160,6 +160,11 @@ export interface TripleCreate {
   object_type: 'string' | 'integer' | 'decimal' | 'boolean' | 'datetime' | 'entity_ref'
 }
 
+export interface SubjectCounts {
+  total: number
+  by_type: Record<string, number>
+}
+
 export const triplesApi = {
   list: (params?: { subject_id?: string; predicate?: string }) =>
     apiClient.get<Triple[]>('/triples', { params }),
@@ -170,8 +175,9 @@ export const triplesApi = {
   delete: (tripleId: number) => apiClient.delete(`/triples/${tripleId}`),
   getSubject: (subjectId: string) =>
     apiClient.get<SubjectInfo>(`/triples/subjects/${encodeURIComponent(subjectId)}`),
-  listSubjects: (params?: { class_name?: string }) =>
+  listSubjects: (params?: { class_name?: string; prefix?: string; limit?: number; offset?: number }) =>
     apiClient.get<string[]>('/triples/subjects/list', { params }),
+  getSubjectCounts: () => apiClient.get<SubjectCounts>('/triples/subjects/counts'),
   deleteSubject: (subjectId: string) =>
     apiClient.delete(`/triples/subjects/${encodeURIComponent(subjectId)}`),
 }
