@@ -278,6 +278,14 @@ export default function OrdersDashboardPage() {
     collection: 'orders',
   })
 
+  // Track last update time for visual feedback
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
+  useEffect(() => {
+    if (orders) {
+      setLastUpdateTime(Date.now())
+    }
+  }, [orders])
+
   // Still using React Query for stores and customers (will migrate later)
   const { data: stores = [] } = useQuery({
     queryKey: ['stores'],
@@ -450,6 +458,9 @@ export default function OrdersDashboardPage() {
                 Connecting...
               </span>
             )}
+            <span className="text-xs text-gray-500">
+              Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
+            </span>
           </div>
           <p className="text-gray-600">Monitor and manage FreshMart orders via WebSocket</p>
         </div>

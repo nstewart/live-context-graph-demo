@@ -183,6 +183,15 @@ export class ZeroServer {
   }
 
   private broadcastChanges(collection: string, changes: ChangeEvent[]) {
+    console.log(`🔔 Broadcasting ${changes.length} changes for ${collection} to ${this.subscriptions.get(collection)?.size || 0} subscribers`);
+
+    // Log first change for debugging
+    if (changes.length > 0) {
+      const firstChange = changes[0];
+      console.log(`  First change: ${firstChange.operation} on ${firstChange.collection}`,
+                  firstChange.data.id || firstChange.data.order_id);
+    }
+
     const message = JSON.stringify({
       type: "changes",
       changes,
@@ -191,12 +200,17 @@ export class ZeroServer {
     // Only send to clients subscribed to this collection
     const subscribers = this.subscriptions.get(collection);
     if (subscribers) {
+      let sentCount = 0;
       subscribers.forEach((client) => {
         if (client.readyState === 1) {
           // WebSocket.OPEN
           client.send(message);
+          sentCount++;
         }
       });
+      console.log(`  ✅ Sent to ${sentCount} connected clients`);
+    } else {
+      console.log(`  ⚠️ No subscribers for ${collection}`);
     }
   }
 
@@ -220,7 +234,15 @@ export class ZeroServer {
       try {
         await this.mzBackend.subscribeToView(viewName, (changes) => {
           console.log(`Broadcasting ${changes.length} changes for ${collection}`);
-          this.broadcastChanges(collection, changes);
+
+          // CRITICAL FIX: Update collection names to match frontend subscription
+          // Backend sends "orders_flat_mv", frontend expects "orders"
+          const normalizedChanges = changes.map(change => ({
+            ...change,
+            collection: collection, // Replace viewName with frontend collection name
+          }));
+
+          this.broadcastChanges(collection, normalizedChanges);
         });
         console.log(`✅ TAIL subscription active for ${collection}`);
       } catch (error) {

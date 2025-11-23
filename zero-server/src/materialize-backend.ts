@@ -79,32 +79,115 @@ export class MaterializeBackend {
     });
 
     await subscribeClient.connect();
-    console.log(`Starting SUBSCRIBE for view: ${viewName}`);
 
-    // SUBSCRIBE is a streaming command that continuously delivers results
-    const subscribeQuery = new QueryStream(`SUBSCRIBE ${viewName}`);
+    // Set cluster to 'compute' where the materialized views are located
+    await subscribeClient.query('SET CLUSTER = compute;');
+    console.log(`Starting SUBSCRIBE for view: ${viewName} on compute cluster`);
+
+    // SUBSCRIBE TO with PROGRESS option for continuous timestamp updates
+    // PROGRESS ensures we get updates even when there are no data changes
+    const subscribeQuery = new QueryStream(
+      `SUBSCRIBE TO (SELECT * FROM ${viewName}) WITH (PROGRESS)`
+    );
 
     // Execute the streaming query
     const stream = subscribeClient.query(subscribeQuery);
 
+    // Track progress by timestamp - when timestamp advances, broadcast accumulated changes
+    let lastProgress: string | null = null;
+    let pendingChanges: ChangeEvent[] = [];
+    let rowCount = 0;
+    let isSnapshot = true;
+    let snapshotTimer: NodeJS.Timeout | null = null;
+
+    const broadcastPending = () => {
+      if (pendingChanges.length > 0) {
+        console.log(`Broadcasting ${pendingChanges.length} changes for ${viewName}`);
+        callback([...pendingChanges]);
+        pendingChanges = [];
+      }
+    };
+
     // Handle rows as they stream in
     stream.on('data', (row: any) => {
       try {
-        // Determine operation type from mz_diff column
-        // mz_diff: 1 = insert/update, -1 = delete
-        const operation = row.mz_diff > 0 ? 'insert' : 'delete';
+        const currentTimestamp = row.mz_timestamp;
+        const isProgressMessage = row.mz_progressed === true;
 
-        const changes: ChangeEvent[] = [{
+        if (isProgressMessage) {
+          // Progress message - timestamp advanced but no data changes
+          console.log(`⏰ ${viewName}: Progress update at ts=${currentTimestamp}`);
+
+          if (lastProgress !== null && currentTimestamp !== lastProgress) {
+            if (isSnapshot) {
+              console.log(`${viewName}: Snapshot complete, now streaming real-time`);
+              isSnapshot = false;
+            }
+            if (pendingChanges.length > 0) {
+              console.log(`🔔 ${viewName}: Broadcasting ${pendingChanges.length} pending changes`);
+              broadcastPending();
+            }
+          }
+
+          lastProgress = currentTimestamp;
+          return;
+        }
+
+        // Data row (not a progress message)
+        rowCount++;
+
+        // Accumulate this change
+        const operation = row.mz_diff > 0 ? 'insert' : 'delete';
+        pendingChanges.push({
           collection: viewName,
           operation: operation as 'insert' | 'delete',
           data: this.transformRow(row, viewName),
           timestamp: Date.now(),
-        }];
+        });
 
-        callback(changes);
+        // Log first data row
+        if (rowCount === 1) {
+          console.log(`${viewName}: Receiving snapshot at ts=${currentTimestamp}`);
+        }
+
+        // Log post-snapshot updates
+        if (!isSnapshot && rowCount % 10 === 0) {
+          console.log(`📥 ${viewName}: Received ${rowCount} updates, ts=${currentTimestamp}`);
+        }
+
+        // When timestamp advances, broadcast accumulated changes
+        if (lastProgress !== null && currentTimestamp !== lastProgress) {
+          if (isSnapshot) {
+            console.log(`${viewName}: Snapshot complete (${rowCount} rows), now streaming real-time`);
+            isSnapshot = false;
+          } else {
+            console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.length} changes`);
+          }
+          broadcastPending();
+        }
+
+        lastProgress = currentTimestamp;
+
+        // Reset snapshot timer
+        if (isSnapshot && snapshotTimer) {
+          clearTimeout(snapshotTimer);
+        }
+        if (isSnapshot) {
+          snapshotTimer = setTimeout(() => {
+            console.log(`${viewName}: Snapshot timeout - broadcasting ${pendingChanges.length} accumulated rows`);
+            isSnapshot = false;
+            broadcastPending();
+          }, 2000);
+        }
       } catch (error) {
         console.error(`Error processing row for ${viewName}:`, error);
       }
+    });
+
+    stream.on('end', () => {
+      console.log(`${viewName}: Stream ended, processed ${rowCount} rows`);
+      if (snapshotTimer) clearTimeout(snapshotTimer);
+      broadcastPending();
     });
 
     stream.on('error', (error: Error) => {
@@ -126,7 +209,8 @@ export class MaterializeBackend {
     switch (viewName) {
       case "orders_flat_mv":
         return {
-          order_id: row.order_id,
+          id: row.order_id, // Primary key for Zero
+          order_id: row.order_id, // Keep for backwards compatibility
           order_number: row.order_number,
           order_status: row.order_status,
           store_id: row.store_id,
