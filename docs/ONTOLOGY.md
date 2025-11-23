@@ -126,7 +126,26 @@ A delivery task assigned to a courier.
 | eta | timestamp | No | Estimated arrival |
 | route_sequence | int | No | Position in route |
 
-## Adding New Classes
+## Managing the Ontology
+
+### Via Admin UI
+
+The web Admin UI provides a visual interface for managing classes and properties:
+
+1. **Ontology Classes** (`/ontology-classes`)
+   - View all classes with their prefixes
+   - Create new classes
+   - Edit existing classes
+   - Delete classes (if no properties depend on them)
+
+2. **Ontology Properties** (`/ontology-properties`)
+   - View all properties with domain/range information
+   - Create new properties with dropdown selectors for:
+     - **Domain Class**: Select from existing classes
+     - **Range Kind**: string, integer, decimal, boolean, datetime, entity_ref
+     - **Range Class**: (when range_kind is entity_ref) Select target class
+   - Edit property details
+   - Delete properties with confirmation
 
 ### Via API
 
@@ -157,6 +176,15 @@ POST /ontology/properties
   "is_required": false,
   "description": "Zone boundary as GeoJSON"
 }
+
+# 3. Update a property
+PATCH /ontology/properties/{id}
+{
+  "description": "Updated description"
+}
+
+# 4. Delete a property
+DELETE /ontology/properties/{id}
 ```
 
 ### Via Seed SQL

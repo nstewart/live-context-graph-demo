@@ -2,7 +2,9 @@
 
 import logging
 import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
 from sqlalchemy import event
@@ -12,11 +14,53 @@ from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Slow query threshold in milliseconds
+SLOW_QUERY_THRESHOLD_MS = 100
+
 # Create engines
 _pg_engine = None
 _mz_engine = None
 _pg_session_factory = None
 _mz_session_factory = None
+
+
+@dataclass
+class QueryStats:
+    """Track query statistics for a database."""
+    total_queries: int = 0
+    total_time_ms: float = 0.0
+    slow_queries: int = 0
+    by_operation: dict = field(default_factory=lambda: defaultdict(lambda: {"count": 0, "total_ms": 0.0}))
+    slowest_query_ms: float = 0.0
+    slowest_query_stmt: str = ""
+
+    def record(self, op_type: str, elapsed_ms: float, statement: str):
+        """Record a query execution."""
+        self.total_queries += 1
+        self.total_time_ms += elapsed_ms
+        self.by_operation[op_type]["count"] += 1
+        self.by_operation[op_type]["total_ms"] += elapsed_ms
+        if elapsed_ms > SLOW_QUERY_THRESHOLD_MS:
+            self.slow_queries += 1
+        if elapsed_ms > self.slowest_query_ms:
+            self.slowest_query_ms = elapsed_ms
+            self.slowest_query_stmt = statement[:100] if len(statement) > 100 else statement
+
+    @property
+    def avg_time_ms(self) -> float:
+        """Average query time in milliseconds."""
+        return self.total_time_ms / self.total_queries if self.total_queries > 0 else 0.0
+
+
+# Query statistics by database
+_query_stats: dict[str, QueryStats] = {}
+
+
+def get_query_stats(db_name: str) -> QueryStats:
+    """Get query statistics for a database."""
+    if db_name not in _query_stats:
+        _query_stats[db_name] = QueryStats()
+    return _query_stats[db_name]
 
 
 def _get_operation_type(statement: str) -> str:
@@ -39,6 +83,7 @@ def _get_operation_type(statement: str) -> str:
 def _setup_query_logging(engine, db_name: str):
     """Set up query logging with execution time for an engine."""
     sync_engine = engine.sync_engine
+    stats = get_query_stats(db_name)
 
     @event.listens_for(sync_engine, "before_cursor_execute")
     def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
@@ -54,14 +99,30 @@ def _setup_query_logging(engine, db_name: str):
             if len(stmt_display) > 200:
                 stmt_display = stmt_display[:200] + "..."
             op_type = _get_operation_type(statement)
-            logger.info(
-                "[%s] [%s] %.2fms: %s | params=%s",
-                db_name,
-                op_type,
-                elapsed,
-                stmt_display,
-                parameters,
-            )
+
+            # Record statistics
+            stats.record(op_type, elapsed, statement)
+
+            # Log with slow query warning
+            if elapsed > SLOW_QUERY_THRESHOLD_MS:
+                logger.warning(
+                    "[%s] [%s] SLOW QUERY %.2fms (threshold: %dms): %s | params=%s",
+                    db_name,
+                    op_type,
+                    elapsed,
+                    SLOW_QUERY_THRESHOLD_MS,
+                    stmt_display,
+                    parameters,
+                )
+            else:
+                logger.info(
+                    "[%s] [%s] %.2fms: %s | params=%s",
+                    db_name,
+                    op_type,
+                    elapsed,
+                    stmt_display,
+                    parameters,
+                )
 
 
 def get_pg_engine():

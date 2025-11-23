@@ -173,6 +173,62 @@ CREATE TABLE sync_cursors (
 );
 ```
 
+## Managing Triples
+
+### Via Admin UI (Triples Browser)
+
+The web Admin UI provides a **Triples Browser** (`/triples`) for visual management:
+
+1. **Browse Entities**
+   - Filter by entity type (order, customer, store, courier, etc.)
+   - Search by subject ID
+   - View total count of matching entities
+
+2. **View Entity Details**
+   - Click any subject to see all its triples
+   - Navigate between related entities via entity_ref links
+
+3. **Create Triples**
+   - Add new triples with ontology-powered dropdowns:
+     - **Subject ID**: Class prefix dropdown + ID input
+     - **Predicate**: Filtered by subject's class from ontology
+     - **Value**: Smart input based on range_kind:
+       - `entity_ref`: Dropdown of existing entities of the target class
+       - `boolean`: true/false dropdown
+       - `datetime`: Date/time picker
+       - `integer/decimal`: Number input
+       - `string`: Text input
+
+4. **Edit Triples**
+   - Update values with type-appropriate inputs
+   - Subject and predicate are locked (only value is editable)
+
+5. **Delete Operations**
+   - Delete individual triples
+   - Delete entire subjects (all triples for an entity)
+
+### Via API
+
+```bash
+# Create triple
+POST /triples
+{"subject_id": "order:FM-1001", "predicate": "order_status", "object_value": "DELIVERED", "object_type": "string"}
+
+# Create batch
+POST /triples/batch
+[{"subject_id": "...", "predicate": "...", "object_value": "...", "object_type": "..."}]
+
+# Update value
+PATCH /triples/{id}
+{"object_value": "NEW_VALUE"}
+
+# Delete triple
+DELETE /triples/{id}
+
+# Delete all triples for a subject
+DELETE /triples/subjects/order:FM-1001
+```
+
 ## Querying Triples
 
 ### Get all triples for a subject

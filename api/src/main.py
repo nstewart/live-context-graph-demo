@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
-from src.db.client import close_connections
+from src.db.client import close_connections, get_query_stats
 from src.routes import freshmart_router, ontology_router, triples_router
 
 # Configure logging
@@ -115,6 +115,44 @@ async def ready():
         )
 
 
+@app.get("/stats", tags=["Health"])
+async def query_stats():
+    """
+    Query statistics for PostgreSQL and Materialize.
+
+    Returns execution time statistics including:
+    - Total queries executed
+    - Total and average execution time
+    - Breakdown by operation type (SELECT, INSERT, UPDATE, DELETE)
+    - Slow query count and details
+    """
+    pg_stats = get_query_stats("PostgreSQL")
+    mz_stats = get_query_stats("Materialize")
+
+    def format_stats(stats):
+        return {
+            "total_queries": stats.total_queries,
+            "total_time_ms": round(stats.total_time_ms, 2),
+            "avg_time_ms": round(stats.avg_time_ms, 2),
+            "slow_queries": stats.slow_queries,
+            "slowest_query_ms": round(stats.slowest_query_ms, 2),
+            "slowest_query": stats.slowest_query_stmt,
+            "by_operation": {
+                op: {
+                    "count": data["count"],
+                    "total_ms": round(data["total_ms"], 2),
+                    "avg_ms": round(data["total_ms"] / data["count"], 2) if data["count"] > 0 else 0,
+                }
+                for op, data in stats.by_operation.items()
+            },
+        }
+
+    return {
+        "postgresql": format_stats(pg_stats),
+        "materialize": format_stats(mz_stats),
+    }
+
+
 @app.get("/", tags=["Root"])
 async def root():
     """API root - returns basic info."""
@@ -123,4 +161,5 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",
+        "stats": "/stats",
     }

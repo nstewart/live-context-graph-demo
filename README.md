@@ -155,6 +155,23 @@ GET /ontology/properties
 
 # Get properties for a class
 GET /ontology/class/Order/properties
+
+# Create property
+POST /ontology/properties
+{
+  "prop_name": "zone_name",
+  "domain_class_id": 9,
+  "range_kind": "string",
+  "is_required": true,
+  "description": "Zone name"
+}
+
+# Update property
+PATCH /ontology/properties/{id}
+{"description": "Updated description"}
+
+# Delete property
+DELETE /ontology/properties/{id}
 ```
 
 ### Triple Store
@@ -169,11 +186,28 @@ POST /triples
   "object_type": "string"
 }
 
+# Create multiple triples
+POST /triples/batch
+[
+  {"subject_id": "order:FM-1001", "predicate": "order_status", "object_value": "CREATED", "object_type": "string"},
+  {"subject_id": "order:FM-1001", "predicate": "order_store", "object_value": "store:BK-01", "object_type": "entity_ref"}
+]
+
+# Update triple value
+PATCH /triples/{id}
+{"object_value": "DELIVERED"}
+
+# Delete triple
+DELETE /triples/{id}
+
 # Get subject with all triples
 GET /triples/subjects/order:FM-1001
 
 # List subjects by class
 GET /triples/subjects/list?class_name=Order
+
+# Delete all triples for a subject
+DELETE /triples/subjects/order:FM-1001
 ```
 
 ### FreshMart Operations
@@ -193,6 +227,19 @@ GET /freshmart/stores/store:BK-01
 
 # List couriers
 GET /freshmart/couriers?status=AVAILABLE
+```
+
+### Health & Stats
+
+```bash
+# Health check
+GET /health
+
+# Readiness check (verifies DB connectivity)
+GET /ready
+
+# Query statistics (execution times, slow queries, by operation)
+GET /stats
 ```
 
 ## Using the Agent
@@ -315,6 +362,11 @@ Example log output:
 [PostgreSQL] [UPDATE] 2.89ms: UPDATE triples SET object_value = ... | params={'id': 123, 'value': 'DELIVERED'}
 ```
 
+**Slow Query Warnings**: Queries exceeding 100ms are logged as warnings:
+```
+[Materialize] [SELECT] SLOW QUERY 150.23ms (threshold: 100ms): SELECT...
+```
+
 To see query logs in real-time:
 ```bash
 docker-compose logs -f api | grep -E "\[Materialize\]|\[PostgreSQL\]"
@@ -327,6 +379,47 @@ docker-compose logs -f api | grep -E "\[INSERT\]|\[UPDATE\]|\[DELETE\]"
 
 # Only show reads (all from Materialize serving cluster)
 docker-compose logs -f api | grep "\[SELECT\]"
+
+# Only show slow queries
+docker-compose logs -f api | grep "SLOW QUERY"
+```
+
+### Query Statistics API
+
+The `/stats` endpoint provides aggregated query statistics:
+
+```bash
+curl http://localhost:8080/stats
+```
+
+Response:
+```json
+{
+  "postgresql": {
+    "total_queries": 50,
+    "total_time_ms": 125.5,
+    "avg_time_ms": 2.51,
+    "slow_queries": 0,
+    "slowest_query_ms": 15.2,
+    "slowest_query": "SELECT * FROM...",
+    "by_operation": {
+      "SELECT": { "count": 30, "total_ms": 75.2, "avg_ms": 2.5 },
+      "INSERT": { "count": 20, "total_ms": 50.3, "avg_ms": 2.5 }
+    }
+  },
+  "materialize": {
+    "total_queries": 25,
+    "total_time_ms": 45.2,
+    "avg_time_ms": 1.81,
+    "slow_queries": 0,
+    "slowest_query_ms": 8.5,
+    "slowest_query": "SELECT order_id...",
+    "by_operation": {
+      "SET": { "count": 5, "total_ms": 3.2, "avg_ms": 0.64 },
+      "SELECT": { "count": 20, "total_ms": 42.0, "avg_ms": 2.1 }
+    }
+  }
+}
 ```
 
 ### Materialize Three-Tier Architecture
@@ -449,7 +542,7 @@ freshmart-digital-twin-agent-starter/
 
 ## Admin UI Features
 
-The React Admin UI (`web/`) provides CRUD operations for managing FreshMart entities:
+The React Admin UI (`web/`) provides full CRUD operations for managing FreshMart entities:
 
 ### Orders Dashboard
 - View all orders with status badges and filtering
@@ -460,7 +553,7 @@ The React Admin UI (`web/`) provides CRUD operations for managing FreshMart enti
 - Delete orders with confirmation dialog
 
 ### Couriers & Schedule
-- View all couriers with their assigned tasks
+- View all couriers with their assigned tasks and courier ID
 - Create new couriers with dropdown selector for:
   - **Home Store**: Format "Store Name (store:ID)"
 - Edit courier details including status and vehicle type
@@ -470,6 +563,25 @@ The React Admin UI (`web/`) provides CRUD operations for managing FreshMart enti
 - View stores with their current inventory levels
 - Create/edit stores with zone and capacity settings
 - Manage inventory items per store
+
+### Ontology Properties
+- View all ontology properties with domain/range information
+- Create new properties with dropdowns for:
+  - **Domain Class**: Select from existing ontology classes
+  - **Range Kind**: string, integer, decimal, boolean, datetime, entity_ref
+  - **Range Class**: (for entity_ref) Select target class
+- Edit/delete properties with confirmation dialogs
+
+### Triples Browser
+- Browse all entities in the knowledge graph with filtering by entity type
+- View entity details with all associated triples
+- **Create triples** with ontology-powered dropdowns:
+  - **Subject ID**: Class prefix dropdown + ID input
+  - **Predicate**: Filtered by subject's class from ontology
+  - **Value**: Smart input based on range_kind (dropdown for entity_ref/boolean, datetime picker, number input)
+- **Edit triples**: Update values with type-appropriate inputs
+- **Delete triples**: Individual triples or entire subjects
+- Navigate between related entities via entity_ref links
 
 All dropdown data is fetched from Materialize's serving cluster for low-latency access.
 
