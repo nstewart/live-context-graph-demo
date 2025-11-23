@@ -83,6 +83,7 @@ services:
       - OS_USER=${OS_USER:-}
       - OS_PASSWORD=${OS_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - USE_MATERIALIZE_FOR_READS=${USE_MATERIALIZE_FOR_READS:-true}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
