@@ -86,8 +86,11 @@ export class MaterializeBackend {
 
     // SUBSCRIBE TO with PROGRESS option for continuous timestamp updates
     // PROGRESS ensures we get updates even when there are no data changes
+    // Use batchSize=1 and highWaterMark=0 for immediate delivery with no buffering
     const subscribeQuery = new QueryStream(
-      `SUBSCRIBE TO (SELECT * FROM ${viewName}) WITH (PROGRESS)`
+      `SUBSCRIBE TO (SELECT * FROM ${viewName}) WITH (PROGRESS)`,
+      [],
+      { batchSize: 1, highWaterMark: 0 }
     );
 
     // Execute the streaming query
