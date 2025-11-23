@@ -297,7 +297,7 @@ export default function OrdersDashboardPage() {
           subject_id: orderId,
           predicate: 'order_total_amount',
           object_value: data.order_total_amount,
-          object_type: 'float',
+          object_type: 'decimal',
         })
       }
       if (data.delivery_window_start) {
@@ -305,7 +305,7 @@ export default function OrdersDashboardPage() {
           subject_id: orderId,
           predicate: 'delivery_window_start',
           object_value: new Date(data.delivery_window_start).toISOString(),
-          object_type: 'timestamp',
+          object_type: 'datetime',
         })
       }
       if (data.delivery_window_end) {
@@ -313,7 +313,7 @@ export default function OrdersDashboardPage() {
           subject_id: orderId,
           predicate: 'delivery_window_end',
           object_value: new Date(data.delivery_window_end).toISOString(),
-          object_type: 'timestamp',
+          object_type: 'datetime',
         })
       }
       return triplesApi.createBatch(triples)
@@ -338,20 +338,20 @@ export default function OrdersDashboardPage() {
         { predicate: 'order_store', value: data.store_id, type: 'entity_ref' },
       ]
       if (data.order_total_amount) {
-        fieldsToUpdate.push({ predicate: 'order_total_amount', value: data.order_total_amount, type: 'float' })
+        fieldsToUpdate.push({ predicate: 'order_total_amount', value: data.order_total_amount, type: 'decimal' })
       }
       if (data.delivery_window_start) {
         fieldsToUpdate.push({
           predicate: 'delivery_window_start',
           value: new Date(data.delivery_window_start).toISOString(),
-          type: 'timestamp',
+          type: 'datetime',
         })
       }
       if (data.delivery_window_end) {
         fieldsToUpdate.push({
           predicate: 'delivery_window_end',
           value: new Date(data.delivery_window_end).toISOString(),
-          type: 'timestamp',
+          type: 'datetime',
         })
       }
 

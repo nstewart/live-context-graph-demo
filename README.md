@@ -34,6 +34,8 @@ The system will automatically:
 - Seed demo data (5 stores, 15 products, 15 customers, 20 orders)
 - Sync orders to OpenSearch
 
+For load testing with larger datasets (~700K triples), see [Load Test Data Generation](#load-test-data-generation).
+
 ### Initialize Materialize (First Run)
 
 After the first `docker-compose up`, initialize Materialize to set up the PostgreSQL source and views:
@@ -471,6 +473,49 @@ docker-compose logs -f api | grep -E "\[Materialize\]"
 
 ## Development
 
+### Load Test Data Generation
+
+Generate realistic operational data to demonstrate PostgreSQL vs Materialize performance differences.
+
+```bash
+# Install dependencies (if running outside Docker)
+pip install -r db/scripts/requirements.txt
+
+# Generate full dataset (~700K triples, ~150MB)
+# Represents 6 months of FreshMart operations
+./db/scripts/generate_data.sh
+
+# Or with scale factor (0.1 = ~70K triples for quick testing)
+./db/scripts/generate_data.sh --scale 0.1
+
+# Preview without inserting
+./db/scripts/generate_data.sh --dry-run
+
+# Clear existing data and regenerate
+./db/scripts/generate_data.sh --clear
+```
+
+**Generated Data (scale=1.0):**
+
+| Entity | Count | Triples |
+|--------|-------|---------|
+| Stores | 50 | 300 |
+| Products | 500 | 2,500 |
+| Customers | 5,000 | 20,000 |
+| Couriers | 200 | 1,000 |
+| Orders | 25,000 | 200,000 |
+| Order Lines | 75,000 | 300,000 |
+| Delivery Tasks | 23,500 | 125,000 |
+| Inventory | 10,000 | 50,000 |
+| **Total** | | **~700,000** |
+
+Materialize views update automatically via CDC - no rebuild needed. You can verify data is flowing:
+```bash
+# Check triple count in Materialize
+PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
+  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_flat_mv;"
+```
+
 ### Running Tests
 
 ```bash
@@ -584,9 +629,12 @@ freshmart-digital-twin-agent-starter/
 │
 ├── db/
 │   ├── migrations/             # SQL migrations (run on startup)
-│   ├── seed/                   # Demo data
+│   ├── seed/                   # Demo data (small dataset)
 │   ├── materialize/            # Materialize emulator init
-│   └── scripts/                # Helper scripts
+│   └── scripts/
+│       ├── generate_data.sh    # Load test data generator wrapper
+│       ├── generate_load_test_data.py  # Python data generator (~700K triples)
+│       └── requirements.txt    # Generator dependencies
 │
 ├── api/                        # FastAPI backend
 │   ├── src/
@@ -594,7 +642,9 @@ freshmart-digital-twin-agent-starter/
 │   │   ├── triples/           # Triple store + validation
 │   │   ├── freshmart/         # FreshMart operational endpoints
 │   │   └── routes/            # HTTP routes
-│   └── tests/                 # API tests
+│   └── tests/
+│       ├── test_freshmart_service_integration.py  # PG/MZ integration tests
+│       └── ...                # Unit and API tests
 │
 ├── search-sync/               # OpenSearch sync worker
 │   └── src/

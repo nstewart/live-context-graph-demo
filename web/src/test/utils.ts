@@ -2,7 +2,7 @@
  * Test utility functions for the FreshMart Admin UI.
  */
 
-import type { OntologyClass, OntologyProperty, OrderFlat } from '../api/client'
+import type { OntologyProperty, OrderFlat } from '../api/client'
 
 /**
  * Format a date string for display.

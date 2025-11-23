@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { triplesApi, ontologyApi, Triple, TripleCreate, OntologyProperty, OntologyClass } from '../api/client'
-import { Search, ChevronRight, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
+import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
 
 interface TripleFormData {
   subject_id: string
@@ -247,6 +247,8 @@ function TripleFormModal({
   )
 }
 
+const PAGE_SIZE = 100
+
 export default function TriplesBrowserPage() {
   const queryClient = useQueryClient()
   const [subjectId, setSubjectId] = useState('')
@@ -256,11 +258,31 @@ export default function TriplesBrowserPage() {
   const [editingTriple, setEditingTriple] = useState<Triple | undefined>()
   const [deleteConfirm, setDeleteConfirm] = useState<Triple | null>(null)
   const [deleteSubjectConfirm, setDeleteSubjectConfirm] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
 
-  const { data: subjects = [] } = useQuery({
-    queryKey: ['subjects'],
-    queryFn: () => triplesApi.listSubjects().then(r => r.data),
+  // Get entity type counts (all types with counts)
+  const { data: subjectCounts } = useQuery({
+    queryKey: ['subject-counts'],
+    queryFn: () => triplesApi.getSubjectCounts().then(r => r.data),
   })
+
+  // List subjects with pagination and filtering
+  const { data: subjects = [], isLoading: subjectsLoading } = useQuery({
+    queryKey: ['subjects', entityTypeFilter, page],
+    queryFn: () =>
+      triplesApi
+        .listSubjects({
+          prefix: entityTypeFilter || undefined,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        })
+        .then(r => r.data),
+  })
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setPage(0)
+  }, [entityTypeFilter])
 
   const { data: subjectInfo, isLoading } = useQuery({
     queryKey: ['subject', subjectId],
@@ -340,30 +362,36 @@ export default function TriplesBrowserPage() {
     }
   }
 
-  // Extract unique entity types from subject IDs (prefix before colon)
+  // Entity types from counts endpoint (sorted by count descending)
   const entityTypes = useMemo(() => {
-    if (!subjects) return []
-    const types = new Set<string>()
-    subjects.forEach(s => {
-      const prefix = s.split(':')[0]
-      if (prefix) types.add(prefix)
-    })
-    return Array.from(types).sort()
-  }, [subjects])
+    if (!subjectCounts?.by_type) return []
+    return Object.entries(subjectCounts.by_type)
+      .sort((a, b) => b[1] - a[1]) // Sort by count descending
+      .map(([type]) => type)
+  }, [subjectCounts])
+
+  // Get total count for current filter
+  const totalForCurrentFilter = useMemo(() => {
+    if (!subjectCounts) return 0
+    if (!entityTypeFilter) return subjectCounts.total
+    return subjectCounts.by_type[entityTypeFilter] || 0
+  }, [subjectCounts, entityTypeFilter])
+
+  const totalPages = Math.ceil(totalForCurrentFilter / PAGE_SIZE)
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    setSubjectId(searchInput)
+    if (searchInput) {
+      setSubjectId(searchInput)
+    }
   }
 
+  // Filter subjects by search input (server already filters by entity type)
   const filteredSubjects = useMemo(() => {
     if (!subjects) return []
-    return subjects.filter(s => {
-      const matchesSearch = s.toLowerCase().includes(searchInput.toLowerCase())
-      const matchesType = !entityTypeFilter || s.startsWith(`${entityTypeFilter}:`)
-      return matchesSearch && matchesType
-    })
-  }, [subjects, searchInput, entityTypeFilter])
+    if (!searchInput) return subjects
+    return subjects.filter(s => s.toLowerCase().includes(searchInput.toLowerCase()))
+  }, [subjects, searchInput])
 
   return (
     <div className="p-6">
@@ -405,10 +433,10 @@ export default function TriplesBrowserPage() {
                 onChange={e => setEntityTypeFilter(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 appearance-none bg-white"
               >
-                <option value="">All entity types</option>
+                <option value="">All entity types ({subjectCounts?.total?.toLocaleString() || 0})</option>
                 {entityTypes.map(type => (
                   <option key={type} value={type}>
-                    {type} ({subjects?.filter(s => s.startsWith(`${type}:`)).length || 0})
+                    {type} ({(subjectCounts?.by_type[type] || 0).toLocaleString()})
                   </option>
                 ))}
               </select>
@@ -418,22 +446,55 @@ export default function TriplesBrowserPage() {
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="p-3 bg-gray-50 border-b font-medium text-sm text-gray-700 flex justify-between items-center">
               <span>Subjects</span>
-              <span className="text-xs text-gray-500">{filteredSubjects.length} total</span>
+              <span className="text-xs text-gray-500">
+                {totalForCurrentFilter.toLocaleString()} total
+                {totalPages > 1 && ` (page ${page + 1}/${totalPages})`}
+              </span>
             </div>
-            <div className="max-h-96 overflow-y-auto">
-              {filteredSubjects.map(s => (
+            <div className="max-h-80 overflow-y-auto">
+              {subjectsLoading ? (
+                <div className="p-4 text-center text-gray-500">Loading...</div>
+              ) : filteredSubjects.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">No subjects found</div>
+              ) : (
+                filteredSubjects.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setSubjectId(s)}
+                    className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 ${
+                      subjectId === s ? 'bg-green-50 text-green-700' : ''
+                    }`}
+                  >
+                    <span className="truncate">{s}</span>
+                    <ChevronRight className="h-4 w-4 flex-shrink-0" />
+                  </button>
+                ))
+              )}
+            </div>
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="p-2 border-t flex items-center justify-between bg-gray-50">
                 <button
-                  key={s}
-                  onClick={() => setSubjectId(s)}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 ${
-                    subjectId === s ? 'bg-green-50 text-green-700' : ''
-                  }`}
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <span className="truncate">{s}</span>
-                  <ChevronRight className="h-4 w-4 flex-shrink-0" />
+                  <ChevronLeft className="h-4 w-4" />
+                  Prev
                 </button>
-              ))}
-            </div>
+                <span className="text-xs text-gray-500">
+                  {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, totalForCurrentFilter).toLocaleString()}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
