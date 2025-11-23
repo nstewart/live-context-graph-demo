@@ -102,3 +102,13 @@ class CustomerInfo(BaseModel):
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_address: Optional[str] = None
+
+
+class ProductInfo(BaseModel):
+    """Product information."""
+
+    product_id: str
+    product_name: Optional[str] = None
+    category: Optional[str] = None
+    unit_price: Optional[Decimal] = None
+    perishable: Optional[bool] = None
