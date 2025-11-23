@@ -131,6 +131,58 @@ LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
 LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id;
 
+-- Courier tasks intermediate view
+CREATE VIEW IF NOT EXISTS courier_tasks_flat AS
+SELECT
+    t_assigned.object_value AS courier_id,
+    t_task.subject_id AS task_id,
+    MAX(CASE WHEN t_task.predicate = 'task_status' THEN t_task.object_value END) AS task_status,
+    MAX(CASE WHEN t_task.predicate = 'task_of_order' THEN t_task.object_value END) AS order_id,
+    MAX(CASE WHEN t_task.predicate = 'eta' THEN t_task.object_value END) AS eta,
+    MAX(CASE WHEN t_task.predicate = 'route_sequence' THEN t_task.object_value END)::INT AS route_sequence
+FROM triples t_assigned
+JOIN triples t_task ON t_task.subject_id = t_assigned.subject_id
+WHERE t_assigned.predicate = 'assigned_to'
+    AND t_assigned.object_type = 'entity_ref'
+GROUP BY t_assigned.object_value, t_task.subject_id;
+
+-- Couriers flat intermediate view
+CREATE VIEW IF NOT EXISTS couriers_flat AS
+SELECT
+    subject_id AS courier_id,
+    MAX(CASE WHEN predicate = 'courier_name' THEN object_value END) AS courier_name,
+    MAX(CASE WHEN predicate = 'courier_home_store' THEN object_value END) AS home_store_id,
+    MAX(CASE WHEN predicate = 'vehicle_type' THEN object_value END) AS vehicle_type,
+    MAX(CASE WHEN predicate = 'courier_status' THEN object_value END) AS courier_status,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'courier:%'
+GROUP BY subject_id;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS courier_schedule_mv IN CLUSTER compute AS
+SELECT
+    cf.courier_id,
+    cf.courier_name,
+    cf.home_store_id,
+    cf.vehicle_type,
+    cf.courier_status,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object(
+                'task_id', ct.task_id,
+                'task_status', ct.task_status,
+                'order_id', ct.order_id,
+                'eta', ct.eta,
+                'route_sequence', ct.route_sequence
+            )
+        ) FILTER (WHERE ct.task_id IS NOT NULL),
+        '[]'::jsonb
+    ) AS tasks,
+    cf.effective_updated_at
+FROM couriers_flat cf
+LEFT JOIN courier_tasks_flat ct ON ct.courier_id = cf.courier_id
+GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.effective_updated_at;
+
 -- =============================================================================
 -- Indexes IN CLUSTER serving ON materialized views
 -- These make the materialized views queryable with low latency
@@ -138,3 +190,4 @@ LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id;
 CREATE INDEX IF NOT EXISTS orders_flat_idx IN CLUSTER serving ON orders_flat_mv (order_id);
 CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory_mv (inventory_id);
 CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source_mv (order_id);
+CREATE INDEX IF NOT EXISTS courier_schedule_idx IN CLUSTER serving ON courier_schedule_mv (courier_id);

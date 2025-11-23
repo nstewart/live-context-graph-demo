@@ -62,16 +62,19 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 │                         Port: 8080                                       │
 │  • Ontology CRUD       • Triple CRUD with validation                     │
 │  • FreshMart endpoints • Health checks                                   │
+│  • Query logging with execution time                                     │
 └──────────────┬────────────────────────────────────┬─────────────────────┘
                │                                    │
+               │ (writes)                           │ (UI reads)
                ▼                                    ▼
 ┌──────────────────────────┐         ┌──────────────────────────┐
 │     PostgreSQL           │         │   Materialize Emulator    │
 │     Port: 5432           │────────▶│  Console: 6874 SQL: 6875  │
-│  • ontology_classes      │         │  Three-Tier Architecture: │
+│  • ontology_classes      │ (CDC)   │  Three-Tier Architecture: │
 │  • ontology_properties   │         │  • ingest: pg_source      │
-│  • triples               │         │  • serving: indexes       │
-└──────────────────────────┘         └───────────┬──────────────┘
+│  • triples               │         │  • compute: MVs           │
+└──────────────────────────┘         │  • serving: indexes       │
+                                     └───────────┬──────────────┘
                                                  │
                                                  ▼
                                      ┌──────────────────────────┐
@@ -255,6 +258,100 @@ curl -X POST http://localhost:8081/chat \
   -d '{"message": "Show all OUT_FOR_DELIVERY orders"}'
 ```
 
+## Operations
+
+### Service Management
+
+```bash
+# Restart the API service
+docker-compose restart api
+
+# Restart all services
+docker-compose restart
+
+# Rebuild and restart API (after code changes)
+docker-compose up -d --build api
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (full reset)
+docker-compose down -v
+```
+
+### Viewing Logs
+
+```bash
+# View API logs (with query timing)
+docker-compose logs -f api
+
+# View last 100 lines of API logs
+docker-compose logs --tail=100 api
+
+# View logs for multiple services
+docker-compose logs -f api mz
+
+# View Materialize logs
+docker-compose logs -f mz
+
+# View all service logs
+docker-compose logs -f
+```
+
+### Query Logging
+
+All database queries are logged with execution time. The logs show:
+- **Database**: `[PostgreSQL]` or `[Materialize]`
+- **Operation**: `[SELECT]`, `[INSERT]`, `[UPDATE]`, `[DELETE]`, or `[SET]`
+- **Execution time**: in milliseconds
+- **Query**: SQL statement (truncated if > 200 chars)
+- **Parameters**: query parameters
+
+Example log output:
+```
+[Materialize] [SET] 1.23ms: SET CLUSTER = serving | params={}
+[Materialize] [SELECT] 15.67ms: SELECT order_id, order_number, order_status... | params={'limit': 100, 'offset': 0}
+[PostgreSQL] [INSERT] 3.45ms: INSERT INTO triples (subject_id, predicate...) | params={'subject_id': 'order:FM-1001', ...}
+[PostgreSQL] [UPDATE] 2.89ms: UPDATE triples SET object_value = ... | params={'id': 123, 'value': 'DELIVERED'}
+```
+
+To see query logs in real-time:
+```bash
+docker-compose logs -f api | grep -E "\[Materialize\]|\[PostgreSQL\]"
+```
+
+Filter by operation type:
+```bash
+# Only show writes (go to PostgreSQL, then CDC to Materialize)
+docker-compose logs -f api | grep -E "\[INSERT\]|\[UPDATE\]|\[DELETE\]"
+
+# Only show reads (all from Materialize serving cluster)
+docker-compose logs -f api | grep "\[SELECT\]"
+```
+
+### Materialize Three-Tier Architecture
+
+All UI read queries are routed through Materialize's **serving cluster** for low-latency indexed access:
+
+```
+UI → API → Materialize (serving cluster) → Indexed Materialized Views
+```
+
+The architecture uses three clusters:
+- **ingest**: PostgreSQL source replication via CDC
+- **compute**: Materialized view computation
+- **serving**: Indexes for low-latency queries
+
+To verify queries are hitting the serving cluster:
+```bash
+# Watch query logs - should show [Materialize]
+docker-compose logs -f api | grep -E "\[Materialize\]"
+
+# Example output:
+# [Materialize] [SET] 0.68ms: SET CLUSTER = serving | params=()
+# [Materialize] [SELECT] 4.30ms: SELECT order_id, order_number... | params=(100, 0)
+```
+
 ## Development
 
 ### Running Tests
@@ -349,6 +446,32 @@ freshmart-digital-twin-agent-starter/
     ├── SEARCH.md
     └── AGENTS.md
 ```
+
+## Admin UI Features
+
+The React Admin UI (`web/`) provides CRUD operations for managing FreshMart entities:
+
+### Orders Dashboard
+- View all orders with status badges and filtering
+- Create new orders with dropdown selectors for:
+  - **Customer**: Format "Customer Name (customer:ID)"
+  - **Store**: Format "Store Name (store:ID)"
+- Edit existing orders with pre-populated form fields
+- Delete orders with confirmation dialog
+
+### Couriers & Schedule
+- View all couriers with their assigned tasks
+- Create new couriers with dropdown selector for:
+  - **Home Store**: Format "Store Name (store:ID)"
+- Edit courier details including status and vehicle type
+- Delete couriers with confirmation dialog
+
+### Stores Inventory
+- View stores with their current inventory levels
+- Create/edit stores with zone and capacity settings
+- Manage inventory items per store
+
+All dropdown data is fetched from Materialize's serving cluster for low-latency access.
 
 ## Acceptance Criteria
 

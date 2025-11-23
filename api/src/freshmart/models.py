@@ -93,3 +93,12 @@ class CourierInfo(BaseModel):
     vehicle_type: Optional[str] = None
     courier_status: Optional[str] = None
     tasks: list[dict] = Field(default_factory=list)
+
+
+class CustomerInfo(BaseModel):
+    """Customer information."""
+
+    customer_id: str
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_address: Optional[str] = None

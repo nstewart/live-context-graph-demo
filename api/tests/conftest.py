@@ -9,7 +9,11 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+# Enable Materialize for tests - this is a Materialize demo
+os.environ["USE_MATERIALIZE_FOR_READS"] = "true"
+
 from src.main import app
+from src.config import get_settings
 from src.ontology.models import OntologyClass, OntologyProperty
 from src.triples.models import Triple
 
@@ -38,6 +42,9 @@ def event_loop():
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Create async test client for API testing."""
+    # Clear settings cache to pick up test environment variables
+    get_settings.cache_clear()
+
     # Reset global database engines to avoid connection pool issues
     import src.db.client as db_client
     db_client._pg_engine = None

@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_port: int = 8080
 
+    # Feature flags
+    # Use Materialize for FreshMart read queries
+    use_materialize_for_reads: bool = True
+
     @property
     def pg_dsn(self) -> str:
         """Get PostgreSQL connection string."""

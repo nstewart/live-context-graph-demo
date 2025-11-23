@@ -102,6 +102,13 @@ export interface CourierSchedule {
   }>
 }
 
+export interface CustomerInfo {
+  customer_id: string
+  customer_name: string | null
+  customer_email: string | null
+  customer_address: string | null
+}
+
 // API functions
 export const ontologyApi = {
   listClasses: () => apiClient.get<OntologyClass[]>('/ontology/classes'),
@@ -112,14 +119,27 @@ export const ontologyApi = {
     apiClient.post<OntologyProperty>('/ontology/properties', data),
 }
 
+export interface TripleCreate {
+  subject_id: string
+  predicate: string
+  object_value: string
+  object_type: 'string' | 'integer' | 'decimal' | 'boolean' | 'datetime' | 'entity_ref'
+}
+
 export const triplesApi = {
   list: (params?: { subject_id?: string; predicate?: string }) =>
     apiClient.get<Triple[]>('/triples', { params }),
-  create: (data: Partial<Triple>) => apiClient.post<Triple>('/triples', data),
+  create: (data: TripleCreate) => apiClient.post<Triple>('/triples', data),
+  createBatch: (triples: TripleCreate[]) => apiClient.post<Triple[]>('/triples/batch', triples),
+  update: (tripleId: number, data: { object_value: string }) =>
+    apiClient.patch<Triple>(`/triples/${tripleId}`, data),
+  delete: (tripleId: number) => apiClient.delete(`/triples/${tripleId}`),
   getSubject: (subjectId: string) =>
     apiClient.get<SubjectInfo>(`/triples/subjects/${encodeURIComponent(subjectId)}`),
   listSubjects: (params?: { class_name?: string }) =>
     apiClient.get<string[]>('/triples/subjects/list', { params }),
+  deleteSubject: (subjectId: string) =>
+    apiClient.delete(`/triples/subjects/${encodeURIComponent(subjectId)}`),
 }
 
 export const freshmartApi = {
@@ -130,6 +150,7 @@ export const freshmartApi = {
   listStores: () => apiClient.get<StoreInfo[]>('/freshmart/stores'),
   getStore: (storeId: string) =>
     apiClient.get<StoreInfo>(`/freshmart/stores/${encodeURIComponent(storeId)}`),
+  listCustomers: () => apiClient.get<CustomerInfo[]>('/freshmart/customers'),
   listCouriers: (params?: { status?: string }) =>
     apiClient.get<CourierSchedule[]>('/freshmart/couriers', { params }),
 }

@@ -33,6 +33,21 @@ class FreshMartService:
         """Get view suffix based on database."""
         return "_mz" if self.use_materialize else ""
 
+    def _get_view(self, base_name: str) -> str:
+        """Get the correct view name for the current database.
+
+        Materialize uses _mv suffix for materialized views.
+        PostgreSQL uses the base view name.
+        """
+        mz_views = {
+            "orders_search_source": "orders_search_source_mv",
+            "store_inventory_flat": "store_inventory_mv",
+            "courier_schedule_flat": "courier_schedule_mv",
+        }
+        if self.use_materialize:
+            return mz_views.get(base_name, base_name)
+        return base_name
+
     # =========================================================================
     # Orders
     # =========================================================================
@@ -44,7 +59,7 @@ class FreshMartService:
         offset: int = 0,
     ) -> list[OrderFlat]:
         """List orders with optional filtering."""
-        view = f"orders_flat{self._view_suffix()}"
+        view = self._get_view("orders_search_source")
 
         conditions = []
         params: dict = {"limit": limit, "offset": offset}
@@ -71,6 +86,7 @@ class FreshMartService:
         query = f"""
             SELECT order_id, order_number, order_status, store_id, customer_id,
                    delivery_window_start, delivery_window_end, order_total_amount,
+                   customer_name, store_name,
                    effective_updated_at
             FROM {view}
             {where_clause}
@@ -91,6 +107,8 @@ class FreshMartService:
                 delivery_window_start=row.delivery_window_start,
                 delivery_window_end=row.delivery_window_end,
                 order_total_amount=row.order_total_amount,
+                customer_name=row.customer_name,
+                store_name=row.store_name,
                 effective_updated_at=row.effective_updated_at,
             )
             for row in rows
@@ -99,7 +117,7 @@ class FreshMartService:
     async def get_order(self, order_id: str) -> Optional[OrderFlat]:
         """Get detailed order information."""
         # Use the search source view for enriched data
-        view = f"orders_search_source" if self.use_materialize else "orders_search_source"
+        view = self._get_view("orders_search_source")
 
         result = await self.session.execute(
             text(f"""
@@ -152,7 +170,7 @@ class FreshMartService:
         offset: int = 0,
     ) -> list[StoreInventory]:
         """List store inventory, optionally filtered by store."""
-        view = f"store_inventory_flat{self._view_suffix()}"
+        view = self._get_view("store_inventory_flat")
 
         conditions = []
         params: dict = {"limit": limit, "offset": offset}
@@ -243,6 +261,36 @@ class FreshMartService:
         return stores
 
     # =========================================================================
+    # Customers
+    # =========================================================================
+
+    async def list_customers(self) -> list["CustomerInfo"]:
+        """List all customers from Materialize."""
+        from src.freshmart.models import CustomerInfo
+
+        # Use customers_flat view (no MV suffix needed as it's a regular view)
+        view = "customers_flat"
+
+        result = await self.session.execute(
+            text(f"""
+                SELECT customer_id, customer_name, customer_email, customer_address
+                FROM {view}
+                ORDER BY customer_name
+            """)
+        )
+        rows = result.fetchall()
+
+        return [
+            CustomerInfo(
+                customer_id=row.customer_id,
+                customer_name=row.customer_name,
+                customer_email=row.customer_email,
+                customer_address=row.customer_address,
+            )
+            for row in rows
+        ]
+
+    # =========================================================================
     # Couriers
     # =========================================================================
 
@@ -254,7 +302,7 @@ class FreshMartService:
         offset: int = 0,
     ) -> list[CourierSchedule]:
         """List courier schedules."""
-        view = f"courier_schedule_flat{self._view_suffix()}"
+        view = self._get_view("courier_schedule_flat")
 
         conditions = []
         params: dict = {"limit": limit, "offset": offset}
@@ -301,7 +349,7 @@ class FreshMartService:
 
     async def get_courier(self, courier_id: str) -> Optional[CourierSchedule]:
         """Get courier with schedule."""
-        view = f"courier_schedule_flat{self._view_suffix()}"
+        view = self._get_view("courier_schedule_flat")
 
         result = await self.session.execute(
             text(f"""
