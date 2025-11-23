@@ -119,7 +119,15 @@ export class ZeroServer {
         if (!this.subscriptions.has(collection)) {
           this.subscriptions.set(collection, new Set());
         }
-        this.subscriptions.get(collection)!.add(ws);
+
+        // Check if this client is already subscribed
+        const subscribers = this.subscriptions.get(collection)!;
+        if (subscribers.has(ws)) {
+          console.log(`Client already subscribed to ${collection}, skipping`);
+          break;
+        }
+
+        subscribers.add(ws);
 
         // Send current state
         try {
@@ -149,9 +157,9 @@ export class ZeroServer {
       case "unsubscribe":
         // Client unsubscribing from a collection
         console.log(`Client unsubscribing from ${msg.collection}`);
-        const subscribers = this.subscriptions.get(msg.collection);
-        if (subscribers) {
-          subscribers.delete(ws);
+        const unsubscribers = this.subscriptions.get(msg.collection);
+        if (unsubscribers) {
+          unsubscribers.delete(ws);
         }
         break;
 

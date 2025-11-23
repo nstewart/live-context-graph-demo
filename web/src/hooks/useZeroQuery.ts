@@ -35,7 +35,10 @@ export function useZeroQuery<T = any>(
     return () => {
       unsubscribe(collection)
     }
-  }, [collection, enabled, connected, subscribe, unsubscribe])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Note: subscribe/unsubscribe are intentionally omitted from deps to prevent
+    // infinite loops when socket state changes. They're stable functions from context.
+  }, [collection, enabled, connected])
 
   // Get data for this collection and apply filter if provided
   const filteredData = useMemo(() => {

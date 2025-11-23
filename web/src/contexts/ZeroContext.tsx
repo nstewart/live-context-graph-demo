@@ -3,7 +3,7 @@
  * Provides WebSocket connection to Zero server for real-time data sync
  */
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 
 interface ZeroContextType {
   socket: WebSocket | null
@@ -15,6 +15,18 @@ interface ZeroContextType {
 }
 
 const ZeroContext = createContext<ZeroContextType | null>(null)
+
+// Module-level singleton WebSocket that persists across HMR reloads
+let sharedSocket: WebSocket | null = null
+let sharedSubscriptions: Set<string> = new Set()
+
+// Vite HMR: Keep socket alive across module reloads
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    console.log('[Zero HMR] Module reloading, keeping socket alive')
+    // Don't close the socket - we'll reuse it
+  })
+}
 
 export function useZeroContext() {
   const context = useContext(ZeroContext)
@@ -38,10 +50,24 @@ export function ZeroProvider({ children, url: customUrl }: ZeroProviderProps) {
   const [data, setData] = useState<Map<string, any[]>>(new Map())
   const [error, setError] = useState<Error | null>(null)
   const [subscriptions, setSubscriptions] = useState<Set<string>>(new Set())
+  const subscriptionsRef = useRef<Set<string>>(new Set()) // Track subscriptions without causing re-renders
 
   useEffect(() => {
-    console.log(`[Zero] Connecting to Zero server at ${url}`)
+    // Reuse existing socket if it's still open
+    if (sharedSocket && (sharedSocket.readyState === WebSocket.OPEN || sharedSocket.readyState === WebSocket.CONNECTING)) {
+      console.log('[Zero] Reusing existing WebSocket connection')
+      setSocket(sharedSocket)
+      setConnected(sharedSocket.readyState === WebSocket.OPEN)
+      subscriptionsRef.current = sharedSubscriptions
+      return () => {
+        // Don't close shared socket on component unmount
+        console.log('[Zero] Component unmounting, keeping shared socket alive')
+      }
+    }
+
+    console.log(`[Zero] Creating new WebSocket connection to ${url}`)
     const ws = new WebSocket(url)
+    sharedSocket = ws
 
     ws.onopen = () => {
       console.log('[Zero] ✅ Connected to Zero server')
@@ -55,6 +81,10 @@ export function ZeroProvider({ children, url: customUrl }: ZeroProviderProps) {
       console.log('  Close reason:', event.reason || '(no reason provided)')
       console.log('  Was clean:', event.wasClean)
       setConnected(false)
+      sharedSocket = null
+      sharedSubscriptions.clear()
+      subscriptionsRef.current.clear()
+      setSubscriptions(new Set())
     }
 
     ws.onerror = (event) => {
@@ -77,8 +107,11 @@ export function ZeroProvider({ children, url: customUrl }: ZeroProviderProps) {
     setSocket(ws)
 
     return () => {
-      console.log('[Zero] 🧹 Cleaning up WebSocket connection')
-      ws.close()
+      // Only close if this is NOT the shared socket (shouldn't happen, but just in case)
+      if (ws !== sharedSocket) {
+        console.log('[Zero] 🧹 Closing non-shared WebSocket')
+        ws.close()
+      }
     }
   }, [url])
 
@@ -143,28 +176,48 @@ export function ZeroProvider({ children, url: customUrl }: ZeroProviderProps) {
       return
     }
 
-    if (subscriptions.has(collection)) {
+    // Check shared subscriptions to avoid duplicates across HMR reloads
+    if (sharedSubscriptions.has(collection)) {
       console.log(`[Zero] ℹ️ Already subscribed to ${collection}`)
       return
     }
 
+    // Update shared subscriptions (persists across HMR)
+    sharedSubscriptions.add(collection)
+
+    // Also update local ref and state
+    subscriptionsRef.current.add(collection)
+    setSubscriptions(prev => new Set(prev).add(collection))
+
+    // Send subscription message
     console.log(`[Zero] 📤 Subscribing to ${collection}`)
     socket.send(JSON.stringify({ type: 'subscribe', collection }))
-    setSubscriptions(prev => new Set(prev).add(collection))
-  }, [socket, subscriptions])
+  }, [socket])
 
   const unsubscribe = useCallback((collection: string) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       return
     }
 
-    console.log(`Unsubscribing from ${collection}`)
-    socket.send(JSON.stringify({ type: 'unsubscribe', collection }))
+    // Check shared subscriptions
+    if (!sharedSubscriptions.has(collection)) {
+      return // Not subscribed
+    }
+
+    // Update shared subscriptions (persists across HMR)
+    sharedSubscriptions.delete(collection)
+
+    // Also update local ref and state
+    subscriptionsRef.current.delete(collection)
     setSubscriptions(prev => {
       const next = new Set(prev)
       next.delete(collection)
       return next
     })
+
+    // Send unsubscribe message
+    console.log(`Unsubscribing from ${collection}`)
+    socket.send(JSON.stringify({ type: 'unsubscribe', collection }))
   }, [socket])
 
   const value: ZeroContextType = {
