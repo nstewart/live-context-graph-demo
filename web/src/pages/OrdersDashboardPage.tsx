@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo } from '../api/client'
+import { useZeroQuery } from '../hooks/useZeroQuery'
+import { useZeroContext } from '../contexts/ZeroContext'
 import { formatAmount } from '../test/utils'
-import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X } from 'lucide-react'
+import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff } from 'lucide-react'
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: 'bg-blue-100 text-blue-800', icon: Package },
@@ -268,11 +270,13 @@ export default function OrdersDashboardPage() {
   const [editingOrder, setEditingOrder] = useState<OrderFlat | undefined>()
   const [deleteConfirm, setDeleteConfirm] = useState<OrderFlat | null>(null)
 
-  const { data: orders, isLoading, error } = useQuery({
-    queryKey: ['orders'],
-    queryFn: () => freshmartApi.listOrders().then(r => r.data),
+  // 🔥 ZERO WebSocket - Real-time orders data
+  const { connected: zeroConnected } = useZeroContext()
+  const { data: orders, isLoading: zeroLoading, error: zeroError } = useZeroQuery<OrderFlat>({
+    collection: 'orders',
   })
 
+  // Still using React Query for stores and customers (will migrate later)
   const { data: stores = [] } = useQuery({
     queryKey: ['stores'],
     queryFn: () => freshmartApi.listStores().then(r => r.data),
@@ -282,6 +286,9 @@ export default function OrdersDashboardPage() {
     queryKey: ['customers'],
     queryFn: () => freshmartApi.listCustomers().then(r => r.data),
   })
+
+  const isLoading = zeroLoading
+  const error = zeroError
 
   const createMutation = useMutation({
     mutationFn: async (data: OrderFormData) => {
@@ -420,8 +427,21 @@ export default function OrdersDashboardPage() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orders Dashboard</h1>
-          <p className="text-gray-600">Monitor and manage FreshMart orders</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Orders Dashboard</h1>
+            {zeroConnected ? (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                <Wifi className="h-3 w-3" />
+                Real-time
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                <WifiOff className="h-3 w-3" />
+                Connecting...
+              </span>
+            )}
+          </div>
+          <p className="text-gray-600">Monitor and manage FreshMart orders via WebSocket</p>
         </div>
         <button
           onClick={() => {
