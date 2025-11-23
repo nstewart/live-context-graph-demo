@@ -171,10 +171,127 @@ export const mockSubjectInfo = {
   ],
 }
 
+// Mock store with inventory for CRUD testing
+export const mockStoreWithInventory = {
+  store_id: 'store:BK-01',
+  store_name: 'FreshMart Brooklyn Heights',
+  store_address: '100 Court St, Brooklyn',
+  store_zone: 'Brooklyn',
+  store_status: 'OPEN',
+  store_capacity_orders_per_hour: 50,
+  inventory_items: [
+    {
+      inventory_id: 'inventory:INV-BK01-001',
+      store_id: 'store:BK-01',
+      product_id: 'product:MILK-001',
+      stock_level: 50,
+      replenishment_eta: null,
+    },
+    {
+      inventory_id: 'inventory:INV-BK01-002',
+      store_id: 'store:BK-01',
+      product_id: 'product:BREAD-001',
+      stock_level: 5,
+      replenishment_eta: '2024-01-16T10:00:00Z',
+    },
+  ],
+}
+
+// Mock subject info for Order (for update operations)
+export const mockOrderSubjectInfo = {
+  subject_id: 'order:FM-1001',
+  class_name: 'Order',
+  class_id: 2,
+  triples: [
+    {
+      id: 100,
+      subject_id: 'order:FM-1001',
+      predicate: 'order_number',
+      object_value: 'FM-1001',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+    {
+      id: 101,
+      subject_id: 'order:FM-1001',
+      predicate: 'order_status',
+      object_value: 'OUT_FOR_DELIVERY',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+    {
+      id: 102,
+      subject_id: 'order:FM-1001',
+      predicate: 'order_store',
+      object_value: 'store:BK-01',
+      object_type: 'entity_ref',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+  ],
+}
+
+// Mock subject info for Store
+export const mockStoreSubjectInfo = {
+  subject_id: 'store:BK-01',
+  class_name: 'Store',
+  class_id: 3,
+  triples: [
+    {
+      id: 200,
+      subject_id: 'store:BK-01',
+      predicate: 'store_name',
+      object_value: 'FreshMart Brooklyn Heights',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+    {
+      id: 201,
+      subject_id: 'store:BK-01',
+      predicate: 'store_status',
+      object_value: 'OPEN',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+  ],
+}
+
+// Mock subject info for Courier
+export const mockCourierSubjectInfo = {
+  subject_id: 'courier:C-101',
+  class_name: 'Courier',
+  class_id: 4,
+  triples: [
+    {
+      id: 300,
+      subject_id: 'courier:C-101',
+      predicate: 'courier_name',
+      object_value: 'Mike Johnson',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+    {
+      id: 301,
+      subject_id: 'courier:C-101',
+      predicate: 'courier_status',
+      object_value: 'ON_DELIVERY',
+      object_type: 'string',
+      created_at: '2024-01-15T10:00:00Z',
+      updated_at: '2024-01-15T10:00:00Z',
+    },
+  ],
+}
+
 // Mock axios client
 export const createMockApiClient = () => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
+  patch: vi.fn(),
   delete: vi.fn(),
 })
