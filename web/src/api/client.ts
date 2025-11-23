@@ -110,13 +110,39 @@ export interface CustomerInfo {
 }
 
 // API functions
+export interface OntologyPropertyCreate {
+  prop_name: string
+  domain_class_id: number
+  range_kind: string
+  range_class_id?: number | null
+  is_multi_valued?: boolean
+  is_required?: boolean
+  description?: string | null
+}
+
+export interface OntologyPropertyUpdate {
+  prop_name?: string
+  domain_class_id?: number
+  range_kind?: string
+  range_class_id?: number | null
+  is_multi_valued?: boolean
+  is_required?: boolean
+  description?: string | null
+}
+
 export const ontologyApi = {
   listClasses: () => apiClient.get<OntologyClass[]>('/ontology/classes'),
   createClass: (data: Partial<OntologyClass>) =>
     apiClient.post<OntologyClass>('/ontology/classes', data),
   listProperties: () => apiClient.get<OntologyProperty[]>('/ontology/properties'),
-  createProperty: (data: Partial<OntologyProperty>) =>
+  getProperty: (propId: number) =>
+    apiClient.get<OntologyProperty>(`/ontology/properties/${propId}`),
+  createProperty: (data: OntologyPropertyCreate) =>
     apiClient.post<OntologyProperty>('/ontology/properties', data),
+  updateProperty: (propId: number, data: OntologyPropertyUpdate) =>
+    apiClient.patch<OntologyProperty>(`/ontology/properties/${propId}`, data),
+  deleteProperty: (propId: number) =>
+    apiClient.delete(`/ontology/properties/${propId}`),
 }
 
 export interface TripleCreate {
