@@ -209,6 +209,32 @@ FROM couriers_flat cf
 LEFT JOIN courier_tasks_flat ct ON ct.courier_id = cf.courier_id
 GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.effective_updated_at;" || true
 
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS stores_mv IN CLUSTER compute AS
+SELECT
+    subject_id AS store_id,
+    MAX(CASE WHEN predicate = 'store_name' THEN object_value END) AS store_name,
+    MAX(CASE WHEN predicate = 'store_zone' THEN object_value END) AS store_zone,
+    MAX(CASE WHEN predicate = 'store_address' THEN object_value END) AS store_address,
+    MAX(CASE WHEN predicate = 'store_status' THEN object_value END) AS store_status,
+    MAX(CASE WHEN predicate = 'store_capacity_orders_per_hour' THEN object_value END)::INT AS store_capacity_orders_per_hour,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'store:%'
+GROUP BY subject_id;" || true
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS customers_mv IN CLUSTER compute AS
+SELECT
+    subject_id AS customer_id,
+    MAX(CASE WHEN predicate = 'customer_name' THEN object_value END) AS customer_name,
+    MAX(CASE WHEN predicate = 'customer_email' THEN object_value END) AS customer_email,
+    MAX(CASE WHEN predicate = 'customer_address' THEN object_value END) AS customer_address,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'customer:%'
+GROUP BY subject_id;" || true
+
 echo "Creating indexes IN CLUSTER serving on materialized views..."
 
 # Create indexes in serving cluster on materialized views
@@ -216,6 +242,8 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS o
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory_mv (inventory_id);" || true
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source_mv (order_id);" || true
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS courier_schedule_idx IN CLUSTER serving ON courier_schedule_mv (courier_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS stores_idx IN CLUSTER serving ON stores_mv (store_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS customers_idx IN CLUSTER serving ON customers_mv (customer_id);" || true
 
 echo "Verifying three-tier setup..."
 echo ""

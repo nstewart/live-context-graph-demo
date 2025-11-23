@@ -88,6 +88,44 @@ LEFT JOIN triples t ON t.subject_id = cs.subject_id
 LEFT JOIN courier_tasks ct ON ct.courier_id = cs.subject_id
 GROUP BY cs.subject_id;
 
+-- Stores Flattened View
+-- Shows all stores with their attributes
+CREATE OR REPLACE VIEW stores_flat AS
+WITH store_subjects AS (
+    SELECT DISTINCT subject_id
+    FROM triples
+    WHERE subject_id LIKE 'store:%'
+)
+SELECT
+    ss.subject_id AS store_id,
+    MAX(CASE WHEN t.predicate = 'store_name' THEN t.object_value END) AS store_name,
+    MAX(CASE WHEN t.predicate = 'store_zone' THEN t.object_value END) AS store_zone,
+    MAX(CASE WHEN t.predicate = 'store_address' THEN t.object_value END) AS store_address,
+    MAX(CASE WHEN t.predicate = 'store_status' THEN t.object_value END) AS store_status,
+    MAX(CASE WHEN t.predicate = 'store_capacity_orders_per_hour' THEN t.object_value END)::INT AS store_capacity_orders_per_hour,
+    MAX(t.updated_at) AS effective_updated_at
+FROM store_subjects ss
+LEFT JOIN triples t ON t.subject_id = ss.subject_id
+GROUP BY ss.subject_id;
+
+-- Customers Flattened View
+-- Shows all customers with their attributes
+CREATE OR REPLACE VIEW customers_flat AS
+WITH customer_subjects AS (
+    SELECT DISTINCT subject_id
+    FROM triples
+    WHERE subject_id LIKE 'customer:%'
+)
+SELECT
+    cs.subject_id AS customer_id,
+    MAX(CASE WHEN t.predicate = 'customer_name' THEN t.object_value END) AS customer_name,
+    MAX(CASE WHEN t.predicate = 'customer_email' THEN t.object_value END) AS customer_email,
+    MAX(CASE WHEN t.predicate = 'customer_address' THEN t.object_value END) AS customer_address,
+    MAX(t.updated_at) AS effective_updated_at
+FROM customer_subjects cs
+LEFT JOIN triples t ON t.subject_id = cs.subject_id
+GROUP BY cs.subject_id;
+
 -- Insert migration record
 INSERT INTO schema_migrations (version) VALUES ('030_views_flattened')
 ON CONFLICT (version) DO NOTHING;

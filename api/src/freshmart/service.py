@@ -43,6 +43,8 @@ class FreshMartService:
             "orders_search_source": "orders_search_source_mv",
             "store_inventory_flat": "store_inventory_mv",
             "courier_schedule_flat": "courier_schedule_mv",
+            "stores_flat": "stores_mv",
+            "customers_flat": "customers_mv",
         }
         if self.use_materialize:
             return mz_views.get(base_name, base_name)
@@ -209,67 +211,71 @@ class FreshMartService:
 
     async def get_store(self, store_id: str) -> Optional[StoreInfo]:
         """Get store information with inventory."""
-        # Get store details from triples
+        view = self._get_view("stores_flat")
+
         result = await self.session.execute(
-            text("""
-                SELECT
-                    MAX(CASE WHEN predicate = 'store_name' THEN object_value END) AS store_name,
-                    MAX(CASE WHEN predicate = 'store_address' THEN object_value END) AS store_address,
-                    MAX(CASE WHEN predicate = 'store_zone' THEN object_value END) AS store_zone,
-                    MAX(CASE WHEN predicate = 'store_status' THEN object_value END) AS store_status,
-                    MAX(CASE WHEN predicate = 'store_capacity_orders_per_hour' THEN object_value END)::INT AS capacity
-                FROM triples
-                WHERE subject_id = :store_id
+            text(f"""
+                SELECT store_id, store_name, store_address, store_zone,
+                       store_status, store_capacity_orders_per_hour
+                FROM {view}
+                WHERE store_id = :store_id
             """),
             {"store_id": store_id},
         )
         row = result.fetchone()
 
-        if not row or not row.store_name:
+        if not row:
             return None
 
         # Get inventory
         inventory = await self.list_store_inventory(store_id=store_id, limit=1000)
 
         return StoreInfo(
-            store_id=store_id,
+            store_id=row.store_id,
             store_name=row.store_name,
             store_address=row.store_address,
             store_zone=row.store_zone,
             store_status=row.store_status,
-            store_capacity_orders_per_hour=row.capacity,
+            store_capacity_orders_per_hour=row.store_capacity_orders_per_hour,
             inventory_items=inventory,
         )
 
     async def list_stores(self) -> list[StoreInfo]:
         """List all stores."""
+        view = self._get_view("stores_flat")
+
         result = await self.session.execute(
-            text("""
-                SELECT DISTINCT subject_id
-                FROM triples
-                WHERE subject_id LIKE 'store:%'
+            text(f"""
+                SELECT store_id, store_name, store_address, store_zone,
+                       store_status, store_capacity_orders_per_hour
+                FROM {view}
+                ORDER BY store_name
             """)
         )
         rows = result.fetchall()
 
-        stores = []
-        for row in rows:
-            store = await self.get_store(row.subject_id)
-            if store:
-                stores.append(store)
-
-        return stores
+        return [
+            StoreInfo(
+                store_id=row.store_id,
+                store_name=row.store_name,
+                store_address=row.store_address,
+                store_zone=row.store_zone,
+                store_status=row.store_status,
+                store_capacity_orders_per_hour=row.store_capacity_orders_per_hour,
+                inventory_items=[],  # Don't fetch inventory for list view
+            )
+            for row in rows
+        ]
 
     # =========================================================================
     # Customers
     # =========================================================================
 
     async def list_customers(self) -> list["CustomerInfo"]:
-        """List all customers from Materialize."""
+        """List all customers using materialized view."""
         from src.freshmart.models import CustomerInfo
 
-        # Use customers_flat view (no MV suffix needed as it's a regular view)
-        view = "customers_flat"
+        view = self._get_view("customers_flat")
 
         result = await self.session.execute(
             text(f"""

@@ -64,7 +64,18 @@ All subjects use the format `prefix:id`:
 
 ## Materialized Views
 
-For efficient operational queries, the system maintains denormalized views.
+For efficient operational queries, the system maintains denormalized views. In Materialize, these are computed in the **compute cluster** and indexed in the **serving cluster** for sub-millisecond lookups.
+
+### View Architecture
+
+| View | Purpose | Indexed |
+|------|---------|---------|
+| `orders_flat_mv` | Order headers with status | `orders_flat_idx` |
+| `orders_search_source_mv` | Orders enriched with customer/store/delivery | `orders_search_source_idx` |
+| `store_inventory_mv` | Inventory per store/product | `store_inventory_idx` |
+| `courier_schedule_mv` | Couriers with assigned tasks | `courier_schedule_idx` |
+| `stores_mv` | Store details | `stores_idx` |
+| `customers_mv` | Customer details | `customers_idx` |
 
 ### orders_flat_mz
 
@@ -123,6 +134,42 @@ FROM courier_subjects cs
 LEFT JOIN triples t ON t.subject_id = cs.subject_id
 LEFT JOIN courier_tasks ct ON ct.courier_id = cs.subject_id
 GROUP BY cs.subject_id;
+```
+
+### stores_mv
+
+Store details flattened from triples.
+
+```sql
+CREATE MATERIALIZED VIEW stores_mv IN CLUSTER compute AS
+SELECT
+  subject_id AS store_id,
+  MAX(CASE WHEN predicate = 'store_name' THEN object_value END) AS store_name,
+  MAX(CASE WHEN predicate = 'store_zone' THEN object_value END) AS store_zone,
+  MAX(CASE WHEN predicate = 'store_address' THEN object_value END) AS store_address,
+  MAX(CASE WHEN predicate = 'store_status' THEN object_value END) AS store_status,
+  MAX(CASE WHEN predicate = 'store_capacity_orders_per_hour' THEN object_value END)::INT AS store_capacity_orders_per_hour,
+  MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'store:%'
+GROUP BY subject_id;
+```
+
+### customers_mv
+
+Customer details flattened from triples.
+
+```sql
+CREATE MATERIALIZED VIEW customers_mv IN CLUSTER compute AS
+SELECT
+  subject_id AS customer_id,
+  MAX(CASE WHEN predicate = 'customer_name' THEN object_value END) AS customer_name,
+  MAX(CASE WHEN predicate = 'customer_email' THEN object_value END) AS customer_email,
+  MAX(CASE WHEN predicate = 'customer_address' THEN object_value END) AS customer_address,
+  MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'customer:%'
+GROUP BY subject_id;
 ```
 
 ### orders_search_source

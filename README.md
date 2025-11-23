@@ -432,8 +432,22 @@ UI → API → Materialize (serving cluster) → Indexed Materialized Views
 
 The architecture uses three clusters:
 - **ingest**: PostgreSQL source replication via CDC
-- **compute**: Materialized view computation
+- **compute**: Materialized view computation (pre-aggregates triples)
 - **serving**: Indexes for low-latency queries
+
+#### Materialized Views
+
+All FreshMart endpoints query precomputed, indexed materialized views - no on-the-fly aggregation:
+
+| API Endpoint | Materialized View | Index |
+|--------------|-------------------|-------|
+| `/freshmart/orders` | `orders_search_source_mv` | `orders_search_source_idx` |
+| `/freshmart/inventory` | `store_inventory_mv` | `store_inventory_idx` |
+| `/freshmart/couriers` | `courier_schedule_mv` | `courier_schedule_idx` |
+| `/freshmart/stores` | `stores_mv` | `stores_idx` |
+| `/freshmart/customers` | `customers_mv` | `customers_idx` |
+
+The materialized views flatten the triple store into denormalized structures in the **compute cluster**, then indexes in the **serving cluster** provide sub-millisecond lookups.
 
 To verify queries are hitting the serving cluster:
 ```bash
