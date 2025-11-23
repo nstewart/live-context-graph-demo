@@ -4,7 +4,7 @@ import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerI
 import { useZeroQuery } from '../hooks/useZeroQuery'
 import { useZeroContext } from '../contexts/ZeroContext'
 import { formatAmount } from '../test/utils'
-import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff } from 'lucide-react'
+import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: 'bg-blue-100 text-blue-800', icon: Package },
@@ -269,6 +269,8 @@ export default function OrdersDashboardPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState<OrderFlat | undefined>()
   const [deleteConfirm, setDeleteConfirm] = useState<OrderFlat | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 100
 
   // 🔥 ZERO WebSocket - Real-time orders data
   const { connected: zeroConnected } = useZeroContext()
@@ -412,6 +414,7 @@ export default function OrdersDashboardPage() {
     setDeleteConfirm(order)
   }
 
+  // Calculate stats from ALL orders (not paginated)
   const ordersByStatus =
     orders?.reduce(
       (acc, order) => {
@@ -422,6 +425,13 @@ export default function OrdersDashboardPage() {
       },
       {} as Record<string, OrderFlat[]>
     ) || {}
+
+  // Pagination calculations
+  const totalOrders = orders?.length || 0
+  const totalPages = Math.ceil(totalOrders / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedOrders = orders?.slice(startIndex, endIndex) || []
 
   return (
     <div className="p-6">
@@ -477,10 +487,81 @@ export default function OrdersDashboardPage() {
 
           {/* Orders grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {orders.map(order => (
+            {paginatedOrders.map(order => (
               <OrderCard key={order.order_id} order={order} onEdit={handleEdit} onDelete={handleDelete} />
             ))}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {startIndex + 1}-{Math.min(endIndex, totalOrders)} of {totalOrders} orders
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-1">
+                  {/* Show first page */}
+                  {currentPage > 3 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        className="px-3 py-1 border rounded hover:bg-gray-50"
+                      >
+                        1
+                      </button>
+                      <span className="px-2">...</span>
+                    </>
+                  )}
+
+                  {/* Show pages around current */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(page => page >= currentPage - 2 && page <= currentPage + 2)
+                    .map(page => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-1 border rounded ${
+                          page === currentPage
+                            ? 'bg-green-600 text-white'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+
+                  {/* Show last page */}
+                  {currentPage < totalPages - 2 && (
+                    <>
+                      <span className="px-2">...</span>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="px-3 py-1 border rounded hover:bg-gray-50"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 

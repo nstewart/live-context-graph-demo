@@ -126,7 +126,7 @@ export class MaterializeBackend {
     switch (viewName) {
       case "orders_flat_mv":
         return {
-          id: row.order_id,
+          order_id: row.order_id,
           order_number: row.order_number,
           order_status: row.order_status,
           store_id: row.store_id,
