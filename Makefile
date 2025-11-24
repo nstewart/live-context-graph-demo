@@ -1,4 +1,4 @@
-.PHONY: help setup up down logs clean migrate seed reset-db test lint
+.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz
 
 # Default target
 help:
@@ -7,9 +7,10 @@ help:
 	@echo ""
 	@echo "Setup & Run:"
 	@echo "  make setup      - Initial setup (copy .env, build containers)"
-	@echo "  make up         - Start all services"
-	@echo "  make up-agent   - Start all services including agent"
+	@echo "  make up         - Start all services and initialize Materialize"
+	@echo "  make up-agent   - Start all services (including agent) and initialize Materialize"
 	@echo "  make down       - Stop all services"
+	@echo "  make init-mz    - Initialize Materialize (sources, views, indexes)"
 	@echo "  make logs       - Tail logs from all services"
 	@echo "  make logs-api   - Tail logs from API service"
 	@echo ""
@@ -25,10 +26,11 @@ help:
 	@echo "  make lint       - Run linters"
 	@echo ""
 	@echo "Utilities:"
-	@echo "  make clean      - Remove all containers, volumes, and build artifacts"
-	@echo "  make shell-db   - Open psql shell to main database"
-	@echo "  make shell-mz   - Open psql shell to Materialize emulator"
-	@echo "  make shell-api  - Open bash shell in API container"
+	@echo "  make clean         - Remove all containers, volumes, and build artifacts"
+	@echo "  make clean-network - Remove persistent Docker network (use with caution)"
+	@echo "  make shell-db      - Open psql shell to main database"
+	@echo "  make shell-mz      - Open psql shell to Materialize emulator"
+	@echo "  make shell-api     - Open bash shell in API container"
 
 # Setup
 setup:
@@ -38,8 +40,17 @@ setup:
 	fi
 	docker-compose build
 
+# Initialize Materialize
+init-mz:
+	@echo "Initializing Materialize..."
+	@echo "Waiting for Materialize to be ready..."
+	@sleep 5
+	./db/materialize/init.sh
+	@echo "Materialize initialized successfully!"
+
 # Start services
 up:
+	@docker network create freshmart-network 2>/dev/null || true
 	docker-compose up -d
 	@echo ""
 	@echo "Services starting..."
@@ -48,10 +59,17 @@ up:
 	@echo "  - PostgreSQL: localhost:$${PG_PORT:-5432}"
 	@echo "  - OpenSearch: http://localhost:$${OS_PORT:-9200}"
 	@echo ""
-	@echo "Run 'make logs' to see service output"
+	@$(MAKE) init-mz
+	@echo ""
+	@echo "All services ready! Run 'make logs' to see service output"
 
 up-agent:
+	@docker network create freshmart-network 2>/dev/null || true
 	docker-compose --profile agent up -d
+	@echo ""
+	@$(MAKE) init-mz
+	@echo ""
+	@echo "All services ready (including agents)!"
 
 down:
 	docker-compose --profile agent down
@@ -106,6 +124,13 @@ clean:
 	rm -rf search-sync/__pycache__
 	rm -rf agents/__pycache__
 	rm -rf web/node_modules web/dist
+	@echo ""
+	@echo "Note: The 'freshmart-network' Docker network was not removed."
+	@echo "Run 'make clean-network' if you want to remove it as well."
+
+clean-network:
+	@echo "Removing persistent Docker network..."
+	docker network rm freshmart-network || true
 
 # Shell access
 shell-db:

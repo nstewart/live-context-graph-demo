@@ -20,8 +20,11 @@ cd freshmart-digital-twin-agent-starter
 cp .env.example .env
 # Edit .env to add your LLM API keys if using the agent
 
-# 3. Start all services
-docker-compose up -d
+# 3. Start all services (with Materialize auto-initialization)
+make up
+
+# Or start with agents included
+make up-agent
 
 # 4. Access the services
 # - Admin UI: http://localhost:5173
@@ -31,22 +34,31 @@ docker-compose up -d
 ```
 
 The system will automatically:
+- Create persistent Docker network
 - Run database migrations
 - Seed demo data (5 stores, 15 products, 15 customers, 20 orders)
+- Initialize Materialize (sources, views, indexes)
 - Sync orders to OpenSearch
+
+**Note:** `zero-server` and `search-sync` start immediately and automatically connect to Materialize when it's ready. You may see retry messages in the logs - this is normal during initialization. Services will be fully operational within 30 seconds.
 
 For load testing with larger datasets (~700K triples), see [Load Test Data Generation](#load-test-data-generation).
 
-### Initialize Materialize (First Run)
+### Using Docker Compose Directly
 
-After the first `docker-compose up`, initialize Materialize to set up the PostgreSQL source and views:
+If you prefer to use `docker-compose` directly instead of `make`:
 
 ```bash
-# Option 1: Run the init script from host (requires psql)
-./db/materialize/init.sh
+# Create persistent network
+docker network create freshmart-network
 
-# Option 2: Run from within the mz container
-docker-compose exec mz psql -U materialize -h localhost -p 6875 -f /init_materialize.sql
+# Start services
+docker-compose up -d
+# or with agents
+docker-compose --profile agent up -d
+
+# Initialize Materialize manually
+./db/materialize/init.sh
 ```
 
 You can verify the setup by visiting the Materialize Console at http://localhost:6874 and checking that sources and views exist.
@@ -112,6 +124,31 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 6. **UI Updates**: React components receive real-time updates and re-render automatically
 
 The Zero WebSocket server uses Materialize's `SUBSCRIBE` command with the `PROGRESS` option to receive differential updates (inserts/deletes) as they happen, providing sub-second latency for UI updates.
+
+### Automatic Reconnection & Resilience
+
+Both `zero-server` and `search-sync` services include automatic retry and reconnection logic:
+
+**Connection Retry:**
+- Services start even if Materialize isn't ready yet
+- Automatically retry connection every 30 seconds until successful
+- No manual intervention needed when Materialize is initializing
+
+**Stream Reconnection:**
+- If a SUBSCRIBE stream ends or errors, automatically reconnect
+- Handles network interruptions and Materialize restarts gracefully
+- Each view maintains its own reconnection loop independently
+
+**What this means:**
+- Start services in any order - they'll connect when ready
+- If Materialize restarts, services automatically reconnect
+- No need to manually restart `zero-server` or `search-sync`
+- Real-time updates continue flowing even after connection issues
+
+**Configuration:**
+- `zero-server`: Fixed 30-second retry delay per subscription
+- `search-sync`: Exponential backoff (1s → 2s → 4s → 8s → 16s → 30s max)
+  - Configurable via `RETRY_INITIAL_DELAY`, `RETRY_MAX_DELAY`, `RETRY_BACKOFF_MULTIPLIER`
 
 ### Real-Time Search Sync
 
@@ -337,10 +374,15 @@ OPENAI_API_KEY=sk-...
 ### Starting the Agent Service
 
 ```bash
-# Start with the agent profile
-docker-compose --profile agent up -d
+# Option 1: Using make (recommended - handles network and Materialize init)
+make up-agent
 
-# Check configuration
+# Option 2: Using docker-compose directly
+docker network create freshmart-network  # if not already created
+docker-compose --profile agent up -d
+./db/materialize/init.sh  # if not already initialized
+
+# Check agent configuration
 docker-compose exec agents python -m src.main check
 ```
 
@@ -381,6 +423,22 @@ curl -X POST http://localhost:8081/chat \
 
 ### Service Management
 
+Using **make** (recommended):
+```bash
+# Start all services with auto-initialization
+make up
+
+# Start with agents
+make up-agent
+
+# Stop all services (network persists)
+make down
+
+# View all available commands
+make help
+```
+
+Using **docker-compose** directly:
 ```bash
 # Restart the API service
 docker-compose restart api
@@ -391,11 +449,16 @@ docker-compose restart
 # Rebuild and restart API (after code changes)
 docker-compose up -d --build api
 
-# Stop all services
+# Stop all services (network persists)
 docker-compose down
 
-# Stop and remove volumes (full reset)
+# Stop and remove volumes (full reset, network still persists)
 docker-compose down -v
+
+# To also remove the persistent network
+make clean-network
+# or
+docker network rm freshmart-network
 ```
 
 ### Viewing Logs
@@ -543,6 +606,14 @@ docker-compose logs -f search-sync | grep "SUBSCRIBE"
 # Expected healthy output:
 # "Starting SUBSCRIBE for view: orders_search_source_mv"
 # "Broadcasting N changes for orders_search_source_mv"
+
+# View zero-server logs for SUBSCRIBE activity
+docker-compose logs -f zero-server | grep -E "Starting SUBSCRIBE|Broadcasting"
+
+# Expected healthy output:
+# "[orders_flat_mv] Starting SUBSCRIBE (attempt 1)..."
+# "[orders_flat_mv] Connected, setting up SUBSCRIBE stream..."
+# "[orders_flat_mv] Broadcasting N changes"
 ```
 
 #### Verify Sync Latency
@@ -562,13 +633,24 @@ docker-compose logs --tail=50 search-sync | grep "Broadcasting"
 
 **SUBSCRIBE Connection Failures**:
 ```bash
-# Symptom: "Connection refused" or "Failed to connect to Materialize"
-# Solution: Verify Materialize is running and accessible
-docker-compose ps mz
-PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c "SELECT 1;"
+# Symptom: "Connection refused" or "unknown catalog item 'orders_search_source_mv'"
+# These are automatically retried - services will reconnect when Materialize is ready
 
-# Restart search-sync with exponential backoff retry
-docker-compose restart search-sync
+# Check if Materialize is running
+docker-compose ps mz
+
+# Check if views exist (if "unknown catalog item" error)
+PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -d materialize \
+  -c "SET CLUSTER = serving; SHOW MATERIALIZED VIEWS;"
+
+# If views missing, initialize Materialize
+make init-mz
+
+# Watch automatic retry attempts
+docker-compose logs -f search-sync | grep "Retrying"
+docker-compose logs -f zero-server | grep "Retrying"
+
+# Services will auto-connect within 30 seconds - no restart needed!
 ```
 
 **High Sync Latency (> 5 seconds)**:

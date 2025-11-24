@@ -225,42 +225,74 @@ export class ZeroServer {
   }
 
   async start(): Promise<void> {
-    // Connect to Materialize
-    await this.mzBackend.connect();
-
-    // Start HTTP server FIRST (don't block on subscriptions)
+    // Start HTTP server FIRST (even before Materialize is ready)
     this.httpServer.listen(this.config.port, () => {
       console.log(`Zero Server listening on port ${this.config.port}`);
       console.log(`WebSocket endpoint: ws://localhost:${this.config.port}`);
       console.log(`Monitoring collections: ${this.config.collections.join(", ")}`);
     });
 
-    // Subscribe to all configured collections for real-time updates
-    console.log('Setting up real-time TAIL subscriptions...');
-    for (const collection of this.config.collections) {
-      const viewName = this.getViewName(collection);
-      console.log(`Starting TAIL for ${collection} (${viewName})`);
+    // Connect to Materialize with retry logic
+    await this.connectWithRetry();
+  }
 
+  private async connectWithRetry(): Promise<void> {
+    const RETRY_DELAY_MS = 30000; // 30 seconds
+    let attempt = 0;
+
+    while (true) {
+      attempt++;
       try {
-        await this.mzBackend.subscribeToView(viewName, (changes) => {
-          console.log(`Broadcasting ${changes.length} changes for ${collection}`);
+        console.log(`Connecting to Materialize (attempt ${attempt})...`);
+        await this.mzBackend.connect();
+        console.log('✅ Connected to Materialize');
 
-          // CRITICAL FIX: Update collection names to match frontend subscription
-          // Backend sends "orders_flat_mv", frontend expects "orders"
-          const normalizedChanges = changes.map(change => ({
-            ...change,
-            collection: collection, // Replace viewName with frontend collection name
-          }));
+        // Subscribe to all configured collections for real-time updates
+        console.log('Setting up real-time SUBSCRIBE subscriptions...');
+        for (const collection of this.config.collections) {
+          const viewName = this.getViewName(collection);
+          console.log(`Starting SUBSCRIBE for ${collection} (${viewName})`);
 
-          this.broadcastChanges(collection, normalizedChanges);
-        });
-        console.log(`✅ TAIL subscription active for ${collection}`);
+          try {
+            await this.mzBackend.subscribeToView(viewName, (changes) => {
+              console.log(`Broadcasting ${changes.length} changes for ${collection}`);
+
+              // CRITICAL FIX: Update collection names to match frontend subscription
+              // Backend sends "orders_flat_mv", frontend expects "orders"
+              const normalizedChanges = changes.map(change => ({
+                ...change,
+                collection: collection, // Replace viewName with frontend collection name
+              }));
+
+              this.broadcastChanges(collection, normalizedChanges);
+            });
+            console.log(`✅ SUBSCRIBE subscription active for ${collection}`);
+          } catch (error) {
+            console.error(`❌ Failed to start SUBSCRIBE for ${collection}:`, error);
+            throw error; // Trigger retry for all collections
+          }
+        }
+
+        console.log('✅ Real-time streaming enabled for all collections');
+        return; // Success, exit retry loop
+
       } catch (error) {
-        console.error(`❌ Failed to start TAIL for ${collection}:`, error);
+        console.error(`❌ Failed to connect to Materialize (attempt ${attempt}):`, error);
+
+        // Clean up any partial connections before retrying
+        try {
+          console.log('Cleaning up connections before retry...');
+          await this.mzBackend.disconnect();
+        } catch (disconnectError) {
+          console.error('Error during cleanup (ignored):', disconnectError);
+        }
+
+        console.log(`Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
       }
     }
-
-    console.log('Real-time streaming enabled for all collections');
   }
 
   async stop(): Promise<void> {

@@ -214,3 +214,8 @@ services:
 volumes:
   postgres_data:
   opensearch_data:
+
+networks:
+  default:
+    name: freshmart-network
+    external: true

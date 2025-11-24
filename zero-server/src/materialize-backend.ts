@@ -25,6 +25,8 @@ export class MaterializeBackend {
   private client: Client;
   private tailClients: Map<string, Client> = new Map();
   private config: MaterializeConfig;
+  private subscriptionShutdown: Map<string, () => void> = new Map();
+  private isShuttingDown: boolean = false;
 
   constructor(config: MaterializeConfig) {
     this.config = config;
@@ -45,6 +47,16 @@ export class MaterializeBackend {
   }
 
   async disconnect(): Promise<void> {
+    console.log("Shutting down Materialize backend...");
+    this.isShuttingDown = true;
+
+    // Stop all active subscriptions
+    for (const [viewName, shutdown] of this.subscriptionShutdown.entries()) {
+      console.log(`Stopping subscription for ${viewName}`);
+      shutdown();
+    }
+    this.subscriptionShutdown.clear();
+
     // Stop all TAIL subscriptions
     for (const [collection, client] of this.tailClients.entries()) {
       try {
@@ -69,48 +81,81 @@ export class MaterializeBackend {
     viewName: string,
     callback: (changes: ChangeEvent[]) => void
   ): Promise<void> {
-    // Create a dedicated client for this SUBSCRIBE operation
-    const subscribeClient = new Client({
-      host: this.config.host,
-      port: this.config.port,
-      user: this.config.user,
-      password: this.config.password,
-      database: this.config.database,
-    });
+    // Start the subscription with automatic reconnection
+    this.maintainSubscription(viewName, callback);
+  }
 
-    await subscribeClient.connect();
+  /**
+   * Maintain a SUBSCRIBE subscription with automatic reconnection
+   */
+  private async maintainSubscription(
+    viewName: string,
+    callback: (changes: ChangeEvent[]) => void
+  ): Promise<void> {
+    const RETRY_DELAY_MS = 30000; // 30 seconds
+    let attempt = 0;
+    let currentClient: Client | null = null;
 
-    // Set cluster to 'serving' where the indexed views are located
-    await subscribeClient.query('SET CLUSTER = serving;');
-    console.log(`Starting SUBSCRIBE for view: ${viewName} on serving cluster`);
-
-    // SUBSCRIBE TO with PROGRESS option for continuous timestamp updates
-    // PROGRESS ensures we get updates even when there are no data changes
-    // Use batchSize=1 and highWaterMark=0 for immediate delivery with no buffering
-    const subscribeQuery = new QueryStream(
-      `SUBSCRIBE TO (SELECT * FROM ${viewName}) WITH (PROGRESS)`,
-      [],
-      { batchSize: 1, highWaterMark: 0 }
-    );
-
-    // Execute the streaming query
-    const stream = subscribeClient.query(subscribeQuery);
-
-    // Track progress by timestamp - when timestamp advances, broadcast accumulated changes
-    let lastProgress: string | null = null;
-    let pendingChanges: Map<string, ChangeEvent> = new Map(); // id -> consolidated event
-    let rowCount = 0;
-    let isSnapshot = true;
-    let snapshotTimer: NodeJS.Timeout | null = null;
-
-    const broadcastPending = () => {
-      if (pendingChanges.size > 0) {
-        const changes = Array.from(pendingChanges.values());
-        console.log(`Broadcasting ${changes.length} changes for ${viewName}`);
-        callback(changes);
-        pendingChanges.clear();
+    // Register shutdown handler
+    const shutdownHandler = () => {
+      console.log(`[${viewName}] Shutdown requested`);
+      if (currentClient) {
+        currentClient.end().catch(() => {});
       }
     };
+    this.subscriptionShutdown.set(viewName, shutdownHandler);
+
+    while (!this.isShuttingDown) {
+      attempt++;
+      let subscribeClient: Client | null = null;
+
+      try {
+        console.log(`[${viewName}] Starting SUBSCRIBE (attempt ${attempt})...`);
+
+        // Create a dedicated client for this SUBSCRIBE operation
+        subscribeClient = new Client({
+          host: this.config.host,
+          port: this.config.port,
+          user: this.config.user,
+          password: this.config.password,
+          database: this.config.database,
+        });
+        currentClient = subscribeClient; // Track for shutdown
+
+        await subscribeClient.connect();
+
+        // Set cluster to 'serving' where the indexed views are located
+        await subscribeClient.query('SET CLUSTER = serving;');
+        console.log(`[${viewName}] Connected, setting up SUBSCRIBE stream...`);
+
+        // SUBSCRIBE TO with PROGRESS option for continuous timestamp updates
+        // PROGRESS ensures we get updates even when there are no data changes
+        // Use batchSize=1 and highWaterMark=0 for immediate delivery with no buffering
+        const subscribeQuery = new QueryStream(
+          `SUBSCRIBE TO (SELECT * FROM ${viewName}) WITH (PROGRESS)`,
+          [],
+          { batchSize: 1, highWaterMark: 0 }
+        );
+
+        // Execute the streaming query
+        const stream = subscribeClient.query(subscribeQuery);
+
+        // Track progress by timestamp - when timestamp advances, broadcast accumulated changes
+        let lastProgress: string | null = null;
+        let pendingChanges: Map<string, ChangeEvent> = new Map(); // id -> consolidated event
+        let rowCount = 0;
+        let isSnapshot = true;
+        let snapshotTimer: NodeJS.Timeout | null = null;
+        let streamEnded = false;
+
+        const broadcastPending = () => {
+          if (pendingChanges.size > 0) {
+            const changes = Array.from(pendingChanges.values());
+            console.log(`[${viewName}] Broadcasting ${changes.length} changes`);
+            callback(changes);
+            pendingChanges.clear();
+          }
+        };
 
     // Handle rows as they stream in
     stream.on('data', (row: any) => {
@@ -229,22 +274,59 @@ export class MaterializeBackend {
       }
     });
 
-    stream.on('end', () => {
-      console.log(`${viewName}: Stream ended, processed ${rowCount} rows`);
-      if (snapshotTimer) clearTimeout(snapshotTimer);
-      broadcastPending();
-    });
+        // Wait for stream to end (will reconnect on end or error)
+        await new Promise<void>((resolve, reject) => {
+          stream.on('end', () => {
+            if (!streamEnded) {
+              streamEnded = true;
+              console.log(`[${viewName}] Stream ended, processed ${rowCount} rows`);
+              if (snapshotTimer) clearTimeout(snapshotTimer);
+              broadcastPending();
+              resolve(); // Trigger reconnection
+            }
+          });
 
-    stream.on('error', (error: Error) => {
-      console.error(`SUBSCRIBE error for ${viewName}:`, error);
-    });
+          stream.on('error', (error: Error) => {
+            if (!streamEnded) {
+              streamEnded = true;
+              console.error(`[${viewName}] SUBSCRIBE error:`, error);
+              reject(error); // Trigger reconnection
+            }
+          });
+        });
 
-    stream.on('end', () => {
-      console.log(`SUBSCRIBE ended for ${viewName}`);
-    });
+        // If we get here, stream ended normally
+        console.log(`[${viewName}] SUBSCRIBE stream closed`);
 
-    this.tailClients.set(viewName, subscribeClient);
-    console.log(`✅ SUBSCRIBE active for ${viewName}`);
+      } catch (error) {
+        if (this.isShuttingDown) {
+          console.log(`[${viewName}] Stopped due to shutdown`);
+          break;
+        }
+
+        console.error(`[${viewName}] Error in SUBSCRIBE (attempt ${attempt}):`, error);
+
+        // Clean up client
+        if (subscribeClient) {
+          try {
+            await subscribeClient.end();
+          } catch (cleanupError) {
+            console.error(`[${viewName}] Error cleaning up client:`, cleanupError);
+          }
+        }
+        currentClient = null;
+
+        // Wait before retrying
+        if (!this.isShuttingDown) {
+          console.log(`[${viewName}] Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+      }
+    }
+
+    // Cleanup
+    this.subscriptionShutdown.delete(viewName);
+    console.log(`[${viewName}] Subscription maintenance stopped`);
   }
 
   /**
