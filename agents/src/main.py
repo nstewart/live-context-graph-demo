@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+import uuid
 
 import typer
 from rich.console import Console
@@ -24,7 +25,10 @@ console = Console()
 
 
 @app.command()
-def chat(message: str = typer.Argument(None, help="Message to send to the assistant")):
+def chat(
+    message: str = typer.Argument(None, help="Message to send to the assistant"),
+    thread_id: str = typer.Option(None, "--thread-id", "-t", help="Conversation thread ID for memory persistence"),
+):
     """
     Chat with the FreshMart Operations Assistant.
 
@@ -32,12 +36,20 @@ def chat(message: str = typer.Argument(None, help="Message to send to the assist
         python -m src.main "Show all OUT_FOR_DELIVERY orders"
         python -m src.main "Find orders for customer Alex"
         python -m src.main "Mark order FM-1001 as DELIVERED"
+
+        # Continue a conversation:
+        python -m src.main --thread-id my-session "Find orders for Lisa"
+        python -m src.main --thread-id my-session "Show me her orders"
     """
     if not message:
-        # Interactive mode with persistent event loop
+        # Interactive mode with persistent event loop and session memory
+        # Generate a unique thread_id for this interactive session
+        session_thread_id = thread_id or f"session-{uuid.uuid4().hex[:8]}"
+
         console.print(Panel.fit(
             "[bold green]FreshMart Operations Assistant[/bold green]\n"
             "Type your questions about orders, stores, and couriers.\n"
+            f"Session ID: [cyan]{session_thread_id}[/cyan]\n"
             "Type 'quit' or 'exit' to leave.",
             title="Welcome",
         ))
@@ -54,7 +66,7 @@ def chat(message: str = typer.Argument(None, help="Message to send to the assist
                         continue
 
                     with console.status("[bold green]Thinking..."):
-                        response = await run_assistant(user_input)
+                        response = await run_assistant(user_input, thread_id=session_thread_id)
 
                     console.print("\n[bold green]Assistant:[/bold green]")
                     console.print(Markdown(response))
@@ -72,9 +84,12 @@ def chat(message: str = typer.Argument(None, help="Message to send to the assist
             console.print("\n[yellow]Goodbye![/yellow]")
     else:
         # Single message mode
+        # Use provided thread_id or generate a one-time ID
+        msg_thread_id = thread_id or f"oneshot-{uuid.uuid4().hex[:8]}"
+
         try:
             with console.status("[bold green]Processing..."):
-                response = asyncio.run(run_assistant(message))
+                response = asyncio.run(run_assistant(message, thread_id=msg_thread_id))
 
             console.print(Panel(Markdown(response), title="Response"))
 
@@ -137,6 +152,8 @@ def serve(
                 try:
                     data = json.loads(body)
                     message = data.get("message", "")
+                    thread_id = data.get("thread_id", f"api-{uuid.uuid4().hex[:8]}")
+
                     if not message:
                         self.send_response(400)
                         self.send_header("Content-type", "application/json")
@@ -144,11 +161,14 @@ def serve(
                         self.wfile.write(json.dumps({"error": "message required"}).encode())
                         return
 
-                    response = asyncio.run(run_assistant(message))
+                    response = asyncio.run(run_assistant(message, thread_id=thread_id))
                     self.send_response(200)
                     self.send_header("Content-type", "application/json")
                     self.end_headers()
-                    self.wfile.write(json.dumps({"response": response}).encode())
+                    self.wfile.write(json.dumps({
+                        "response": response,
+                        "thread_id": thread_id
+                    }).encode())
 
                 except Exception as e:
                     self.send_response(500)

@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz
+.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer
 
 # Default target
 help:
@@ -15,9 +15,10 @@ help:
 	@echo "  make logs-api   - Tail logs from API service"
 	@echo ""
 	@echo "Database:"
-	@echo "  make migrate    - Run database migrations"
-	@echo "  make seed       - Seed demo data"
-	@echo "  make reset-db   - Reset database (WARNING: destroys data)"
+	@echo "  make migrate         - Run database migrations"
+	@echo "  make seed            - Seed demo data"
+	@echo "  make reset-db        - Reset database (WARNING: destroys data)"
+	@echo "  make init-checkpointer - Initialize agent checkpointer tables"
 	@echo ""
 	@echo "Development:"
 	@echo "  make test       - Run all tests"
@@ -48,6 +49,11 @@ init-mz:
 	./db/materialize/init.sh
 	@echo "Materialize initialized successfully!"
 
+# Initialize Agent Checkpointer
+init-checkpointer:
+	@echo "Initializing agent checkpointer tables..."
+	docker-compose exec agents python -m src.init_checkpointer
+
 # Start services
 up:
 	@docker network create freshmart-network 2>/dev/null || true
@@ -67,7 +73,12 @@ up-agent:
 	@docker network create freshmart-network 2>/dev/null || true
 	docker-compose --profile agent up -d
 	@echo ""
+	@echo "Waiting for services to be ready..."
+	@sleep 3
 	@$(MAKE) init-mz
+	@echo ""
+	@echo "Initializing agent checkpointer..."
+	@docker-compose exec agents python -m src.init_checkpointer
 	@echo ""
 	@echo "All services ready (including agents)!"
 

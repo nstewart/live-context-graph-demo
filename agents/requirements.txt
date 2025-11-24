@@ -1,5 +1,6 @@
 # LangGraph & LLM
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
 langchain-core>=0.2.0,<0.4
 langchain-openai>=0.1.0
 langchain-anthropic>=0.1.0
@@ -11,6 +12,7 @@ aiohttp==3.9.3
 # Database
 asyncpg==0.29.0
 sqlalchemy[asyncio]==2.0.25
+psycopg[binary]>=3.2.0  # Required for langgraph-checkpoint-postgres
 
 # OpenSearch
 opensearch-py==2.4.2

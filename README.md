@@ -485,6 +485,7 @@ The LangGraph-powered ops assistant can:
 - Fetch detailed order context
 - Update order status
 - Query the ontology
+- **Remember conversation context** across multiple messages using PostgreSQL-backed checkpointing
 
 ### Prerequisites
 
@@ -501,35 +502,58 @@ OPENAI_API_KEY=sk-...
 ### Starting the Agent Service
 
 ```bash
-# Option 1: Using make (recommended - handles network and Materialize init)
+# Option 1: Using make (recommended - handles network, Materialize, and checkpointer init)
 make up-agent
 
 # Option 2: Using docker-compose directly
 docker network create freshmart-network  # if not already created
 docker-compose --profile agent up -d
 ./db/materialize/init.sh  # if not already initialized
+docker-compose exec agents python -m src.init_checkpointer  # initialize conversation memory
 
 # Check agent configuration
 docker-compose exec agents python -m src.main check
 ```
 
+**Note:** `make up-agent` automatically:
+- Starts all services including the agent
+- Initializes Materialize sources and views
+- Creates PostgreSQL checkpointer tables for conversation memory
+
 ### Interactive Mode
 
 ```bash
-# Start interactive chat
+# Start interactive chat (creates a unique session with memory)
 docker-compose exec -it agents python -m src.main chat
 
-# Example queries:
-> Show all OUT_FOR_DELIVERY orders
-> Find orders for customer Alex Thompson
+# Example conversation with memory:
+> Find orders for Lisa
+Assistant: I found 2 orders for customers named Lisa...
+
+> Show me her orders that are out for delivery
+Assistant: Based on the previous search for Lisa, here are her OUT_FOR_DELIVERY orders...
+
 > Mark order FM-1001 as DELIVERED
-> What's the status of order FM-1002?
+Assistant: I'll update order FM-1001 to DELIVERED status...
+
+> What's the status now?
+Assistant: Order FM-1001 is now DELIVERED (referring to the order just updated)
 ```
+
+**Memory Features:**
+- Each interactive session maintains a unique `thread_id` displayed on startup
+- All messages in the session share conversation history
+- The agent remembers context for follow-up questions ("her orders", "that order", "the status now")
 
 ### Single Command
 
 ```bash
+# Single query (creates a one-time thread_id)
 docker-compose exec agents python -m src.main chat "Show all orders at BK-01 that are out for delivery"
+
+# Continue a conversation across multiple commands with --thread-id
+docker-compose exec agents python -m src.main chat --thread-id my-session "Find orders for Lisa"
+docker-compose exec agents python -m src.main chat --thread-id my-session "Show me her orders"
 ```
 
 ### HTTP API
@@ -540,10 +564,33 @@ The agent also exposes an HTTP API on port 8081:
 # Health check
 curl http://localhost:8081/health
 
-# Chat with the agent
+# Chat with the agent (thread_id generated automatically)
 curl -X POST http://localhost:8081/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Show all OUT_FOR_DELIVERY orders"}'
+
+# Continue a conversation by providing thread_id
+curl -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Find orders for Lisa",
+    "thread_id": "user-123-session"
+  }'
+
+curl -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Show me her orders",
+    "thread_id": "user-123-session"
+  }'
+```
+
+The API response includes the `thread_id` for continuing the conversation:
+```json
+{
+  "response": "I found 2 orders for Lisa...",
+  "thread_id": "user-123-session"
+}
 ```
 
 ## Operations

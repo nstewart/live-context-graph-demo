@@ -10,6 +10,8 @@ The FreshMart Operations Assistant is an AI agent that helps operations staff:
 - Update order status
 - Query the knowledge graph structure
 
+**New: Conversational Memory** - The agent now maintains context across multiple messages within a conversation using PostgreSQL-backed checkpointing. This means you can ask follow-up questions like "show me her orders" after asking about a specific customer.
+
 ## Architecture
 
 ```
@@ -20,8 +22,15 @@ The FreshMart Operations Assistant is an AI agent that helps operations staff:
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
+│               PostgreSQL Checkpointer (Memory)                   │
+│  • Load conversation history for thread_id                       │
+│  • Restore previous context and messages                         │
+└─────────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                    Agent Node (LLM)                              │
-│  1. Understand request                                           │
+│  1. Understand request with full conversation context           │
 │  2. Select appropriate tool(s)                                   │
 │  3. Generate tool call parameters                                │
 └─────────────────────────────────┬───────────────────────────────┘
@@ -43,11 +52,33 @@ The FreshMart Operations Assistant is an AI agent that helps operations staff:
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
+│               PostgreSQL Checkpointer (Memory)                   │
+│  • Save updated conversation state                               │
+│  • Persist for future requests in this thread                    │
+└─────────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                    Response                                      │
 │  "I found 2 orders for customers named Alex that are out        │
 │   for delivery: FM-1002 and FM-1013..."                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Conversational Memory
+
+The agent uses **LangGraph checkpointing** with PostgreSQL to maintain conversation history:
+
+- **Thread-based isolation**: Each conversation has a unique `thread_id`
+- **Automatic persistence**: State is saved after every turn
+- **Context retention**: Follow-up questions work naturally (e.g., "show me her orders")
+- **Multi-user support**: Different thread IDs keep conversations separate
+- **Session continuity**: Interactive sessions maintain a single thread throughout
+
+The checkpointer stores:
+- Complete message history (user messages, AI responses, tool calls, tool results)
+- Conversation state (iteration count, intermediate data)
+- Thread metadata for retrieval
 
 ## Tools
 
@@ -120,15 +151,18 @@ results = await write_triples([
 ### CLI - Interactive Mode
 
 ```bash
-# Start the agent service
-docker-compose --profile agent up -d
+# Start the agent service (includes checkpointer initialization)
+make up-agent
 
-# Start interactive chat
+# Start interactive chat (creates a unique session with memory)
 docker-compose exec -it agents python -m src.main chat
 
-# Example conversation
-You: Show all orders that are out for delivery
-Assistant: I found 4 orders currently out for delivery...
+# Example conversation with memory
+You: Find orders for Lisa
+Assistant: I found 2 orders for customers named Lisa...
+
+You: Show me her orders that are out for delivery
+Assistant: Based on the previous search for Lisa, here are her OUT_FOR_DELIVERY orders...
 
 You: What's the status of order FM-1002?
 Assistant: Order FM-1002 is OUT_FOR_DELIVERY...
@@ -137,11 +171,20 @@ You: Mark that order as delivered
 Assistant: I'll update order FM-1002 to DELIVERED...
 ```
 
+**Memory Features:**
+- Each interactive session gets a unique `thread_id` displayed on startup
+- All messages in that session share the same conversation history
+- Context is maintained for follow-up questions and pronouns ("her", "that order", etc.)
+
 ### CLI - Single Command
 
 ```bash
-# Run a single query
+# Run a single query (creates a one-time thread_id)
 docker-compose exec agents python -m src.main chat "Show all orders for customer Alex Thompson"
+
+# Continue a conversation across multiple commands with --thread-id
+docker-compose exec agents python -m src.main chat --thread-id my-session "Find orders for Lisa"
+docker-compose exec agents python -m src.main chat --thread-id my-session "Show me her orders"
 ```
 
 ### HTTP API
@@ -152,10 +195,33 @@ The agent service exposes an HTTP API on port 8081:
 # Health check
 curl http://localhost:8081/health
 
-# Chat with the agent
+# Chat with the agent (new thread_id generated automatically)
 curl -X POST http://localhost:8081/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Show all OUT_FOR_DELIVERY orders"}'
+
+# Continue a conversation by providing thread_id
+curl -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Find orders for Lisa",
+    "thread_id": "user-123-session"
+  }'
+
+curl -X POST http://localhost:8081/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Show me her orders",
+    "thread_id": "user-123-session"
+  }'
+```
+
+**API Response includes thread_id:**
+```json
+{
+  "response": "I found 2 orders for Lisa...",
+  "thread_id": "user-123-session"
+}
 ```
 
 ### Programmatic Usage
@@ -163,8 +229,17 @@ curl -X POST http://localhost:8081/chat \
 ```python
 from src.graphs.ops_assistant_graph import run_assistant
 
+# Single query (one-time thread)
 response = await run_assistant("Find orders at risk of missing their delivery window")
 print(response)
+
+# Multi-turn conversation with memory
+thread_id = "user-456-session"
+response1 = await run_assistant("Find orders for Lisa", thread_id=thread_id)
+print(response1)
+
+response2 = await run_assistant("Show me her orders", thread_id=thread_id)
+print(response2)  # Agent remembers Lisa from previous message
 ```
 
 ## Example Queries
@@ -299,6 +374,8 @@ The agent includes safety measures:
 2. **Validation**: Triple writes validated against ontology
 3. **Confirmation**: Destructive actions require explicit confirmation
 4. **Timeouts**: HTTP requests timeout after 10 seconds
+5. **Memory isolation**: Conversations are isolated by thread_id
+6. **Persistent storage**: Conversation history stored in PostgreSQL
 
 ## Debugging
 
@@ -317,3 +394,29 @@ docker-compose exec agents python -m src.main check
 ### Trace Tool Calls
 
 The agent logs all tool calls and results when `LOG_LEVEL=DEBUG`.
+
+### Inspect Conversation History
+
+Connect to PostgreSQL to view stored checkpoints:
+
+```bash
+make shell-db
+
+# List checkpoint tables
+\dt checkpoints*
+
+# View recent conversations
+SELECT DISTINCT thread_id, MAX(checkpoint_id) as last_checkpoint
+FROM checkpoints
+GROUP BY thread_id
+ORDER BY MAX(checkpoint_id) DESC
+LIMIT 10;
+```
+
+### Reinitialize Checkpointer Tables
+
+If you need to reset conversation memory:
+
+```bash
+make init-checkpointer
+```

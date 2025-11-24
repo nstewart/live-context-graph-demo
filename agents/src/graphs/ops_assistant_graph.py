@@ -2,9 +2,10 @@
 
 import json
 import operator
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -134,9 +135,8 @@ def should_continue(state: AgentState) -> Literal["tools", "end"]:
     return "end"
 
 
-def create_ops_assistant() -> StateGraph:
-    """Create and compile the ops assistant graph."""
-    # Build graph
+def create_workflow() -> StateGraph:
+    """Create the agent workflow (without compiling)."""
     workflow = StateGraph(AgentState)
 
     # Add nodes
@@ -159,32 +159,41 @@ def create_ops_assistant() -> StateGraph:
     # Loop back after tools
     workflow.add_edge("tools", "agent")
 
-    # Compile
-    return workflow.compile()
+    return workflow
 
 
-async def run_assistant(user_message: str) -> str:
+async def run_assistant(user_message: str, thread_id: str = "default") -> str:
     """
     Run the ops assistant with a user message.
 
     Args:
         user_message: Natural language request
+        thread_id: Conversation thread ID for memory persistence (default: "default")
 
     Returns:
         Assistant's final response
     """
-    graph = create_ops_assistant()
+    settings = get_settings()
 
-    initial_state: AgentState = {
-        "messages": [HumanMessage(content=user_message)],
-        "iteration": 0,
-    }
+    # Use async checkpointer as a context manager
+    async with AsyncPostgresSaver.from_conn_string(settings.pg_dsn) as checkpointer:
+        # Create workflow and compile with checkpointer
+        workflow = create_workflow()
+        graph = workflow.compile(checkpointer=checkpointer)
 
-    final_state = await graph.ainvoke(initial_state)
+        # Config with thread_id for conversation memory
+        config = {"configurable": {"thread_id": thread_id}}
 
-    # Get final AI response
-    for msg in reversed(final_state["messages"]):
-        if isinstance(msg, AIMessage) and msg.content:
-            return msg.content
+        initial_state: AgentState = {
+            "messages": [HumanMessage(content=user_message)],
+            "iteration": 0,
+        }
 
-    return "I couldn't complete that request."
+        final_state = await graph.ainvoke(initial_state, config)
+
+        # Get final AI response
+        for msg in reversed(final_state["messages"]):
+            if isinstance(msg, AIMessage) and msg.content:
+                return msg.content
+
+        return "I couldn't complete that request."
