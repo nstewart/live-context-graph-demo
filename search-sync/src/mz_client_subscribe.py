@@ -331,6 +331,24 @@ class MaterializeSubscribeClient:
                     # Data row
                     row_count += 1
 
+                    # CRITICAL: Check if timestamp changed BEFORE adding this event
+                    # This broadcasts the PREVIOUS timestamp's events before starting the new batch
+                    # This prevents broadcasting the current event before all events at its timestamp arrive
+                    if last_timestamp is not None and current_timestamp != last_timestamp:
+                        if is_snapshot:
+                            logger.info(
+                                f"Snapshot complete for {view_name}: {row_count} rows "
+                                f"(discarding as per zero-server pattern)"
+                            )
+                            is_snapshot = False
+                            pending_events = []  # Discard snapshot
+                        elif pending_events:
+                            logger.info(
+                                f"Broadcasting {len(pending_events)} changes from PREVIOUS timestamp for {view_name}"
+                            )
+                            await callback(pending_events)
+                            pending_events = []
+
                     # Parse row data (structure depends on view schema)
                     data = self._parse_row_data(row, view_name)
                     event = SubscribeEvent(current_timestamp, diff, data)
@@ -344,23 +362,6 @@ class MaterializeSubscribeClient:
                     )
 
                     pending_events.append(event)
-
-                    # Timestamp advanced - flush events
-                    if last_timestamp is not None and current_timestamp != last_timestamp:
-                        if is_snapshot:
-                            logger.info(
-                                f"Snapshot complete for {view_name}: {row_count} rows "
-                                f"(discarding as per zero-server pattern)"
-                            )
-                            is_snapshot = False
-                            pending_events = []  # Discard snapshot
-                        else:
-                            logger.info(
-                                f"Broadcasting {len(pending_events)} changes for {view_name}"
-                            )
-                            await callback(pending_events)
-                            pending_events = []
-
                     last_timestamp = current_timestamp
 
                 except Exception as e:
