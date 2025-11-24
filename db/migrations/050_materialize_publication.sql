@@ -5,6 +5,8 @@
 ALTER TABLE triples REPLICA IDENTITY FULL;
 
 -- Create publication for Materialize source
-CREATE PUBLICATION IF NOT EXISTS mz_source FOR TABLE triples;
+-- Note: DROP first to ensure clean state on re-runs
+DROP PUBLICATION IF EXISTS mz_source;
+CREATE PUBLICATION mz_source FOR TABLE triples;
 
 -- Note: wal_level=logical is set via docker-compose command args
