@@ -55,9 +55,9 @@ The system implements a **knowledge graph** architecture for representing FreshM
 1. Client sends triple to API
 2. API validates against ontology
 3. Triple inserted into PostgreSQL
-4. Materialize views auto-refresh (via trigger or poll)
-5. Search sync worker polls Materialize
-6. Documents upserted to OpenSearch
+4. Materialize views auto-refresh via CDC (Change Data Capture)
+5. SUBSCRIBE streams differential updates to Zero and Search Sync workers
+6. Documents upserted to OpenSearch with event consolidation
 
 ### Read Path (Operational)
 
@@ -70,6 +70,26 @@ The system implements a **knowledge graph** architecture for representing FreshM
 1. Client searches for orders
 2. Query sent to OpenSearch
 3. Matching documents returned with scores
+
+### SUBSCRIBE Event Consolidation
+
+Both Zero WebSocket Server and Search Sync Worker implement a critical event consolidation pattern to handle Materialize UPDATE operations correctly:
+
+**The Challenge**: Materialize emits UPDATEs as DELETE (diff=-1) + INSERT (diff=+1) pairs at the **same timestamp**. Broadcasting these separately causes records to disappear temporarily from Zero cache and OpenSearch.
+
+**The Solution**: Events are accumulated by timestamp and only broadcast when the timestamp **increases** (not just changes). The timestamp check happens **before** adding events to the batch, ensuring all events at timestamp X are consolidated before broadcasting.
+
+**Key Implementation Points**:
+- Check: `if (timestamp > lastTimestamp)` not `if (timestamp != lastTimestamp)`
+- Order: Check timestamp advancement BEFORE adding event to pending batch
+- Result: DELETE + INSERT at same timestamp → consolidated into single UPDATE operation
+
+**Files**:
+- `zero-server/src/materialize-backend.ts:147-161` (TypeScript implementation)
+- `search-sync/src/mz_client_subscribe.py:334-350` (Python implementation)
+- `search-sync/tests/test_subscribe_consolidation.py` (Consolidation tests)
+
+This pattern ensures consistency across all downstream systems and prevents spurious deletes during status updates.
 
 ## Service Responsibilities
 

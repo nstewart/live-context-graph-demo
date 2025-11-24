@@ -98,16 +98,17 @@ export class MaterializeBackend {
 
     // Track progress by timestamp - when timestamp advances, broadcast accumulated changes
     let lastProgress: string | null = null;
-    let pendingChanges: ChangeEvent[] = [];
+    let pendingChanges: Map<string, ChangeEvent> = new Map(); // id -> consolidated event
     let rowCount = 0;
     let isSnapshot = true;
     let snapshotTimer: NodeJS.Timeout | null = null;
 
     const broadcastPending = () => {
-      if (pendingChanges.length > 0) {
-        console.log(`Broadcasting ${pendingChanges.length} changes for ${viewName}`);
-        callback([...pendingChanges]);
-        pendingChanges = [];
+      if (pendingChanges.size > 0) {
+        const changes = Array.from(pendingChanges.values());
+        console.log(`Broadcasting ${changes.length} changes for ${viewName}`);
+        callback(changes);
+        pendingChanges.clear();
       }
     };
 
@@ -121,13 +122,13 @@ export class MaterializeBackend {
           // Progress message - timestamp advanced but no data changes
           console.log(`⏰ ${viewName}: Progress update at ts=${currentTimestamp}`);
 
-          if (lastProgress !== null && currentTimestamp !== lastProgress) {
+          if (lastProgress !== null && Number(currentTimestamp) > Number(lastProgress)) {
             if (isSnapshot) {
               console.log(`${viewName}: Snapshot complete, now streaming real-time`);
               isSnapshot = false;
             }
-            if (pendingChanges.length > 0) {
-              console.log(`🔔 ${viewName}: Broadcasting ${pendingChanges.length} pending changes`);
+            if (pendingChanges.size > 0) {
+              console.log(`🔔 ${viewName}: Broadcasting ${pendingChanges.size} pending changes`);
               broadcastPending();
             }
           }
@@ -143,47 +144,70 @@ export class MaterializeBackend {
         const operation = row.mz_diff > 0 ? 'insert' : 'delete';
         const transformedData = this.transformRow(row, viewName);
 
-        // LOG EVERY DATA CHANGE AS IT ARRIVES
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-        console.log(`📨 SUBSCRIBE DATA RECEIVED for ${viewName}`);
-        console.log(`   Timestamp: ${currentTimestamp}`);
-        console.log(`   Operation: ${operation} (mz_diff=${row.mz_diff})`);
-        console.log(`   Data ID: ${transformedData.id || transformedData.order_id || 'unknown'}`);
-        console.log(`   Row count: ${rowCount} (snapshot: ${isSnapshot})`);
-        if (viewName === 'orders_flat_mv') {
-          console.log(`   Order: ${transformedData.order_number} - ${transformedData.order_status}`);
+        // CRITICAL: Check if timestamp INCREASED before consolidating this event
+        // This broadcasts the PREVIOUS timestamp's events before starting the new timestamp batch
+        // This prevents broadcasting the current event before all events at its timestamp arrive
+        if (lastProgress !== null && Number(currentTimestamp) > Number(lastProgress)) {
+          if (isSnapshot) {
+            console.log(`${viewName}: Snapshot complete (${rowCount} rows), DISCARDING snapshot data (clients already have initial state)`);
+            isSnapshot = false;
+            // Clear pending changes - don't broadcast the snapshot!
+            // Clients already received the full state via queryView()
+            pendingChanges.clear();
+          } else if (pendingChanges.size > 0) {
+            console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.size} changes from PREVIOUS timestamp`);
+            broadcastPending();
+          }
         }
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-        pendingChanges.push({
-          collection: viewName,
-          operation: operation as 'insert' | 'delete',
-          data: transformedData,
-          timestamp: Date.now(),
-        });
 
         // Log first data row
         if (rowCount === 1) {
           console.log(`${viewName}: Receiving snapshot at ts=${currentTimestamp}`);
         }
 
+        // Consolidate by ID to handle UPDATE = DELETE + INSERT at same timestamp
+        const recordId = transformedData.id || transformedData.order_id || String(rowCount);
+        const existing = pendingChanges.get(recordId);
+
+        if (existing) {
+          // Already have an event for this ID at this timestamp
+          // DELETE (-1) + INSERT (+1) = UPDATE (net 0, keep insert data)
+          // Handle both orders: DELETE+INSERT and INSERT+DELETE
+          if (existing.operation === 'delete' && operation === 'insert') {
+            // DELETE then INSERT = UPDATE (upsert with new data)
+            pendingChanges.set(recordId, {
+              collection: viewName,
+              operation: 'insert',
+              data: transformedData,
+              timestamp: Date.now(),
+            });
+          } else if (existing.operation === 'insert' && operation === 'delete') {
+            // INSERT then DELETE = also an UPDATE (keep the INSERT data)
+            // Don't remove! This is just events arriving in opposite order
+            // Keep existing insert - it has the new state we want
+            // (no change needed, existing insert stays)
+          } else {
+            // Same operation twice or other combination - keep latest
+            pendingChanges.set(recordId, {
+              collection: viewName,
+              operation: operation as 'insert' | 'delete',
+              data: transformedData,
+              timestamp: Date.now(),
+            });
+          }
+        } else {
+          // First event for this ID in this batch
+          pendingChanges.set(recordId, {
+            collection: viewName,
+            operation: operation as 'insert' | 'delete',
+            data: transformedData,
+            timestamp: Date.now(),
+          });
+        }
+
         // Log post-snapshot updates
         if (!isSnapshot && rowCount % 10 === 0) {
           console.log(`📥 ${viewName}: Received ${rowCount} updates, ts=${currentTimestamp}`);
-        }
-
-        // When timestamp advances, broadcast accumulated changes
-        if (lastProgress !== null && currentTimestamp !== lastProgress) {
-          if (isSnapshot) {
-            console.log(`${viewName}: Snapshot complete (${rowCount} rows), DISCARDING snapshot data (clients already have initial state)`);
-            isSnapshot = false;
-            // Clear pending changes - don't broadcast the snapshot!
-            // Clients already received the full state via queryView()
-            pendingChanges = [];
-          } else {
-            console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.length} changes`);
-            broadcastPending();
-          }
         }
 
         lastProgress = currentTimestamp;
@@ -194,10 +218,10 @@ export class MaterializeBackend {
         }
         if (isSnapshot) {
           snapshotTimer = setTimeout(() => {
-            console.log(`${viewName}: Snapshot timeout - DISCARDING ${pendingChanges.length} accumulated rows (clients already have initial state)`);
+            console.log(`${viewName}: Snapshot timeout - DISCARDING ${pendingChanges.size} accumulated rows (clients already have initial state)`);
             isSnapshot = false;
             // Clear pending changes - don't broadcast the snapshot!
-            pendingChanges = [];
+            pendingChanges.clear();
           }, 2000);
         }
       } catch (error) {

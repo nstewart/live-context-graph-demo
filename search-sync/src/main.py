@@ -6,7 +6,6 @@ import signal
 import sys
 
 from src.config import get_settings
-from src.mz_client import MaterializeClient
 from src.opensearch_client import OpenSearchClient
 from src.orders_sync import OrdersSyncWorker
 
@@ -23,8 +22,7 @@ async def main():
     """Main entry point."""
     logger.info("Initializing search sync worker...")
 
-    # Initialize clients
-    mz_client = MaterializeClient()
+    # Initialize OpenSearch client
     os_client = OpenSearchClient()
 
     # Wait for OpenSearch to be ready
@@ -39,8 +37,8 @@ async def main():
         logger.error("OpenSearch failed to become ready")
         sys.exit(1)
 
-    # Create worker
-    worker = OrdersSyncWorker(mz_client, os_client)
+    # Create worker (MaterializeClient is created inside worker for SUBSCRIBE mode)
+    worker = OrdersSyncWorker(os_client)
 
     # Set up signal handlers
     loop = asyncio.get_event_loop()
@@ -57,8 +55,17 @@ async def main():
         await worker.run()
     finally:
         logger.info("Cleaning up...")
-        await mz_client.close()
+
+        # Flush any pending events before shutdown
+        try:
+            logger.info("Flushing pending events...")
+            await worker._flush_batch()
+        except Exception as e:
+            logger.error(f"Error flushing on shutdown: {e}")
+
+        # Close OpenSearch client
         await os_client.close()
+
         logger.info("Cleanup complete")
 
 

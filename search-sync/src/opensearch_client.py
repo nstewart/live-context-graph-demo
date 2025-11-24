@@ -132,6 +132,43 @@ class OpenSearchClient:
             logger.error(f"Bulk upsert failed: {e}")
             return 0, len(documents)
 
+    async def bulk_delete(self, index_name: str, doc_ids: list[str]) -> tuple[int, int]:
+        """
+        Bulk delete documents from an index.
+
+        Args:
+            index_name: Target index
+            doc_ids: List of document IDs to delete
+
+        Returns:
+            Tuple of (success_count, error_count)
+        """
+        if not doc_ids:
+            return 0, 0
+
+        actions = []
+        for doc_id in doc_ids:
+            actions.append(
+                {
+                    "_op_type": "delete",
+                    "_index": index_name,
+                    "_id": doc_id,
+                }
+            )
+
+        try:
+            success, errors = await helpers.async_bulk(
+                self.client,
+                actions,
+                raise_on_error=False,
+                raise_on_exception=False,
+            )
+            error_count = len(errors) if errors else 0
+            return success, error_count
+        except Exception as e:
+            logger.error(f"Bulk delete failed: {e}")
+            return 0, len(doc_ids)
+
     async def search_orders(
         self,
         query: str,
