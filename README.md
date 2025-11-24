@@ -72,8 +72,8 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 │  • Real-time updates via WebSocket                                       │
 │  • Orders, Couriers, Stores/Inventory dashboards                         │
 └──────────────┬──────────────────────────────────┬────────────────────────┘
-               │ (REST API)                       │ (WebSocket)
-               ▼                                  ▼
+               │ REST API (writes/reads)          ▲ WebSocket (real-time)
+               ▼                                  │
 ┌──────────────────────────┐         ┌─────────────────────────────────────┐
 │  Graph/Ontology API      │         │    Zero WebSocket Server            │
 │  (FastAPI) Port: 8080    │         │    Port: 8090                       │
@@ -81,11 +81,10 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 │  • Triple CRUD           │         │  • Broadcast changes to clients     │
 │  • FreshMart endpoints   │         │  • Collections: orders, stores,     │
 │  • Query logging         │         │    couriers, inventory              │
-└───────┬──────────────────┘         └────────────┬────────────────────────┘
-        │                                         │
-        │ (writes)                                │ (real-time reads)
-        ▼                                         ▼
-┌──────────────────────────┐         ┌─────────────────────────────────────┐
+└───────┬──────────────────┘         └────────────▲────────────────────────┘
+        │ writes                                  │ SUBSCRIBE
+        ▼                                         │ (differential updates)
+┌──────────────────────────┐         ┌───────────┴─────────────────────────┐
 │     PostgreSQL           │         │      Materialize                     │
 │     Port: 5432           │────────▶│  Console: 6874 SQL: 6875             │
 │  • ontology_classes      │ (CDC)   │  Three-Tier Architecture:            │
@@ -105,13 +104,20 @@ You can verify the setup by visiting the Materialize Console at http://localhost
                                      └────────────┬────────────────────────┘
                                                   │ Bulk index
                                                   ▼
-┌──────────────────────────┐         ┌─────────────────────────────────────┐
-│    LangGraph Agents       │────────▶│      OpenSearch                     │
-│      Port: 8081           │         │       Port: 9200                    │
-│  • search_orders          │         │  • orders index (real-time)         │
-│  • fetch_order_context    │         │  • Full-text search                 │
-│  • write_triples          │         │                                     │
-└──────────────────────────┘         └─────────────────────────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │      OpenSearch                     │
+           ┌───────▶│       Port: 9200                    │
+           │        │  • orders index (real-time)         │
+           │        │  • Full-text search                 │
+           │        └─────────────────────────────────────┘
+           │
+┌──────────┴───────────────┐
+│    LangGraph Agents       │
+│      Port: 8081           │
+│  • search_orders  ────────┘ (search OpenSearch)
+│  • fetch_order_context ─────▶ Graph API (read triples)
+│  • write_triples ───────────▶ Graph API (write triples → PostgreSQL)
+└──────────────────────────┘
 ```
 
 ### Real-Time Data Flow
@@ -149,6 +155,122 @@ Both `zero-server` and `search-sync` services include automatic retry and reconn
 - `zero-server`: Fixed 30-second retry delay per subscription
 - `search-sync`: Exponential backoff (1s → 2s → 4s → 8s → 16s → 30s max)
   - Configurable via `RETRY_INITIAL_DELAY`, `RETRY_MAX_DELAY`, `RETRY_BACKOFF_MULTIPLIER`
+
+## Graph/Ontology API
+
+The Graph API (FastAPI, Port 8080) is the primary interface for interacting with the FreshMart digital twin knowledge graph. It provides three main categories of endpoints:
+
+### 1. Ontology Management (`/ontology`)
+
+Define and manage the schema (classes and properties) for the knowledge graph:
+
+**Classes:**
+- `GET /ontology/classes` - List all entity classes
+- `GET /ontology/classes/{id}` - Get specific class
+- `POST /ontology/classes` - Create new class (e.g., Order, Customer, Store)
+- `PATCH /ontology/classes/{id}` - Update class metadata
+- `DELETE /ontology/classes/{id}` - Delete class
+- `GET /ontology/class/{name}/properties` - Get all properties for a class
+
+**Properties:**
+- `GET /ontology/properties` - List all properties (optionally filter by domain class)
+- `GET /ontology/properties/{id}` - Get specific property
+- `POST /ontology/properties` - Create new property (e.g., order_status, customer_name)
+- `PATCH /ontology/properties/{id}` - Update property metadata
+- `DELETE /ontology/properties/{id}` - Delete property
+
+**Schema:**
+- `GET /ontology/schema` - Get complete ontology (all classes and properties)
+
+### 2. Triple Store CRUD (`/triples`)
+
+Manage knowledge graph data as subject-predicate-object triples:
+
+**Triple Operations:**
+- `GET /triples` - List triples (filter by subject, predicate, object, type)
+  - Query params: `subject_id`, `predicate`, `object_value`, `object_type`, `limit`, `offset`
+- `GET /triples/{id}` - Get specific triple by ID
+- `POST /triples` - Create new triple (with optional ontology validation)
+  - Query param: `validate=true` (default) validates against ontology
+- `POST /triples/batch` - Bulk create triples (atomic operation)
+- `PATCH /triples/{id}` - Update triple's object value
+- `DELETE /triples/{id}` - Delete triple
+
+**Subject Operations:**
+- `GET /triples/subjects/list` - List distinct subjects (filter by class/prefix)
+- `GET /triples/subjects/counts` - Get entity counts by type
+- `GET /triples/subjects/{subject_id}` - Get ALL triples for an entity
+- `DELETE /triples/subjects/{subject_id}` - Delete ALL triples for an entity
+
+**Validation:**
+- `POST /triples/validate` - Validate triple without creating it
+
+**Example Triple:**
+```json
+{
+  "subject_id": "order:FM-1001",
+  "predicate": "order_status",
+  "object_value": "OUT_FOR_DELIVERY",
+  "object_type": "string"
+}
+```
+
+### 3. FreshMart Operations (`/freshmart`)
+
+Query pre-computed, denormalized views (powered by Materialize):
+
+**Orders:**
+- `GET /freshmart/orders` - List orders with filters
+  - Filters: `status`, `store_id`, `customer_id`, `window_start_before`, `window_end_after`
+- `GET /freshmart/orders/{order_id}` - Get enriched order details
+
+**Stores & Inventory:**
+- `GET /freshmart/stores` - List all stores
+- `GET /freshmart/stores/{store_id}` - Get store details
+- `GET /freshmart/stores/inventory` - List inventory across stores
+  - Filters: `store_id`, `low_stock_only`
+
+**Customers:**
+- `GET /freshmart/customers` - List all customers
+
+**Products:**
+- `GET /freshmart/products` - List all products
+
+**Couriers:**
+- `GET /freshmart/couriers` - List couriers with schedules
+  - Filters: `status`, `store_id`
+- `GET /freshmart/couriers/{courier_id}` - Get courier with assigned tasks
+
+### 4. Health & Monitoring
+
+- `GET /health` - Basic health check
+- `GET /ready` - Readiness check (verifies DB connectivity)
+- `GET /stats` - Query execution statistics (PostgreSQL & Materialize)
+  - Shows query counts, execution times, slow queries by operation type
+
+### Data Flow & Architecture
+
+**Writes:** All modifications go through the triple store:
+1. Client → `POST /triples` (or `/triples/batch`)
+2. Triple validated against ontology
+3. Saved to PostgreSQL `triples` table
+4. CDC streams to Materialize
+5. Materialized views update automatically
+6. Zero WebSocket broadcasts to UI
+
+**Reads:** Two modes depending on query:
+- **Entity Graph Queries:** `GET /triples/subjects/{id}` → PostgreSQL
+  - Returns raw triples for an entity (agents use this)
+- **Operational Queries:** `GET /freshmart/*` → Materialize
+  - Returns denormalized, indexed views (UI uses this)
+
+### Interactive API Docs
+
+Visit **http://localhost:8080/docs** for interactive Swagger UI with:
+- All endpoints documented
+- Request/response schemas
+- "Try it out" functionality
+- Example payloads
 
 ### Real-Time Search Sync
 
