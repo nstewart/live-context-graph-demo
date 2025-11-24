@@ -124,17 +124,95 @@ export default function SettingsPage() {
           </a>
 
           <a
-            href="http://localhost:9200"
+            href="http://localhost:5601"
             target="_blank"
             rel="noopener noreferrer"
             className="flex flex-col items-center gap-2 p-4 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors group"
           >
             <Search className="h-8 w-8 text-orange-600" />
-            <span className="font-medium text-orange-900">OpenSearch</span>
+            <span className="font-medium text-orange-900">OpenSearch Dashboards</span>
             <span className="text-xs text-orange-600 flex items-center gap-1">
-              localhost:9200 <ExternalLink className="h-3 w-3" />
+              localhost:5601 <ExternalLink className="h-3 w-3" />
             </span>
           </a>
+        </div>
+      </div>
+
+      {/* OpenSearch Dashboards Guide */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="font-semibold text-lg mb-4 flex items-center gap-2">
+          <Search className="h-5 w-5 text-orange-600" />
+          Using OpenSearch Dashboards
+        </h2>
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-700">
+            OpenSearch Dashboards provides powerful search and visualization capabilities for your indexed order data.
+          </p>
+
+          <div className="border-l-4 border-orange-500 bg-orange-50 p-4 rounded">
+            <h3 className="font-semibold text-orange-900 mb-2">Quick Start: Dev Tools Console</h3>
+            <ol className="list-decimal list-inside space-y-2 text-gray-700">
+              <li>Open <a href="http://localhost:5601" target="_blank" rel="noopener noreferrer" className="text-orange-600 hover:underline font-medium">OpenSearch Dashboards</a></li>
+              <li>Click the menu icon (☰) → "Management" → "Dev Tools"</li>
+              <li>Run queries in the console</li>
+            </ol>
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-2">Example Queries</h3>
+            <div className="space-y-3">
+              <div className="bg-gray-50 p-3 rounded font-mono text-xs">
+                <div className="text-gray-500 mb-1"># Search all orders</div>
+                <div className="text-purple-600">GET orders/_search</div>
+                <div>{'{'}</div>
+                <div className="ml-4">"size": 10</div>
+                <div>{'}'}</div>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded font-mono text-xs">
+                <div className="text-gray-500 mb-1"># Find orders by status</div>
+                <div className="text-purple-600">GET orders/_search</div>
+                <div>{'{'}</div>
+                <div className="ml-4">"query": {'{'}</div>
+                <div className="ml-8">"match": {'{'}</div>
+                <div className="ml-12">"order_status": "OUT_FOR_DELIVERY"</div>
+                <div className="ml-8">{'}'}</div>
+                <div className="ml-4">{'}'}</div>
+                <div>{'}'}</div>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded font-mono text-xs">
+                <div className="text-gray-500 mb-1"># Search by customer name</div>
+                <div className="text-purple-600">GET orders/_search</div>
+                <div>{'{'}</div>
+                <div className="ml-4">"query": {'{'}</div>
+                <div className="ml-8">"match": {'{'}</div>
+                <div className="ml-12">"customer_name": "Sarah"</div>
+                <div className="ml-8">{'}'}</div>
+                <div className="ml-4">{'}'}</div>
+                <div>{'}'}</div>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded font-mono text-xs">
+                <div className="text-gray-500 mb-1"># Count total orders</div>
+                <div className="text-purple-600">GET orders/_count</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded">
+            <h3 className="font-semibold text-blue-900 mb-2">Alternative: Discover (Visual)</h3>
+            <ol className="list-decimal list-inside space-y-1 text-gray-700">
+              <li>Click "Discover" in the left sidebar</li>
+              <li>Create an index pattern: <code className="bg-white px-2 py-0.5 rounded">orders*</code></li>
+              <li>Browse and filter your data visually</li>
+            </ol>
+          </div>
+
+          <div className="text-xs text-gray-500 pt-2 border-t">
+            <strong>Note:</strong> All orders are automatically synced to OpenSearch for full-text search capabilities.
+            Currently indexing orders with customer names, addresses, and order details.
+          </div>
         </div>
       </div>
 
