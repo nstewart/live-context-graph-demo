@@ -201,6 +201,39 @@ class MaterializeSubscribeClient:
             await self._conn.close()
         logger.info("Closed Materialize SUBSCRIBE connection")
 
+    async def query(self, sql: str) -> list[dict]:
+        """Execute a regular SQL query and return results as dictionaries.
+
+        This is used for initial hydration queries, not for SUBSCRIBE streaming.
+
+        Args:
+            sql: SQL SELECT statement to execute
+
+        Returns:
+            List of dicts with column names as keys
+
+        Raises:
+            psycopg.Error: If query fails
+        """
+        if not self._conn:
+            await self.connect()
+
+        # Set cluster to 'serving' for consistency with SUBSCRIBE
+        await self._conn.execute("SET CLUSTER = serving")
+
+        # Execute query
+        cursor = await self._conn.execute(sql)
+        rows = await cursor.fetchall()
+
+        if not rows:
+            return []
+
+        # Get column names from cursor description
+        columns = [desc[0] for desc in cursor.description]
+
+        # Convert rows to dicts
+        return [dict(zip(columns, row)) for row in rows]
+
     async def subscribe_to_view(
         self,
         view_name: str,

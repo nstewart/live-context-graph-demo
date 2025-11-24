@@ -184,6 +184,9 @@ class OrdersSyncWorker:
         # Ensure OpenSearch index exists
         await self.os.setup_indices()
 
+        # Perform initial hydration from Materialize
+        await self._initial_hydration()
+
         if self.settings.use_subscribe:
             await self._run_subscribe_mode()
         else:
@@ -191,6 +194,64 @@ class OrdersSyncWorker:
             raise NotImplementedError("Polling mode removed in favor of SUBSCRIBE")
 
         logger.info("Orders sync worker stopped")
+
+    async def _initial_hydration(self):
+        """Perform initial bulk load of data from Materialize to OpenSearch.
+
+        This ensures OpenSearch starts in sync with Materialize before the
+        SUBSCRIBE stream takes over for incremental updates.
+        """
+        logger.info(f"Starting initial hydration from {self.VIEW_NAME}...")
+
+        try:
+            # Create temporary client to query Materialize
+            from src.mz_client_subscribe import MaterializeSubscribeClient
+            temp_client = MaterializeSubscribeClient()
+
+            try:
+                await temp_client.connect()
+
+                # Query all current orders from the materialized view
+                query = f"SELECT * FROM {self.VIEW_NAME}"
+                rows = await temp_client.query(query)
+
+                if not rows:
+                    logger.info("No orders found in Materialize, skipping hydration")
+                    return
+
+                logger.info(f"Retrieved {len(rows)} orders from Materialize")
+
+                # Transform rows to OpenSearch documents
+                documents = []
+                for row in rows:
+                    doc = self._transform_event_to_doc(row)
+                    if doc:
+                        documents.append(doc)
+
+                if documents:
+                    # Bulk insert into OpenSearch
+                    logger.info(f"Bulk loading {len(documents)} orders into OpenSearch...")
+                    success, errors = await self.os.bulk_upsert(
+                        self.os.orders_index,
+                        documents
+                    )
+
+                    if errors > 0:
+                        logger.warning(f"Initial hydration completed with {errors} errors")
+                    else:
+                        logger.info(f"✅ Initial hydration complete: {success} orders loaded")
+
+                    self.events_processed += success
+                else:
+                    logger.warning("No valid documents to load after transformation")
+
+            finally:
+                # Clean up temporary client
+                await temp_client.close()
+
+        except Exception as e:
+            logger.error(f"Initial hydration failed: {e}", exc_info=True)
+            logger.warning("Continuing with SUBSCRIBE streaming despite hydration failure")
 
     async def _run_subscribe_mode(self):
         """Run in SUBSCRIBE streaming mode with retry logic."""

@@ -154,6 +154,11 @@ Both `zero-server` and `search-sync` services include automatic retry and reconn
 
 The search-sync worker uses **Materialize SUBSCRIBE streaming** to maintain real-time synchronization between PostgreSQL (source of truth) and OpenSearch (search index). This replaces the previous inefficient polling mechanism.
 
+**Startup Process:**
+1. **Initial Hydration**: On startup, search-sync queries all existing orders from Materialize and bulk loads them into OpenSearch
+2. **Real-Time Streaming**: After hydration, SUBSCRIBE takes over for incremental updates
+3. **Result**: OpenSearch starts fully synced and stays up-to-date with < 2 second latency
+
 **Architecture Pattern**:
 ```
 PostgreSQL → Materialize CDC → SUBSCRIBE Stream → Search Sync Worker → OpenSearch
