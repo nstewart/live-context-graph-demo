@@ -34,7 +34,7 @@ def chat(message: str = typer.Argument(None, help="Message to send to the assist
         python -m src.main "Mark order FM-1001 as DELIVERED"
     """
     if not message:
-        # Interactive mode
+        # Interactive mode with persistent event loop
         console.print(Panel.fit(
             "[bold green]FreshMart Operations Assistant[/bold green]\n"
             "Type your questions about orders, stores, and couriers.\n"
@@ -42,27 +42,34 @@ def chat(message: str = typer.Argument(None, help="Message to send to the assist
             title="Welcome",
         ))
 
-        while True:
-            try:
-                user_input = console.input("\n[bold blue]You:[/bold blue] ")
-                if user_input.lower() in ("quit", "exit", "q"):
-                    console.print("[yellow]Goodbye![/yellow]")
+        async def interactive_loop():
+            while True:
+                try:
+                    user_input = console.input("\n[bold blue]You:[/bold blue] ")
+                    if user_input.lower() in ("quit", "exit", "q"):
+                        console.print("[yellow]Goodbye![/yellow]")
+                        break
+
+                    if not user_input.strip():
+                        continue
+
+                    with console.status("[bold green]Thinking..."):
+                        response = await run_assistant(user_input)
+
+                    console.print("\n[bold green]Assistant:[/bold green]")
+                    console.print(Markdown(response))
+
+                except KeyboardInterrupt:
+                    console.print("\n[yellow]Goodbye![/yellow]")
                     break
+                except Exception as e:
+                    console.print(f"[red]Error: {e}[/red]")
 
-                if not user_input.strip():
-                    continue
-
-                with console.status("[bold green]Thinking..."):
-                    response = asyncio.run(run_assistant(user_input))
-
-                console.print("\n[bold green]Assistant:[/bold green]")
-                console.print(Markdown(response))
-
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Goodbye![/yellow]")
-                break
-            except Exception as e:
-                console.print(f"[red]Error: {e}[/red]")
+        # Run with a single event loop for the entire session
+        try:
+            asyncio.run(interactive_loop())
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Goodbye![/yellow]")
     else:
         # Single message mode
         try:
