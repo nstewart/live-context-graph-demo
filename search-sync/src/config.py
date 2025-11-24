@@ -24,10 +24,27 @@ class Settings(BaseSettings):
     os_password: Optional[str] = None
 
     # Worker settings
-    poll_interval: int = 5  # seconds
+    poll_interval: int = 5  # seconds (for polling mode)
     batch_size: int = 100
     max_retries: int = 3
     log_level: str = "INFO"
+
+    # SUBSCRIBE streaming mode
+    use_subscribe: bool = True  # Enable SUBSCRIBE (vs polling)
+    discard_snapshot: bool = True  # Discard initial snapshot
+
+    # Batching
+    max_batch_size: int = 1000  # Max events per batch
+    max_batch_age_seconds: int = 5  # Max time before flush
+
+    # Backpressure
+    backpressure_threshold: int = 5000  # Pause at this buffer size
+    backpressure_resume: int = 2500  # Resume at this buffer size
+
+    # Retry configuration
+    retry_initial_delay: float = 1.0  # Initial retry delay in seconds
+    retry_max_delay: float = 30.0  # Maximum retry delay in seconds
+    retry_backoff_multiplier: float = 2.0  # Exponential backoff multiplier
 
     @property
     def mz_dsn(self) -> str:
