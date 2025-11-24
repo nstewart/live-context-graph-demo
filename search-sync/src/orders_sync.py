@@ -316,21 +316,49 @@ class OrdersSyncWorker:
             f"(total received: {self.events_received})"
         )
 
-        # Separate inserts and deletes
+        # Consolidate events by order_id to handle UPDATE = DELETE + INSERT
+        # At the same timestamp, a delete (-1) + insert (+1) = update (net 0, keep insert data)
+        consolidated: dict[str, tuple[int, dict]] = {}  # order_id -> (net_diff, latest_data)
+
         for event in events:
-            if event.is_insert():
-                doc = self._transform_event_to_doc(event.data)
+            order_id = event.data.get("order_id")
+            if not order_id:
+                logger.warning("Skipping event without order_id")
+                continue
+
+            if order_id not in consolidated:
+                consolidated[order_id] = (event.diff, event.data)
+            else:
+                # Sum the diffs: -1 + 1 = 0 (update), -1 + -1 = -2 (multiple deletes), etc.
+                prev_diff, prev_data = consolidated[order_id]
+                net_diff = prev_diff + event.diff
+                # Keep the insert data if we have one (insert will have complete data)
+                latest_data = event.data if event.is_insert() else prev_data
+                consolidated[order_id] = (net_diff, latest_data)
+
+        # Process consolidated events
+        for order_id, (net_diff, data) in consolidated.items():
+            if net_diff > 0:
+                # Net insert/upsert
+                doc = self._transform_event_to_doc(data)
                 if doc:
                     self.pending_upserts.append(doc)
                     logger.debug(
-                        f"Queued insert: order_id={doc.get('order_id')} "
-                        f"order_number={doc.get('order_number')}"
+                        f"Queued upsert: order_id={order_id} order_number={doc.get('order_number')}"
                     )
-            elif event.is_delete():
-                order_id = event.data.get("order_id")
-                if order_id:
-                    self.pending_deletes.append(order_id)
-                    logger.debug(f"Queued delete: order_id={order_id}")
+            elif net_diff < 0:
+                # Net delete
+                self.pending_deletes.append(order_id)
+                logger.debug(f"Queued delete: order_id={order_id}")
+            else:
+                # net_diff == 0: This is an UPDATE (delete + insert cancelled out)
+                # Treat as upsert with the latest data
+                doc = self._transform_event_to_doc(data)
+                if doc:
+                    self.pending_upserts.append(doc)
+                    logger.debug(
+                        f"Queued update: order_id={order_id} order_number={doc.get('order_number')}"
+                    )
 
         # Check backpressure
         total_pending = len(self.pending_upserts) + len(self.pending_deletes)

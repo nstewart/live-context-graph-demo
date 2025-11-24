@@ -267,14 +267,16 @@ class MaterializeSubscribeClient:
         if not self._conn:
             await self.connect()
 
-        # Set cluster to 'serving' for indexed views
+        # Set cluster to 'serving' where the index orders_search_source_idx exists
         await self._conn.execute("SET CLUSTER = serving")
         logger.info(f"Starting SUBSCRIBE for view: {view_name}")
 
-        # Execute SUBSCRIBE with PROGRESS option
-        # PROGRESS ensures we get timestamp updates even when no data changes
+        # Use the proven DECLARE CURSOR + FETCH pattern from mz-redis-sync
+        # This requires a transaction block and explicit FETCH commands
         self._cursor = self._conn.cursor()
+        await self._cursor.execute("BEGIN")
         await self._cursor.execute(
+            f"DECLARE subscribe_cursor CURSOR FOR "
             f"SUBSCRIBE (SELECT * FROM {view_name}) WITH (PROGRESS)"
         )
 
@@ -286,18 +288,64 @@ class MaterializeSubscribeClient:
 
         logger.info(f"SUBSCRIBE started for {view_name}, receiving snapshot...")
 
-        # Process rows as they stream in
-        async for row in self._cursor:
-            try:
-                current_timestamp = row[0]  # mz_timestamp
-                diff = row[1] if len(row) > 1 else None  # mz_diff
-                is_progress = row[2] if len(row) > 2 and isinstance(row[2], bool) else False  # mz_progressed
+        # Process rows as they stream in using FETCH pattern
+        # Fetch in batches of 100 rows at a time (like mz-redis-sync)
+        while True:
+            await self._cursor.execute("FETCH 100 subscribe_cursor")
+            rows = await self._cursor.fetchall()
 
-                # Progress message (timestamp advanced, no data)
-                if diff is None or is_progress:
-                    logger.debug(f"Progress update: {view_name} at ts={current_timestamp}")
+            if not rows:
+                # No more rows available, wait briefly before fetching again
+                await asyncio.sleep(0.01)
+                continue
 
-                    # Timestamp advanced - flush pending events
+            for row in rows:
+                try:
+                    current_timestamp = row[0]  # mz_timestamp
+                    is_progress = row[1] if len(row) > 1 and isinstance(row[1], bool) else False  # mz_progressed
+                    diff = row[2] if len(row) > 2 else None  # mz_diff
+
+                    # Progress message (timestamp advanced, no data)
+                    if is_progress or diff is None:
+                        logger.debug(f"Progress update: {view_name} at ts={current_timestamp}")
+
+                        # Timestamp advanced - flush pending events
+                        if last_timestamp is not None and current_timestamp != last_timestamp:
+                            if is_snapshot:
+                                logger.info(
+                                    f"Snapshot complete for {view_name}: {row_count} rows "
+                                    f"(discarding as per zero-server pattern)"
+                                )
+                                is_snapshot = False
+                                pending_events = []  # Discard snapshot
+                            elif pending_events:
+                                logger.info(
+                                    f"Broadcasting {len(pending_events)} changes for {view_name}"
+                                )
+                                await callback(pending_events)
+                                pending_events = []
+
+                        last_timestamp = current_timestamp
+                        continue
+
+                    # Data row
+                    row_count += 1
+
+                    # Parse row data (structure depends on view schema)
+                    data = self._parse_row_data(row, view_name)
+                    event = SubscribeEvent(current_timestamp, diff, data)
+
+                    # Log data changes
+                    operation = "insert" if event.is_insert() else "delete"
+                    order_id = data.get("order_id", "unknown")
+                    logger.debug(
+                        f"Received {operation} for {view_name}: "
+                        f"order_id={order_id}, ts={current_timestamp}"
+                    )
+
+                    pending_events.append(event)
+
+                    # Timestamp advanced - flush events
                     if last_timestamp is not None and current_timestamp != last_timestamp:
                         if is_snapshot:
                             logger.info(
@@ -306,7 +354,7 @@ class MaterializeSubscribeClient:
                             )
                             is_snapshot = False
                             pending_events = []  # Discard snapshot
-                        elif pending_events:
+                        else:
                             logger.info(
                                 f"Broadcasting {len(pending_events)} changes for {view_name}"
                             )
@@ -314,46 +362,10 @@ class MaterializeSubscribeClient:
                             pending_events = []
 
                     last_timestamp = current_timestamp
+
+                except Exception as e:
+                    logger.error(f"Error processing SUBSCRIBE row for {view_name}: {e}")
                     continue
-
-                # Data row
-                row_count += 1
-
-                # Parse row data (structure depends on view schema)
-                data = self._parse_row_data(row, view_name)
-                event = SubscribeEvent(current_timestamp, diff, data)
-
-                # Log data changes
-                operation = "insert" if event.is_insert() else "delete"
-                order_id = data.get("order_id", "unknown")
-                logger.debug(
-                    f"Received {operation} for {view_name}: "
-                    f"order_id={order_id}, ts={current_timestamp}"
-                )
-
-                pending_events.append(event)
-
-                # Timestamp advanced - flush events
-                if last_timestamp is not None and current_timestamp != last_timestamp:
-                    if is_snapshot:
-                        logger.info(
-                            f"Snapshot complete for {view_name}: {row_count} rows "
-                            f"(discarding as per zero-server pattern)"
-                        )
-                        is_snapshot = False
-                        pending_events = []  # Discard snapshot
-                    else:
-                        logger.info(
-                            f"Broadcasting {len(pending_events)} changes for {view_name}"
-                        )
-                        await callback(pending_events)
-                        pending_events = []
-
-                last_timestamp = current_timestamp
-
-            except Exception as e:
-                logger.error(f"Error processing SUBSCRIBE row for {view_name}: {e}")
-                continue
 
         logger.warning(f"SUBSCRIBE stream ended for {view_name}")
 
