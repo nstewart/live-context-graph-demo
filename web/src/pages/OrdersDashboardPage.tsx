@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo } from '../api/client'
+import { useZeroQuery } from '../hooks/useZeroQuery'
+import { useZeroContext } from '../contexts/ZeroContext'
 import { formatAmount } from '../test/utils'
-import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X } from 'lucide-react'
+import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: 'bg-blue-100 text-blue-800', icon: Package },
@@ -267,12 +269,24 @@ export default function OrdersDashboardPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState<OrderFlat | undefined>()
   const [deleteConfirm, setDeleteConfirm] = useState<OrderFlat | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 100
 
-  const { data: orders, isLoading, error } = useQuery({
-    queryKey: ['orders'],
-    queryFn: () => freshmartApi.listOrders().then(r => r.data),
+  // 🔥 ZERO WebSocket - Real-time orders data
+  const { connected: zeroConnected } = useZeroContext()
+  const { data: orders, isLoading: zeroLoading, error: zeroError } = useZeroQuery<OrderFlat>({
+    collection: 'orders',
   })
 
+  // Track last update time for visual feedback
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
+  useEffect(() => {
+    if (orders) {
+      setLastUpdateTime(Date.now())
+    }
+  }, [orders])
+
+  // Still using React Query for stores and customers (will migrate later)
   const { data: stores = [] } = useQuery({
     queryKey: ['stores'],
     queryFn: () => freshmartApi.listStores().then(r => r.data),
@@ -282,6 +296,9 @@ export default function OrdersDashboardPage() {
     queryKey: ['customers'],
     queryFn: () => freshmartApi.listCustomers().then(r => r.data),
   })
+
+  const isLoading = zeroLoading
+  const error = zeroError
 
   const createMutation = useMutation({
     mutationFn: async (data: OrderFormData) => {
@@ -405,8 +422,19 @@ export default function OrdersDashboardPage() {
     setDeleteConfirm(order)
   }
 
-  const ordersByStatus =
-    orders?.reduce(
+  // Sort orders by order_number for stable display
+  const sortedOrders = useMemo(() => {
+    if (!orders) return []
+    return [...orders].sort((a, b) => {
+      const aNum = a.order_number || ''
+      const bNum = b.order_number || ''
+      return aNum.localeCompare(bNum)
+    })
+  }, [orders])
+
+  // Calculate stats from ALL orders (not paginated)
+  const ordersByStatus = useMemo(() => {
+    return sortedOrders.reduce(
       (acc, order) => {
         const status = order.order_status || 'Unknown'
         if (!acc[status]) acc[status] = []
@@ -414,14 +442,38 @@ export default function OrdersDashboardPage() {
         return acc
       },
       {} as Record<string, OrderFlat[]>
-    ) || {}
+    )
+  }, [sortedOrders])
+
+  // Pagination calculations
+  const totalOrders = sortedOrders.length
+  const totalPages = Math.ceil(totalOrders / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedOrders = sortedOrders.slice(startIndex, endIndex)
 
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orders Dashboard</h1>
-          <p className="text-gray-600">Monitor and manage FreshMart orders</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Orders Dashboard</h1>
+            {zeroConnected ? (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                <Wifi className="h-3 w-3" />
+                Real-time
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                <WifiOff className="h-3 w-3" />
+                Connecting...
+              </span>
+            )}
+            <span className="text-xs text-gray-500">
+              Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
+            </span>
+          </div>
+          <p className="text-gray-600">Monitor and manage FreshMart orders via WebSocket</p>
         </div>
         <button
           onClick={() => {
@@ -457,10 +509,81 @@ export default function OrdersDashboardPage() {
 
           {/* Orders grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {orders.map(order => (
+            {paginatedOrders.map(order => (
               <OrderCard key={order.order_id} order={order} onEdit={handleEdit} onDelete={handleDelete} />
             ))}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {startIndex + 1}-{Math.min(endIndex, totalOrders)} of {totalOrders} orders
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-1">
+                  {/* Show first page */}
+                  {currentPage > 3 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        className="px-3 py-1 border rounded hover:bg-gray-50"
+                      >
+                        1
+                      </button>
+                      <span className="px-2">...</span>
+                    </>
+                  )}
+
+                  {/* Show pages around current */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(page => page >= currentPage - 2 && page <= currentPage + 2)
+                    .map(page => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-1 border rounded ${
+                          page === currentPage
+                            ? 'bg-green-600 text-white'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+
+                  {/* Show last page */}
+                  {currentPage < totalPages - 2 && (
+                    <>
+                      <span className="px-2">...</span>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="px-3 py-1 border rounded hover:bg-gray-50"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 

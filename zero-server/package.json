@@ -1,0 +1,32 @@
+{
+  "name": "zero-server",
+  "version": "1.0.0",
+  "description": "Zero sync server for real-time data synchronization",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rocicorp/zero": "^0.21.2025070200",
+    "@rocicorp/zero-sqlite3": "^1.0.4",
+    "@types/pg-query-stream": "^1.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "pg-query-stream": "^4.10.3",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.5",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { freshmartApi, triplesApi, StoreInfo, StoreInventory, TripleCreate, ProductInfo } from '../api/client'
-import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package } from 'lucide-react'
+import { useZeroQuery } from '../hooks/useZeroQuery'
+import { useZeroContext } from '../contexts/ZeroContext'
+import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package, Wifi, WifiOff } from 'lucide-react'
 
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
 
@@ -215,7 +217,7 @@ function InventoryFormModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
         <div className="flex justify-between items-center p-4 border-b">
           <h2 className="text-lg font-semibold">{inventory ? 'Edit Inventory' : 'Add Inventory Item'}</h2>
@@ -308,10 +310,57 @@ export default function StoresInventoryPage() {
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set())
   const [viewAllInventoryStore, setViewAllInventoryStore] = useState<StoreInfo | null>(null)
 
-  const { data: stores, isLoading, error } = useQuery({
-    queryKey: ['stores'],
-    queryFn: () => freshmartApi.listStores().then(r => r.data),
+  // 🔥 ZERO WebSocket - Real-time stores and inventory data
+  const { connected: zeroConnected } = useZeroContext()
+  const { data: storesData, isLoading: storesLoading, error: storesError } = useZeroQuery<any>({
+    collection: 'stores',
   })
+  const { data: inventoryData, isLoading: inventoryLoading, error: inventoryError } = useZeroQuery<any>({
+    collection: 'inventory',
+  })
+
+  // Merge Zero store metadata with Zero inventory data
+  const stores = useMemo(() => {
+    if (!storesData) return []
+
+    // Sort stores by store_id for stable display
+    const sortedZeroStores = [...storesData].sort((a, b) => {
+      const aId = a.store_id || a.id || ''
+      const bId = b.store_id || b.id || ''
+      return aId.localeCompare(bId)
+    })
+
+    // Group inventory items by store_id
+    const inventoryByStore = new Map<string, any[]>()
+    if (inventoryData) {
+      inventoryData.forEach((item: any) => {
+        const storeId = item.store_id
+        if (!inventoryByStore.has(storeId)) {
+          inventoryByStore.set(storeId, [])
+        }
+        inventoryByStore.get(storeId)!.push(item)
+      })
+    }
+
+    // Sort inventory items by id for stable display
+    inventoryByStore.forEach((items, storeId) => {
+      items.sort((a, b) => {
+        const aId = a.inventory_id || a.id || ''
+        const bId = b.inventory_id || b.id || ''
+        return aId.localeCompare(bId)
+      })
+    })
+
+    // Merge stores with their inventory items
+    return sortedZeroStores.map(store => ({
+      ...store,
+      store_id: store.store_id || store.id,
+      inventory_items: inventoryByStore.get(store.store_id || store.id) || [],
+    }))
+  }, [storesData, inventoryData])
+
+  const isLoading = storesLoading || inventoryLoading
+  const error = storesError || inventoryError
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
@@ -327,12 +376,12 @@ export default function StoresInventoryPage() {
         { subject_id: storeId, predicate: 'store_zone', object_value: data.store_zone, object_type: 'string' },
         { subject_id: storeId, predicate: 'store_status', object_value: data.store_status, object_type: 'string' },
       ]
-      if (data.store_capacity_orders_per_hour) {
+      if (data.store_capacity_orders_per_hour && data.store_capacity_orders_per_hour.trim() !== '') {
         triples.push({
           subject_id: storeId,
           predicate: 'store_capacity_orders_per_hour',
-          object_value: data.store_capacity_orders_per_hour,
-          object_type: 'integer',
+          object_value: String(data.store_capacity_orders_per_hour),
+          object_type: 'int',
         })
       }
       return triplesApi.createBatch(triples)
@@ -388,7 +437,7 @@ export default function StoresInventoryPage() {
       const triples: TripleCreate[] = [
         { subject_id: inventoryId, predicate: 'inventory_store', object_value: data.store_id, object_type: 'entity_ref' },
         { subject_id: inventoryId, predicate: 'inventory_product', object_value: data.product_id, object_type: 'entity_ref' },
-        { subject_id: inventoryId, predicate: 'stock_level', object_value: data.stock_level, object_type: 'integer' },
+        { subject_id: inventoryId, predicate: 'stock_level', object_value: String(data.stock_level), object_type: 'int' },
       ]
       if (data.replenishment_eta) {
         triples.push({
@@ -413,7 +462,7 @@ export default function StoresInventoryPage() {
       const updates: Promise<unknown>[] = []
       const fields: { predicate: string; value: string; type: TripleCreate['object_type'] }[] = [
         { predicate: 'inventory_product', value: data.product_id, type: 'entity_ref' },
-        { predicate: 'stock_level', value: data.stock_level, type: 'integer' },
+        { predicate: 'stock_level', value: String(data.stock_level), type: 'integer' },
       ]
       if (data.replenishment_eta) {
         fields.push({ predicate: 'replenishment_eta', value: new Date(data.replenishment_eta).toISOString(), type: 'datetime' })
@@ -463,8 +512,21 @@ export default function StoresInventoryPage() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stores & Inventory</h1>
-          <p className="text-gray-600">Monitor store status and inventory levels</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Stores & Inventory</h1>
+            {zeroConnected ? (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                <Wifi className="h-3 w-3" />
+                Real-time
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                <WifiOff className="h-3 w-3" />
+                Connecting...
+              </span>
+            )}
+          </div>
+          <p className="text-gray-600">Real-time store updates with inventory data</p>
         </div>
         <button
           onClick={() => {

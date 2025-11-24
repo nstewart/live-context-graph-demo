@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { freshmartApi, triplesApi, CourierSchedule, TripleCreate, StoreInfo } from '../api/client'
-import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink } from 'lucide-react'
+import { useZeroQuery } from '../hooks/useZeroQuery'
+import { useZeroContext } from '../contexts/ZeroContext'
+import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
 
 const vehicleIcons: Record<string, typeof Truck> = {
   BIKE: Bike,
@@ -182,10 +184,24 @@ export default function CouriersSchedulePage() {
   const [courierIdSearch, setCourierIdSearch] = useState('')
   const [viewTasksCourier, setViewTasksCourier] = useState<CourierSchedule | null>(null)
 
-  const { data: couriers, isLoading, error } = useQuery({
-    queryKey: ['couriers'],
-    queryFn: () => freshmartApi.listCouriers().then(r => r.data),
+  // 🔥 ZERO WebSocket - Real-time couriers data
+  const { connected: zeroConnected } = useZeroContext()
+  const { data: couriersData, isLoading: zeroLoading, error: zeroError } = useZeroQuery<CourierSchedule>({
+    collection: 'couriers',
   })
+
+  // Sort couriers by courier_id for stable display
+  const couriers = useMemo(() => {
+    if (!couriersData) return []
+    return [...couriersData].sort((a, b) => {
+      const aId = a.courier_id || ''
+      const bId = b.courier_id || ''
+      return aId.localeCompare(bId)
+    })
+  }, [couriersData])
+
+  const isLoading = zeroLoading
+  const error = zeroError
 
   // Search for specific courier by ID (queries database directly)
   const searchCourierId = courierIdSearch.includes(':') ? courierIdSearch : courierIdSearch ? `courier:${courierIdSearch}` : ''
@@ -301,7 +317,20 @@ export default function CouriersSchedulePage() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Couriers & Schedule</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Couriers & Schedule</h1>
+            {zeroConnected ? (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                <Wifi className="h-3 w-3" />
+                Real-time
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                <WifiOff className="h-3 w-3" />
+                Connecting...
+              </span>
+            )}
+          </div>
           <p className="text-gray-600">View courier status and assigned tasks</p>
         </div>
         <button

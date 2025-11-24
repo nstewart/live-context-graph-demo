@@ -3,10 +3,11 @@
 A forkable, batteries-included repository demonstrating how to build a **digital twin** of FreshMart's same-day grocery delivery operations using:
 
 - **PostgreSQL** as a triple store with ontology validation
-- **Materialize Emulator** for real-time materialized views with admin console
+- **Materialize** for real-time materialized views with admin console
+- **Zero WebSocket Server** for real-time UI updates via Materialize SUBSCRIBE
 - **OpenSearch** for full-text search and discovery
 - **LangGraph Agents** with tools for AI-powered operations assistance
-- **React Admin UI** for managing the ontology and browsing operations
+- **React Admin UI** with real-time updates for managing operations
 
 ## Quick Start
 
@@ -54,45 +55,60 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         Admin UI (React)                                 │
-│                         Port: 5173                                       │
-└─────────────────────────────┬───────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    Graph/Ontology API (FastAPI)                          │
-│                         Port: 8080                                       │
-│  • Ontology CRUD       • Triple CRUD with validation                     │
-│  • FreshMart endpoints • Health checks                                   │
-│  • Query logging with execution time                                     │
-└──────────────┬────────────────────────────────────┬─────────────────────┘
-               │                                    │
-               │ (writes)                           │ (UI reads)
-               ▼                                    ▼
-┌──────────────────────────┐         ┌──────────────────────────┐
-│     PostgreSQL           │         │   Materialize Emulator    │
-│     Port: 5432           │────────▶│  Console: 6874 SQL: 6875  │
-│  • ontology_classes      │ (CDC)   │  Three-Tier Architecture: │
-│  • ontology_properties   │         │  • ingest: pg_source      │
-│  • triples               │         │  • compute: MVs           │
-└──────────────────────────┘         │  • serving: indexes       │
-                                     └───────────┬──────────────┘
-                                                 │
-                                                 ▼
-                                     ┌──────────────────────────┐
-                                     │    Search Sync Worker     │
-                                     │  (polls every 5 seconds)  │
-                                     └───────────┬──────────────┘
-                                                 │
-                                                 ▼
-┌──────────────────────────┐         ┌──────────────────────────┐
-│    LangGraph Agents       │────────▶│      OpenSearch          │
-│      Port: 8081           │         │       Port: 9200         │
-│  • search_orders          │         │  • orders index          │
-│  • fetch_order_context    │         │                          │
-│  • write_triples          │         │                          │
-└──────────────────────────┘         └──────────────────────────┘
+│                      Admin UI (React)                                    │
+│                      Port: 5173                                          │
+│  • Real-time updates via WebSocket                                       │
+│  • Orders, Couriers, Stores/Inventory dashboards                         │
+└──────────────┬──────────────────────────────────┬────────────────────────┘
+               │ (REST API)                       │ (WebSocket)
+               ▼                                  ▼
+┌──────────────────────────┐         ┌─────────────────────────────────────┐
+│  Graph/Ontology API      │         │    Zero WebSocket Server            │
+│  (FastAPI) Port: 8080    │         │    Port: 8090                       │
+│  • Ontology CRUD         │         │  • SUBSCRIBE to Materialize MVs     │
+│  • Triple CRUD           │         │  • Broadcast changes to clients     │
+│  • FreshMart endpoints   │         │  • Collections: orders, stores,     │
+│  • Query logging         │         │    couriers, inventory              │
+└───────┬──────────────────┘         └────────────┬────────────────────────┘
+        │                                         │
+        │ (writes)                                │ (real-time reads)
+        ▼                                         ▼
+┌──────────────────────────┐         ┌─────────────────────────────────────┐
+│     PostgreSQL           │         │      Materialize                     │
+│     Port: 5432           │────────▶│  Console: 6874 SQL: 6875             │
+│  • ontology_classes      │ (CDC)   │  Three-Tier Architecture:            │
+│  • ontology_properties   │         │  • ingest: pg_source (CDC)           │
+│  • triples               │         │  • compute: MVs (aggregation)        │
+└──────────────────────────┘         │  • serving: indexes (queries)        │
+                                     │  SUBSCRIBE: differential updates     │
+                                     └────────────┬────────────────────────┘
+                                                  │
+                                                  ▼
+                                     ┌─────────────────────────────────────┐
+                                     │    Search Sync Worker                │
+                                     │  (polls every 5 seconds)             │
+                                     └────────────┬────────────────────────┘
+                                                  │
+                                                  ▼
+┌──────────────────────────┐         ┌─────────────────────────────────────┐
+│    LangGraph Agents       │────────▶│      OpenSearch                     │
+│      Port: 8081           │         │       Port: 9200                    │
+│  • search_orders          │         │  • orders index                     │
+│  • fetch_order_context    │         │                                     │
+│  • write_triples          │         │                                     │
+└──────────────────────────┘         └─────────────────────────────────────┘
 ```
+
+### Real-Time Data Flow
+
+1. **Writes**: All data modifications go through the FastAPI backend → PostgreSQL
+2. **CDC**: PostgreSQL changes stream to Materialize via Change Data Capture
+3. **Compute**: Materialize maintains materialized views with pre-aggregated data
+4. **SUBSCRIBE**: Zero server subscribes to Materialize MVs using SUBSCRIBE command
+5. **WebSocket**: Zero broadcasts differential updates to connected UI clients
+6. **UI Updates**: React components receive real-time updates and re-render automatically
+
+The Zero WebSocket server uses Materialize's `SUBSCRIBE` command with the `PROGRESS` option to receive differential updates (inserts/deletes) as they happen, providing sub-second latency for UI updates.
 
 ## Services
 
@@ -101,10 +117,11 @@ You can verify the setup by visiting the Materialize Console at http://localhost
 | **db** | 5432 | PostgreSQL - primary triple store |
 | **mz** | 6874 | Materialize Admin Console |
 | **mz** | 6875 | Materialize SQL interface |
+| **zero-server** | 8090 | WebSocket server for real-time UI updates |
 | **opensearch** | 9200 | Search engine for orders |
 | **api** | 8080 | FastAPI backend |
 | **search-sync** | - | Background worker syncing to OpenSearch |
-| **web** | 5173 | React admin UI |
+| **web** | 5173 | React admin UI with real-time updates |
 | **agents** | 8081 | LangGraph agent runner (optional) |
 
 ## Data Model
@@ -652,10 +669,18 @@ freshmart-digital-twin-agent-starter/
 │       ├── opensearch_client.py
 │       └── orders_sync.py     # Sync logic
 │
-├── web/                       # React admin UI
+├── zero-server/               # WebSocket server for real-time UI updates
+│   └── src/
+│       ├── server.ts          # WebSocket server with Zero protocol
+│       ├── materialize-backend.ts  # SUBSCRIBE to Materialize MVs
+│       └── index.ts           # Entry point
+│
+├── web/                       # React admin UI with real-time updates
 │   └── src/
 │       ├── api/               # API client
-│       └── pages/             # UI pages
+│       ├── context/           # Zero WebSocket context
+│       ├── hooks/             # useZeroQuery for real-time data
+│       └── pages/             # UI pages (Orders, Couriers, Stores)
 │
 ├── agents/                    # LangGraph agents
 │   └── src/
@@ -672,27 +697,38 @@ freshmart-digital-twin-agent-starter/
 
 ## Admin UI Features
 
-The React Admin UI (`web/`) provides full CRUD operations for managing FreshMart entities:
+The React Admin UI (`web/`) provides full CRUD operations with **real-time updates** for managing FreshMart entities:
+
+### Real-Time Updates
+
+All operational dashboards (Orders, Couriers, Stores/Inventory) feature **live data synchronization**:
+
+- **WebSocket Connection**: Direct connection to Zero server at `ws://localhost:8090`
+- **Connection Indicator**: Visual badge showing real-time connection status
+- **Instant Updates**: Changes from any source (UI, API, database) appear immediately across all connected clients
+- **Differential Updates**: Only changed data is transmitted, minimizing bandwidth
+- **Automatic Reconnection**: Handles network interruptions gracefully
 
 ### Orders Dashboard
+- **Real-time order status updates** - See orders move through workflow stages instantly
 - View all orders with status badges and filtering
-- Create new orders with dropdown selectors for:
-  - **Customer**: Format "Customer Name (customer:ID)"
-  - **Store**: Format "Store Name (store:ID)"
+- Create new orders with dropdown selectors for customers and stores
 - Edit existing orders with pre-populated form fields
 - Delete orders with confirmation dialog
 
 ### Couriers & Schedule
-- View all couriers with their assigned tasks and courier ID
-- Create new couriers with dropdown selector for:
-  - **Home Store**: Format "Store Name (store:ID)"
+- **Real-time courier availability and task updates**
+- View all couriers with their assigned tasks and current status
+- Create new couriers with dropdown selector for home store
 - Edit courier details including status and vehicle type
 - Delete couriers with confirmation dialog
 
-### Stores Inventory
-- View stores with their current inventory levels
+### Stores & Inventory
+- **Real-time inventory level updates** - Stock changes appear instantly
+- View stores with their current inventory levels (sorted by inventory ID for stability)
 - Create/edit stores with zone and capacity settings
-- Manage inventory items per store
+- Manage inventory items per store with real-time propagation
+- Expandable inventory view with edit capabilities
 
 ### Ontology Properties
 - View all ontology properties with domain/range information
@@ -714,17 +750,6 @@ The React Admin UI (`web/`) provides full CRUD operations for managing FreshMart
 - Navigate between related entities via entity_ref links
 
 All dropdown data is fetched from Materialize's serving cluster for low-latency access.
-
-## Acceptance Criteria
-
-From a clean checkout:
-
-1. **Setup**: `cp .env.example .env && docker-compose up -d` starts all services
-2. **Admin UI**: Shows classes, properties, orders dashboard at `localhost:5173`
-3. **API**: `GET /freshmart/orders` returns demo orders
-4. **Validation**: Invalid triples return 400 with clear error messages
-5. **Search**: Orders indexed in OpenSearch and searchable
-6. **Agent**: Can search orders and update status via natural language
 
 ## License
 
