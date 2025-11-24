@@ -122,7 +122,7 @@ export class MaterializeBackend {
           // Progress message - timestamp advanced but no data changes
           console.log(`⏰ ${viewName}: Progress update at ts=${currentTimestamp}`);
 
-          if (lastProgress !== null && currentTimestamp !== lastProgress) {
+          if (lastProgress !== null && Number(currentTimestamp) > Number(lastProgress)) {
             if (isSnapshot) {
               console.log(`${viewName}: Snapshot complete, now streaming real-time`);
               isSnapshot = false;
@@ -156,15 +156,51 @@ export class MaterializeBackend {
         }
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
+        // CRITICAL: Check if timestamp INCREASED before consolidating this event
+        // This broadcasts the PREVIOUS timestamp's events before starting the new timestamp batch
+        // This prevents broadcasting the current event before all events at its timestamp arrive
+        if (lastProgress !== null && Number(currentTimestamp) > Number(lastProgress)) {
+          if (isSnapshot) {
+            console.log(`${viewName}: Snapshot complete (${rowCount} rows), DISCARDING snapshot data (clients already have initial state)`);
+            isSnapshot = false;
+            // Clear pending changes - don't broadcast the snapshot!
+            // Clients already received the full state via queryView()
+            pendingChanges.clear();
+          } else if (pendingChanges.size > 0) {
+            console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.size} changes from PREVIOUS timestamp`);
+            broadcastPending();
+          }
+        }
+
+        // Log first data row
+        if (rowCount === 1) {
+          console.log(`${viewName}: Receiving snapshot at ts=${currentTimestamp}`);
+        }
+
         // Consolidate by ID to handle UPDATE = DELETE + INSERT at same timestamp
         const recordId = transformedData.id || transformedData.order_id || String(rowCount);
         const existing = pendingChanges.get(recordId);
 
+        // DEBUG: Log consolidation logic for order FM-000001
+        if (recordId === 'order:FM-000001') {
+          console.log(`🔍 FM-000001 EVENT: operation=${operation}, ts=${currentTimestamp}`);
+          console.log(`   Status: ${transformedData.order_status}`);
+          if (existing) {
+            console.log(`   Existing: operation=${existing.operation}, status=${existing.data.order_status}`);
+          } else {
+            console.log(`   No existing event`);
+          }
+        }
+
         if (existing) {
           // Already have an event for this ID at this timestamp
           // DELETE (-1) + INSERT (+1) = UPDATE (net 0, keep insert data)
+          // Handle both orders: DELETE+INSERT and INSERT+DELETE
           if (existing.operation === 'delete' && operation === 'insert') {
-            // This is an UPDATE - replace delete with insert (upsert)
+            // DELETE then INSERT = UPDATE (upsert with new data)
+            if (recordId === 'order:FM-000001') {
+              console.log(`   ✅ Consolidating: DELETE+INSERT = UPDATE with status=${transformedData.order_status}`);
+            }
             pendingChanges.set(recordId, {
               collection: viewName,
               operation: 'insert',
@@ -172,10 +208,18 @@ export class MaterializeBackend {
               timestamp: Date.now(),
             });
           } else if (existing.operation === 'insert' && operation === 'delete') {
-            // INSERT then DELETE = net removal
-            pendingChanges.delete(recordId);
+            // INSERT then DELETE = also an UPDATE (keep the INSERT data)
+            // Don't remove! This is just events arriving in opposite order
+            // Keep existing insert - it has the new state we want
+            if (recordId === 'order:FM-000001') {
+              console.log(`   ✅ Consolidating: INSERT+DELETE = UPDATE, keeping INSERT with status=${existing.data.order_status}`);
+            }
+            // (no change needed, existing insert stays)
           } else {
             // Same operation twice or other combination - keep latest
+            if (recordId === 'order:FM-000001') {
+              console.log(`   ⚠️ Same operation or unexpected: existing=${existing.operation}, new=${operation}, keeping latest`);
+            }
             pendingChanges.set(recordId, {
               collection: viewName,
               operation: operation as 'insert' | 'delete',
@@ -185,6 +229,9 @@ export class MaterializeBackend {
           }
         } else {
           // First event for this ID in this batch
+          if (recordId === 'order:FM-000001') {
+            console.log(`   📝 First event in batch: operation=${operation}, status=${transformedData.order_status}`);
+          }
           pendingChanges.set(recordId, {
             collection: viewName,
             operation: operation as 'insert' | 'delete',
@@ -193,28 +240,9 @@ export class MaterializeBackend {
           });
         }
 
-        // Log first data row
-        if (rowCount === 1) {
-          console.log(`${viewName}: Receiving snapshot at ts=${currentTimestamp}`);
-        }
-
         // Log post-snapshot updates
         if (!isSnapshot && rowCount % 10 === 0) {
           console.log(`📥 ${viewName}: Received ${rowCount} updates, ts=${currentTimestamp}`);
-        }
-
-        // When timestamp advances, broadcast accumulated changes
-        if (lastProgress !== null && currentTimestamp !== lastProgress) {
-          if (isSnapshot) {
-            console.log(`${viewName}: Snapshot complete (${rowCount} rows), DISCARDING snapshot data (clients already have initial state)`);
-            isSnapshot = false;
-            // Clear pending changes - don't broadcast the snapshot!
-            // Clients already received the full state via queryView()
-            pendingChanges.clear();
-          } else {
-            console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.size} changes`);
-            broadcastPending();
-          }
         }
 
         lastProgress = currentTimestamp;
