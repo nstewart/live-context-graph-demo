@@ -57,6 +57,7 @@ This document captures the complete implementation of Materialize SUBSCRIBE-base
 - Timestamp-based event batching
 - Snapshot detection and filtering (discard by default)
 - Insert/delete event parsing (mz_diff tracking)
+- Event consolidation for UPDATE operations
 - Structured logging for all events
 
 **Usage**:
@@ -74,6 +75,72 @@ class SubscribeEvent:
     data: dict      # Full row data
     is_progress: bool  # True for progress-only updates
 ```
+
+### 1a. Event Consolidation Pattern (CRITICAL FIX)
+
+**Problem**: Materialize emits UPDATE operations as DELETE (diff=-1) + INSERT (diff=+1) pairs at the **same timestamp**. If these events are broadcast separately, the DELETE can cause records to disappear from downstream systems (Zero cache, OpenSearch index).
+
+**Root Cause**: The original implementation checked if the timestamp had **changed** (`!=` comparison) and broadcast events immediately upon arrival. This caused:
+1. First event at timestamp X arrives → added to pending → broadcast immediately (premature!)
+2. Second event at timestamp X arrives → also broadcast separately
+3. Result: DELETE and INSERT sent as separate operations, causing spurious deletes
+
+**Solution**: Check if timestamp **increased** (`>` comparison) **BEFORE** adding events to the pending batch:
+
+**TypeScript (zero-server/src/materialize-backend.ts:147-161)**:
+```typescript
+// CRITICAL: Check if timestamp INCREASED before consolidating this event
+// This broadcasts the PREVIOUS timestamp's events before starting the new timestamp batch
+// This prevents broadcasting the current event before all events at its timestamp arrive
+if (lastProgress !== null && Number(currentTimestamp) > Number(lastProgress)) {
+  if (isSnapshot) {
+    console.log(`${viewName}: Snapshot complete (${rowCount} rows), DISCARDING snapshot data`);
+    isSnapshot = false;
+    pendingChanges.clear();
+  } else if (pendingChanges.size > 0) {
+    console.log(`🔔 ${viewName}: Timestamp advanced! Broadcasting ${pendingChanges.size} changes from PREVIOUS timestamp`);
+    broadcastPending();
+  }
+}
+```
+
+**Python (search-sync/src/mz_client_subscribe.py:334-350)**:
+```python
+# CRITICAL: Check if timestamp changed BEFORE adding this event
+# This broadcasts the PREVIOUS timestamp's events before starting the new batch
+# This prevents broadcasting the current event before all events at its timestamp arrive
+if last_timestamp is not None and current_timestamp != last_timestamp:
+    if is_snapshot:
+        logger.info(
+            f"Snapshot complete for {view_name}: {row_count} rows "
+            f"(discarding as per zero-server pattern)"
+        )
+        is_snapshot = False
+        pending_events = []  # Discard snapshot
+    elif pending_events:
+        logger.info(
+            f"Broadcasting {len(pending_events)} changes from PREVIOUS timestamp for {view_name}"
+        )
+        await callback(pending_events)
+        pending_events = []
+```
+
+**Key Principles**:
+1. **Timestamp Boundary Detection**: Only broadcast when timestamp **advances** (increases)
+2. **Pre-Check Ordering**: Check timestamp BEFORE adding event to pending batch
+3. **Batch Previous Events**: Broadcast the PREVIOUS timestamp's events, not the current one
+4. **Consolidation by ID**: Multiple events for same ID at same timestamp are consolidated
+
+**Benefits**:
+- DELETE + INSERT at same timestamp → consolidated into single UPDATE operation
+- Prevents spurious deletes in downstream systems
+- Order-independent (works for DELETE+INSERT or INSERT+DELETE)
+- Maintains consistency across Zero cache and OpenSearch index
+
+**Testing**:
+- Unit tests: `search-sync/tests/test_subscribe_consolidation.py`
+- Integration tests verify order status updates don't cause disappearances
+- See tests for DELETE+INSERT, INSERT+DELETE, and timestamp ordering scenarios
 
 ### 2. Bulk Delete Support (`search-sync/src/opensearch_client.py`)
 

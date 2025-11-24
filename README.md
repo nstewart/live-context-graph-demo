@@ -129,8 +129,18 @@ PostgreSQL → Materialize CDC → SUBSCRIBE Stream → Search Sync Worker → O
 2. **Snapshot Handling**: Initial snapshot is discarded (upserts are idempotent, index already populated)
 3. **Differential Updates**: Materialize streams inserts (`mz_diff=+1`) and deletes (`mz_diff=-1`)
 4. **Timestamp Batching**: Events accumulate until timestamp advances, then flush in bulk
-5. **Bulk Operations**: Worker performs bulk upsert/delete operations to OpenSearch
-6. **Progress Tracking**: `PROGRESS` option ensures regular timestamp updates even with no data changes
+5. **Event Consolidation**: DELETE + INSERT at same timestamp → consolidated into UPDATE operation
+6. **Bulk Operations**: Worker performs bulk upsert/delete operations to OpenSearch
+7. **Progress Tracking**: `PROGRESS` option ensures regular timestamp updates even with no data changes
+
+**Event Consolidation Pattern** (Critical Fix):
+
+Materialize emits UPDATE operations as DELETE + INSERT pairs at the **same timestamp**. To prevent spurious deletes in downstream systems (Zero cache, OpenSearch), both implementations check if timestamp **increased** (`>` comparison) **BEFORE** adding events to the pending batch. This ensures all events at timestamp X are consolidated before broadcasting.
+
+**Implementation Details**:
+- TypeScript: `zero-server/src/materialize-backend.ts:147-161`
+- Python: `search-sync/src/mz_client_subscribe.py:334-350`
+- Tests: `search-sync/tests/test_subscribe_consolidation.py`
 
 **Performance Improvements**:
 - **Latency**: Reduced from 20+ seconds (polling every 5s) to < 2 seconds end-to-end

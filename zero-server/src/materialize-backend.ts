@@ -144,18 +144,6 @@ export class MaterializeBackend {
         const operation = row.mz_diff > 0 ? 'insert' : 'delete';
         const transformedData = this.transformRow(row, viewName);
 
-        // LOG EVERY DATA CHANGE AS IT ARRIVES
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-        console.log(`📨 SUBSCRIBE DATA RECEIVED for ${viewName}`);
-        console.log(`   Timestamp: ${currentTimestamp}`);
-        console.log(`   Operation: ${operation} (mz_diff=${row.mz_diff})`);
-        console.log(`   Data ID: ${transformedData.id || transformedData.order_id || 'unknown'}`);
-        console.log(`   Row count: ${rowCount} (snapshot: ${isSnapshot})`);
-        if (viewName === 'orders_flat_mv') {
-          console.log(`   Order: ${transformedData.order_number} - ${transformedData.order_status}`);
-        }
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
         // CRITICAL: Check if timestamp INCREASED before consolidating this event
         // This broadcasts the PREVIOUS timestamp's events before starting the new timestamp batch
         // This prevents broadcasting the current event before all events at its timestamp arrive
@@ -181,26 +169,12 @@ export class MaterializeBackend {
         const recordId = transformedData.id || transformedData.order_id || String(rowCount);
         const existing = pendingChanges.get(recordId);
 
-        // DEBUG: Log consolidation logic for order FM-000001
-        if (recordId === 'order:FM-000001') {
-          console.log(`🔍 FM-000001 EVENT: operation=${operation}, ts=${currentTimestamp}`);
-          console.log(`   Status: ${transformedData.order_status}`);
-          if (existing) {
-            console.log(`   Existing: operation=${existing.operation}, status=${existing.data.order_status}`);
-          } else {
-            console.log(`   No existing event`);
-          }
-        }
-
         if (existing) {
           // Already have an event for this ID at this timestamp
           // DELETE (-1) + INSERT (+1) = UPDATE (net 0, keep insert data)
           // Handle both orders: DELETE+INSERT and INSERT+DELETE
           if (existing.operation === 'delete' && operation === 'insert') {
             // DELETE then INSERT = UPDATE (upsert with new data)
-            if (recordId === 'order:FM-000001') {
-              console.log(`   ✅ Consolidating: DELETE+INSERT = UPDATE with status=${transformedData.order_status}`);
-            }
             pendingChanges.set(recordId, {
               collection: viewName,
               operation: 'insert',
@@ -211,15 +185,9 @@ export class MaterializeBackend {
             // INSERT then DELETE = also an UPDATE (keep the INSERT data)
             // Don't remove! This is just events arriving in opposite order
             // Keep existing insert - it has the new state we want
-            if (recordId === 'order:FM-000001') {
-              console.log(`   ✅ Consolidating: INSERT+DELETE = UPDATE, keeping INSERT with status=${existing.data.order_status}`);
-            }
             // (no change needed, existing insert stays)
           } else {
             // Same operation twice or other combination - keep latest
-            if (recordId === 'order:FM-000001') {
-              console.log(`   ⚠️ Same operation or unexpected: existing=${existing.operation}, new=${operation}, keeping latest`);
-            }
             pendingChanges.set(recordId, {
               collection: viewName,
               operation: operation as 'insert' | 'delete',
@@ -229,9 +197,6 @@ export class MaterializeBackend {
           }
         } else {
           // First event for this ID in this batch
-          if (recordId === 'order:FM-000001') {
-            console.log(`   📝 First event in batch: operation=${operation}, status=${transformedData.order_status}`);
-          }
           pendingChanges.set(recordId, {
             collection: viewName,
             operation: operation as 'insert' | 'delete',
