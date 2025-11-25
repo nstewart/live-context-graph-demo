@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { freshmartApi, triplesApi, CourierSchedule, TripleCreate, StoreInfo } from '../api/client'
-import { useZeroQuery } from '../hooks/useZeroQuery'
-import { useZeroContext } from '../contexts/ZeroContext'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { triplesApi, CourierSchedule, TripleCreate, StoreInfo } from '../api/client'
+import { useZero, useQuery } from '@rocicorp/zero/react'
+import { Schema } from '../schema'
 import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
 
 const vehicleIcons: Record<string, typeof Truck> = {
@@ -184,38 +184,46 @@ export default function CouriersSchedulePage() {
   const [courierIdSearch, setCourierIdSearch] = useState('')
   const [viewTasksCourier, setViewTasksCourier] = useState<CourierSchedule | null>(null)
 
-  // 🔥 ZERO WebSocket - Real-time couriers data
-  const { connected: zeroConnected } = useZeroContext()
-  const { data: couriersData, isLoading: zeroLoading, error: zeroError } = useZeroQuery<CourierSchedule>({
-    collection: 'couriers',
-  })
+  // 🔥 ZERO - Real-time couriers data
+  const z = useZero<Schema>()
 
-  // Sort couriers by courier_id for stable display
+  // Couriers sorted by courier_id (with tasks as JSON)
+  const [couriersData] = useQuery(z.query.courier_schedule_mv.orderBy('courier_id', 'asc'))
+
+  // Stores for the dropdown
+  const [storesData] = useQuery(z.query.stores_mv.orderBy('store_id', 'asc'))
+
+  // Convert Zero data to API types for modal compatibility
+  const stores: StoreInfo[] = storesData.map(s => ({
+    store_id: s.store_id,
+    store_name: s.store_name,
+    store_zone: s.store_zone,
+    store_address: s.store_address,
+    store_status: s.store_status,
+    store_capacity_orders_per_hour: s.store_capacity_orders_per_hour,
+    inventory_items: [],
+  }))
+
+  const zeroConnected = true // Zero handles connection internally
+
+  // Map couriers data (already sorted by Zero)
   const couriers = useMemo(() => {
-    if (!couriersData) return []
-    return [...couriersData].sort((a, b) => {
-      const aId = a.courier_id || ''
-      const bId = b.courier_id || ''
-      return aId.localeCompare(bId)
-    })
+    return couriersData.map((courier) => ({
+      courier_id: courier.courier_id,
+      courier_name: courier.courier_name,
+      home_store_id: courier.home_store_id,
+      vehicle_type: courier.vehicle_type,
+      courier_status: courier.courier_status,
+      tasks: (courier.tasks as any[]) || [], // Tasks come as JSON array from courier_schedule_mv
+    }))
   }, [couriersData])
 
-  const isLoading = zeroLoading
-  const error = zeroError
+  const isLoading = couriersData.length === 0
 
-  // Search for specific courier by ID (queries database directly)
-  const searchCourierId = courierIdSearch.includes(':') ? courierIdSearch : courierIdSearch ? `courier:${courierIdSearch}` : ''
-  const { data: searchedCourier } = useQuery({
-    queryKey: ['courier', searchCourierId],
-    queryFn: () => freshmartApi.getCourier(searchCourierId).then(r => r.data),
-    enabled: !!searchCourierId && searchCourierId.length > 3,
-    retry: false,
-  })
-
-  const { data: stores = [] } = useQuery({
-    queryKey: ['stores'],
-    queryFn: () => freshmartApi.listStores().then(r => r.data),
-  })
+  // Client-side search filtering (Zero handles the base query)
+  const searchedCourier = courierIdSearch
+    ? couriers.find(c => c.courier_id.toLowerCase().includes(courierIdSearch.toLowerCase()))
+    : undefined
 
   const createCourierMutation = useMutation({
     mutationFn: async (data: CourierFormData) => {
@@ -349,13 +357,7 @@ export default function CouriersSchedulePage() {
         <div className="text-center py-8 text-gray-500">Loading couriers...</div>
       )}
 
-      {error && (
-        <div className="bg-red-50 text-red-700 p-4 rounded-lg">
-          Error loading couriers. Make sure the API is running.
-        </div>
-      )}
-
-      {couriers && (
+      {couriers.length > 0 && (
         <>
           <div className="mb-4 space-y-2">
             <div className="relative max-w-md">

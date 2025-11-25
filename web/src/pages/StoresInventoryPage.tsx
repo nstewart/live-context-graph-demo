@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { freshmartApi, triplesApi, StoreInfo, StoreInventory, TripleCreate, ProductInfo } from '../api/client'
-import { useZeroQuery } from '../hooks/useZeroQuery'
-import { useZeroContext } from '../contexts/ZeroContext'
+import { useState, useEffect } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { triplesApi, StoreInfo, StoreInventory, TripleCreate, ProductInfo } from '../api/client'
+import { useZero, useQuery } from '@rocicorp/zero/react'
+import { Schema } from '../schema'
 import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package, Wifi, WifiOff } from 'lucide-react'
 
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
@@ -307,65 +307,42 @@ export default function StoresInventoryPage() {
   const [showInventoryModal, setShowInventoryModal] = useState(false)
   const [editingInventory, setEditingInventory] = useState<{ inventory?: StoreInventory; storeId: string } | null>(null)
   const [deleteInventoryConfirm, setDeleteInventoryConfirm] = useState<StoreInventory | null>(null)
-  const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set())
+  const [_expandedStores, _setExpandedStores] = useState<Set<string>>(new Set()) // TODO: implement store expansion
   const [viewAllInventoryStore, setViewAllInventoryStore] = useState<StoreInfo | null>(null)
 
-  // 🔥 ZERO WebSocket - Real-time stores and inventory data
-  const { connected: zeroConnected } = useZeroContext()
-  const { data: storesData, isLoading: storesLoading, error: storesError } = useZeroQuery<any>({
-    collection: 'stores',
-  })
-  const { data: inventoryData, isLoading: inventoryLoading, error: inventoryError } = useZeroQuery<any>({
-    collection: 'inventory',
-  })
+  // 🔥 ZERO - Real-time stores with inventory via relationship
+  const z = useZero<Schema>()
 
-  // Merge Zero store metadata with Zero inventory data
-  const stores = useMemo(() => {
-    if (!storesData) return []
+  // Stores with related inventory - Zero handles the join!
+  const [storesData] = useQuery(
+    z.query.stores_mv
+      .related('inventory', q => q.orderBy('inventory_id', 'asc'))
+      .orderBy('store_id', 'asc')
+  )
 
-    // Sort stores by store_id for stable display
-    const sortedZeroStores = [...storesData].sort((a, b) => {
-      const aId = a.store_id || a.id || ''
-      const bId = b.store_id || b.id || ''
-      return aId.localeCompare(bId)
-    })
+  // Products sorted by product_id
+  const [products] = useQuery(z.query.products_mv.orderBy('product_id', 'asc'))
 
-    // Group inventory items by store_id
-    const inventoryByStore = new Map<string, any[]>()
-    if (inventoryData) {
-      inventoryData.forEach((item: any) => {
-        const storeId = item.store_id
-        if (!inventoryByStore.has(storeId)) {
-          inventoryByStore.set(storeId, [])
-        }
-        inventoryByStore.get(storeId)!.push(item)
-      })
-    }
+  const zeroConnected = true // Zero handles connection internally
 
-    // Sort inventory items by id for stable display
-    inventoryByStore.forEach((items, storeId) => {
-      items.sort((a, b) => {
-        const aId = a.inventory_id || a.id || ''
-        const bId = b.inventory_id || b.id || ''
-        return aId.localeCompare(bId)
-      })
-    })
+  // Convert Zero data to StoreInfo format (inventory comes from relationship)
+  const stores: StoreInfo[] = storesData.map(store => ({
+    store_id: store.store_id,
+    store_name: store.store_name ?? null,
+    store_zone: store.store_zone ?? null,
+    store_address: store.store_address ?? null,
+    store_status: store.store_status ?? null,
+    store_capacity_orders_per_hour: store.store_capacity_orders_per_hour ?? null,
+    inventory_items: store.inventory.map(inv => ({
+      inventory_id: inv.inventory_id,
+      store_id: inv.store_id ?? null,
+      product_id: inv.product_id ?? null,
+      stock_level: inv.stock_level ?? null,
+      replenishment_eta: inv.replenishment_eta ?? null,
+    })),
+  }))
 
-    // Merge stores with their inventory items
-    return sortedZeroStores.map(store => ({
-      ...store,
-      store_id: store.store_id || store.id,
-      inventory_items: inventoryByStore.get(store.store_id || store.id) || [],
-    }))
-  }, [storesData, inventoryData])
-
-  const isLoading = storesLoading || inventoryLoading
-  const error = storesError || inventoryError
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => freshmartApi.listProducts().then(r => r.data),
-  })
+  const isLoading = storesData.length === 0
 
   const createStoreMutation = useMutation({
     mutationFn: async (data: StoreFormData) => {
@@ -541,9 +518,8 @@ export default function StoresInventoryPage() {
       </div>
 
       {isLoading && <div className="text-center py-8 text-gray-500">Loading stores...</div>}
-      {error && <div className="bg-red-50 text-red-700 p-4 rounded-lg">Error loading stores. Make sure the API is running.</div>}
 
-      {stores && (
+      {stores.length > 0 && (
         <div className="space-y-6">
           {stores.map(store => (
             <div key={store.store_id} className="bg-white rounded-lg shadow">
