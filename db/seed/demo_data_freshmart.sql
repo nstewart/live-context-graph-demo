@@ -315,7 +315,7 @@ INSERT INTO triples (subject_id, predicate, object_value, object_type) VALUES
     ('order:FM-1001', 'order_status', 'DELIVERED', 'string'),
     ('order:FM-1001', 'delivery_window_start', '2025-11-22T09:00:00Z', 'timestamp'),
     ('order:FM-1001', 'delivery_window_end', '2025-11-22T11:00:00Z', 'timestamp'),
-    ('order:FM-1001', 'order_total_amount', '24.47', 'float'),
+    ('order:FM-1001', 'order_total_amount', '20.45', 'float'),
 
     -- Order FM-1002: Out for delivery
     ('order:FM-1002', 'order_number', 'FM-1002', 'string'),
@@ -324,7 +324,7 @@ INSERT INTO triples (subject_id, predicate, object_value, object_type) VALUES
     ('order:FM-1002', 'order_status', 'OUT_FOR_DELIVERY', 'string'),
     ('order:FM-1002', 'delivery_window_start', '2025-11-22T12:00:00Z', 'timestamp'),
     ('order:FM-1002', 'delivery_window_end', '2025-11-22T14:00:00Z', 'timestamp'),
-    ('order:FM-1002', 'order_total_amount', '35.96', 'float'),
+    ('order:FM-1002', 'order_total_amount', '29.95', 'float'),
 
     -- Order FM-1003: Picking
     ('order:FM-1003', 'order_number', 'FM-1003', 'string'),
@@ -351,7 +351,7 @@ INSERT INTO triples (subject_id, predicate, object_value, object_type) VALUES
     ('order:FM-1005', 'order_status', 'OUT_FOR_DELIVERY', 'string'),
     ('order:FM-1005', 'delivery_window_start', '2025-11-22T11:00:00Z', 'timestamp'),
     ('order:FM-1005', 'delivery_window_end', '2025-11-22T13:00:00Z', 'timestamp'),
-    ('order:FM-1005', 'order_total_amount', '41.94', 'float'),
+    ('order:FM-1005', 'order_total_amount', '34.95', 'float'),
 
     -- Order FM-1006: Cancelled
     ('order:FM-1006', 'order_number', 'FM-1006', 'string'),
@@ -444,64 +444,97 @@ ON CONFLICT (subject_id, predicate, object_value) DO NOTHING;
 -- Order Lines (sample lines for orders)
 -- =============================================================================
 INSERT INTO triples (subject_id, predicate, object_value, object_type) VALUES
-    -- Order FM-1001 lines
+    -- Order FM-1001 lines (milk=perishable, bread=not, bananas=perishable)
     ('orderline:FM1001-1', 'line_of_order', 'order:FM-1001', 'entity_ref'),
     ('orderline:FM1001-1', 'line_product', 'product:milk-1L', 'entity_ref'),
     ('orderline:FM1001-1', 'quantity', '2', 'int'),
+    ('orderline:FM1001-1', 'order_line_unit_price', '4.99', 'float'),
     ('orderline:FM1001-1', 'line_amount', '9.98', 'float'),
+    ('orderline:FM1001-1', 'line_sequence', '1', 'int'),
+    ('orderline:FM1001-1', 'perishable_flag', 'true', 'bool'),
 
     ('orderline:FM1001-2', 'line_of_order', 'order:FM-1001', 'entity_ref'),
     ('orderline:FM1001-2', 'line_product', 'product:bread-sourdough', 'entity_ref'),
     ('orderline:FM1001-2', 'quantity', '1', 'int'),
+    ('orderline:FM1001-2', 'order_line_unit_price', '5.49', 'float'),
     ('orderline:FM1001-2', 'line_amount', '5.49', 'float'),
+    ('orderline:FM1001-2', 'line_sequence', '2', 'int'),
+    ('orderline:FM1001-2', 'perishable_flag', 'false', 'bool'),
 
     ('orderline:FM1001-3', 'line_of_order', 'order:FM-1001', 'entity_ref'),
     ('orderline:FM1001-3', 'line_product', 'product:bananas-bunch', 'entity_ref'),
     ('orderline:FM1001-3', 'quantity', '2', 'int'),
+    ('orderline:FM1001-3', 'order_line_unit_price', '2.49', 'float'),
     ('orderline:FM1001-3', 'line_amount', '4.98', 'float'),
+    ('orderline:FM1001-3', 'line_sequence', '3', 'int'),
+    ('orderline:FM1001-3', 'perishable_flag', 'true', 'bool'),
 
-    -- Order FM-1002 lines
+    -- Order FM-1002 lines (chicken=perishable, spinach=perishable)
     ('orderline:FM1002-1', 'line_of_order', 'order:FM-1002', 'entity_ref'),
     ('orderline:FM1002-1', 'line_product', 'product:chicken-breast', 'entity_ref'),
     ('orderline:FM1002-1', 'quantity', '2', 'int'),
+    ('orderline:FM1002-1', 'order_line_unit_price', '8.99', 'float'),
     ('orderline:FM1002-1', 'line_amount', '17.98', 'float'),
+    ('orderline:FM1002-1', 'line_sequence', '1', 'int'),
+    ('orderline:FM1002-1', 'perishable_flag', 'true', 'bool'),
 
     ('orderline:FM1002-2', 'line_of_order', 'order:FM-1002', 'entity_ref'),
     ('orderline:FM1002-2', 'line_product', 'product:spinach-bag', 'entity_ref'),
     ('orderline:FM1002-2', 'quantity', '3', 'int'),
+    ('orderline:FM1002-2', 'order_line_unit_price', '3.99', 'float'),
     ('orderline:FM1002-2', 'line_amount', '11.97', 'float'),
+    ('orderline:FM1002-2', 'line_sequence', '2', 'int'),
+    ('orderline:FM1002-2', 'perishable_flag', 'true', 'bool'),
 
-    -- Order FM-1003 lines
+    -- Order FM-1003 lines (coffee=not, croissants=not, oj=perishable)
     ('orderline:FM1003-1', 'line_of_order', 'order:FM-1003', 'entity_ref'),
     ('orderline:FM1003-1', 'line_product', 'product:coffee-beans', 'entity_ref'),
     ('orderline:FM1003-1', 'quantity', '2', 'int'),
+    ('orderline:FM1003-1', 'order_line_unit_price', '11.99', 'float'),
     ('orderline:FM1003-1', 'line_amount', '23.98', 'float'),
+    ('orderline:FM1003-1', 'line_sequence', '1', 'int'),
+    ('orderline:FM1003-1', 'perishable_flag', 'false', 'bool'),
 
     ('orderline:FM1003-2', 'line_of_order', 'order:FM-1003', 'entity_ref'),
     ('orderline:FM1003-2', 'line_product', 'product:croissants-4', 'entity_ref'),
     ('orderline:FM1003-2', 'quantity', '2', 'int'),
+    ('orderline:FM1003-2', 'order_line_unit_price', '6.99', 'float'),
     ('orderline:FM1003-2', 'line_amount', '13.98', 'float'),
+    ('orderline:FM1003-2', 'line_sequence', '2', 'int'),
+    ('orderline:FM1003-2', 'perishable_flag', 'false', 'bool'),
 
     ('orderline:FM1003-3', 'line_of_order', 'order:FM-1003', 'entity_ref'),
     ('orderline:FM1003-3', 'line_product', 'product:orange-juice', 'entity_ref'),
     ('orderline:FM1003-3', 'quantity', '1', 'int'),
+    ('orderline:FM1003-3', 'order_line_unit_price', '7.49', 'float'),
     ('orderline:FM1003-3', 'line_amount', '7.49', 'float'),
+    ('orderline:FM1003-3', 'line_sequence', '3', 'int'),
+    ('orderline:FM1003-3', 'perishable_flag', 'true', 'bool'),
 
-    -- Order FM-1005 lines
+    -- Order FM-1005 lines (beef=perishable, pasta=not, olive oil=not)
     ('orderline:FM1005-1', 'line_of_order', 'order:FM-1005', 'entity_ref'),
     ('orderline:FM1005-1', 'line_product', 'product:ground-beef', 'entity_ref'),
     ('orderline:FM1005-1', 'quantity', '2', 'int'),
+    ('orderline:FM1005-1', 'order_line_unit_price', '7.99', 'float'),
     ('orderline:FM1005-1', 'line_amount', '15.98', 'float'),
+    ('orderline:FM1005-1', 'line_sequence', '1', 'int'),
+    ('orderline:FM1005-1', 'perishable_flag', 'true', 'bool'),
 
     ('orderline:FM1005-2', 'line_of_order', 'order:FM-1005', 'entity_ref'),
     ('orderline:FM1005-2', 'line_product', 'product:pasta-penne', 'entity_ref'),
     ('orderline:FM1005-2', 'quantity', '2', 'int'),
+    ('orderline:FM1005-2', 'order_line_unit_price', '2.99', 'float'),
     ('orderline:FM1005-2', 'line_amount', '5.98', 'float'),
+    ('orderline:FM1005-2', 'line_sequence', '2', 'int'),
+    ('orderline:FM1005-2', 'perishable_flag', 'false', 'bool'),
 
     ('orderline:FM1005-3', 'line_of_order', 'order:FM-1005', 'entity_ref'),
     ('orderline:FM1005-3', 'line_product', 'product:olive-oil', 'entity_ref'),
     ('orderline:FM1005-3', 'quantity', '1', 'int'),
-    ('orderline:FM1005-3', 'line_amount', '12.99', 'float')
+    ('orderline:FM1005-3', 'order_line_unit_price', '12.99', 'float'),
+    ('orderline:FM1005-3', 'line_amount', '12.99', 'float'),
+    ('orderline:FM1005-3', 'line_sequence', '3', 'int'),
+    ('orderline:FM1005-3', 'perishable_flag', 'false', 'bool')
 ON CONFLICT (subject_id, predicate, object_value) DO NOTHING;
 
 -- =============================================================================

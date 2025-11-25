@@ -647,6 +647,7 @@ function OrdersTable({
 }
 
 function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
+  console.log(lineItems);
   if (lineItems.length === 0) {
     return (
       <div className="px-8 py-6 text-center">
@@ -764,6 +765,8 @@ export default function OrdersDashboardPage() {
     z.query.orders_with_lines_mv.orderBy("order_number", "asc")
   );
 
+  console.log("orders with lines from Zero:", ordersWithLinesData);
+
   // Also get orders_search_source_mv for customer/store names
   const [ordersSearchData] = useQuery(
     z.query.orders_search_source_mv.orderBy("order_number", "asc")
@@ -808,6 +811,7 @@ export default function OrdersDashboardPage() {
       };
     });
   }, [ordersWithLinesData, ordersSearchData]);
+  console.log("orders merged:", orders);
 
   // Convert Zero data to API types for modal compatibility
   const stores: StoreInfo[] = storesData.map((s) => ({

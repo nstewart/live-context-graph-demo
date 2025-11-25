@@ -30,7 +30,7 @@ SELECT
     subject_id AS product_id,
     MAX(CASE WHEN predicate = 'product_name' THEN object_value END) AS product_name,
     MAX(CASE WHEN predicate = 'category' THEN object_value END) AS category,
-    MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
+    MAX(CASE WHEN predicate = 'unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
     MAX(CASE WHEN predicate = 'perishable' THEN object_value END)::BOOLEAN AS perishable,
     MAX(CASE WHEN predicate = 'unit_weight_grams' THEN object_value END)::INT AS unit_weight_grams,
     MAX(updated_at) AS effective_updated_at

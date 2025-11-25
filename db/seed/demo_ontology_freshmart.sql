@@ -174,7 +174,7 @@ FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 
 INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
-SELECT 'unit_price', id, 'float', NULL, FALSE, TRUE, 'Unit price at order time (price snapshot)'
+SELECT 'order_line_unit_price', id, 'float', NULL, FALSE, TRUE, 'Unit price at order time (price snapshot)'
 FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 
