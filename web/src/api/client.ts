@@ -117,6 +117,33 @@ export interface ProductInfo {
   perishable: boolean | null
 }
 
+export interface OrderLineFlat {
+  line_id: string
+  order_id: string
+  product_id: string
+  quantity: number
+  unit_price: number
+  line_amount: number
+  line_sequence: number
+  perishable_flag: boolean
+  product_name?: string
+  category?: string
+  effective_updated_at?: string
+}
+
+export interface OrderLineCreate {
+  product_id: string
+  quantity: number
+  unit_price: number
+  line_sequence?: number
+  perishable_flag?: boolean
+}
+
+export interface OrderLineUpdate {
+  quantity?: number
+  unit_price?: number
+}
+
 // API functions
 export interface OntologyPropertyCreate {
   prop_name: string
@@ -196,6 +223,25 @@ export const freshmartApi = {
     apiClient.get<CourierSchedule[]>('/freshmart/couriers', { params: { ...params, limit: 1000 } }),
   getCourier: (courierId: string) =>
     apiClient.get<CourierSchedule>(`/freshmart/couriers/${encodeURIComponent(courierId)}`),
+
+  // Order Line Items
+  createOrderLinesBatch: (orderId: string, lineItems: OrderLineCreate[]) =>
+    apiClient.post<OrderLineFlat[]>(`/freshmart/orders/${encodeURIComponent(orderId)}/line-items/batch`, {
+      line_items: lineItems,
+    }),
+  listOrderLines: (orderId: string) =>
+    apiClient.get<OrderLineFlat[]>(`/freshmart/orders/${encodeURIComponent(orderId)}/line-items`),
+  getOrderLine: (orderId: string, lineId: string) =>
+    apiClient.get<OrderLineFlat>(
+      `/freshmart/orders/${encodeURIComponent(orderId)}/line-items/${encodeURIComponent(lineId)}`
+    ),
+  updateOrderLine: (orderId: string, lineId: string, data: OrderLineUpdate) =>
+    apiClient.put<OrderLineFlat>(
+      `/freshmart/orders/${encodeURIComponent(orderId)}/line-items/${encodeURIComponent(lineId)}`,
+      data
+    ),
+  deleteOrderLine: (orderId: string, lineId: string) =>
+    apiClient.delete(`/freshmart/orders/${encodeURIComponent(orderId)}/line-items/${encodeURIComponent(lineId)}`),
 }
 
 export const healthApi = {

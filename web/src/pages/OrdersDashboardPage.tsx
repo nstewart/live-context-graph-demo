@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo } from '../api/client'
+import { freshmartApi, triplesApi, OrderFlat, TripleCreate, StoreInfo, CustomerInfo, OrderLineFlat } from '../api/client'
 import { useZeroQuery } from '../hooks/useZeroQuery'
 import { useZeroContext } from '../contexts/ZeroContext'
 import { formatAmount } from '../test/utils'
-import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Package, Clock, CheckCircle, XCircle, Truck, Plus, Edit2, Trash2, X, Wifi, WifiOff, ChevronLeft, ChevronRight, AlertTriangle, ChevronDown, Snowflake, Loader } from 'lucide-react'
+import { ProductSelector, ProductWithStock } from '../components/ProductSelector'
+import { ShoppingCart } from '../components/ShoppingCart'
+import { useShoppingCartStore } from '../stores/shoppingCartStore'
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: 'bg-blue-100 text-blue-800', icon: Package },
@@ -65,6 +68,16 @@ function OrderFormModal({
   customers: CustomerInfo[]
 }) {
   const [formData, setFormData] = useState<OrderFormData>(initialFormData)
+  const [showStoreChangeConfirm, setShowStoreChangeConfirm] = useState(false)
+  const [pendingStoreId, setPendingStoreId] = useState<string>('')
+
+  const {
+    line_items,
+    setStore,
+    clearCart,
+    addItem,
+    getTotal
+  } = useShoppingCartStore()
 
   useEffect(() => {
     if (order) {
@@ -77,21 +90,85 @@ function OrderFormModal({
         delivery_window_start: order.delivery_window_start?.slice(0, 16) || '',
         delivery_window_end: order.delivery_window_end?.slice(0, 16) || '',
       })
+      // Set store in cart when editing
+      if (order.store_id) {
+        setStore(order.store_id, true)
+      }
+      // TODO: Load existing line items when backend API is available
     } else {
       setFormData(initialFormData)
+      clearCart()
     }
-  }, [order])
+  }, [order, setStore, clearCart])
+
+  // Sync cart total with form total
+  useEffect(() => {
+    const total = getTotal()
+    if (total > 0) {
+      setFormData(prev => ({ ...prev, order_total_amount: total.toFixed(2) }))
+    }
+  }, [line_items, getTotal])
 
   if (!isOpen) return null
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate that cart is not empty for new orders
+    if (!order && line_items.length === 0) {
+      alert('Please add at least one product to the order')
+      return
+    }
+
     onSave(formData, !!order)
   }
 
+  const handleStoreChange = (newStoreId: string) => {
+    // Try to set the store
+    const success = setStore(newStoreId, false)
+
+    if (!success) {
+      // Store change requires confirmation
+      setPendingStoreId(newStoreId)
+      setShowStoreChangeConfirm(true)
+    } else {
+      // Store changed successfully
+      setFormData({ ...formData, store_id: newStoreId })
+    }
+  }
+
+  const confirmStoreChange = () => {
+    setStore(pendingStoreId, true)
+    setFormData({ ...formData, store_id: pendingStoreId })
+    setShowStoreChangeConfirm(false)
+    setPendingStoreId('')
+  }
+
+  const cancelStoreChange = () => {
+    setShowStoreChangeConfirm(false)
+    setPendingStoreId('')
+  }
+
+  const handleProductSelect = (product: ProductWithStock) => {
+    try {
+      addItem({
+        product_id: product.product_id,
+        product_name: product.product_name || 'Unknown Product',
+        quantity: 1,
+        unit_price: product.unit_price || 0,
+        perishable_flag: product.perishable || false,
+        available_stock: product.stock_level,
+        category: product.category || undefined,
+      })
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to add product')
+    }
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center p-4 border-b">
           <h2 className="text-lg font-semibold">{order ? 'Edit Order' : 'Create Order'}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
@@ -150,7 +227,7 @@ function OrderFormModal({
               <select
                 required
                 value={formData.store_id}
-                onChange={e => setFormData({ ...formData, store_id: e.target.value })}
+                onChange={e => handleStoreChange(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
               >
                 <option value="">Select a store...</option>
@@ -162,15 +239,33 @@ function OrderFormModal({
               </select>
             </div>
           </div>
+
+          {/* Product Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Total Amount</label>
+            <ProductSelector
+              storeId={formData.store_id || null}
+              onProductSelect={handleProductSelect}
+              disabled={!formData.store_id}
+            />
+          </div>
+
+          {/* Shopping Cart */}
+          <div>
+            <ShoppingCart />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Total Amount
+              <span className="ml-2 text-xs text-gray-500">(Auto-calculated from cart)</span>
+            </label>
             <input
               type="number"
               step="0.01"
               value={formData.order_total_amount}
-              onChange={e => setFormData({ ...formData, order_total_amount: e.target.value })}
-              placeholder="45.99"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              readOnly
+              placeholder="0.00"
+              className="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-700"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -212,6 +307,40 @@ function OrderFormModal({
         </form>
       </div>
     </div>
+
+      {/* Store Change Confirmation Dialog */}
+      {showStoreChangeConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Change Store?</h3>
+                <p className="text-gray-600 text-sm">
+                  Changing the store will clear all items from your cart. Are you sure?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={cancelStoreChange}
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmStoreChange}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+              >
+                Change Store
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -224,12 +353,52 @@ function OrdersTable({
   onEdit: (order: OrderFlat) => void
   onDelete: (order: OrderFlat) => void
 }) {
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [loadingLineItems, setLoadingLineItems] = useState<Set<string>>(new Set())
+  const [lineItemsCache, setLineItemsCache] = useState<Map<string, OrderLineFlat[]>>(new Map())
+
+  const toggleRow = async (orderId: string) => {
+    const newExpanded = new Set(expandedRows)
+
+    if (newExpanded.has(orderId)) {
+      // Collapse
+      newExpanded.delete(orderId)
+    } else {
+      // Expand and load line items if not cached
+      newExpanded.add(orderId)
+
+      if (!lineItemsCache.has(orderId)) {
+        setLoadingLineItems(prev => new Set(prev).add(orderId))
+        try {
+          const response = await freshmartApi.listOrderLines(orderId)
+          setLineItemsCache(prev => new Map(prev).set(orderId, response.data))
+        } catch (error: any) {
+          // If 404, the order has no line items yet - cache empty array
+          if (error.response?.status === 404) {
+            setLineItemsCache(prev => new Map(prev).set(orderId, []))
+          } else {
+            console.error('Failed to load line items:', error)
+          }
+        } finally {
+          setLoadingLineItems(prev => {
+            const next = new Set(prev)
+            next.delete(orderId)
+            return next
+          })
+        }
+      }
+    }
+
+    setExpandedRows(newExpanded)
+  }
+
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-2 py-3 w-10"></th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Order
               </th>
@@ -258,11 +427,25 @@ function OrdersTable({
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.map((order) => (
-              <tr key={order.order_id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{order.order_number}</div>
-                  <div className="text-xs text-gray-400">{order.order_id}</div>
-                </td>
+              <React.Fragment key={order.order_id}>
+                <tr className="hover:bg-gray-50">
+                  <td className="px-2 py-3">
+                    <button
+                      onClick={() => toggleRow(order.order_id)}
+                      className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      title="Toggle line items"
+                    >
+                      {expandedRows.has(order.order_id) ? (
+                        <ChevronDown className="h-4 w-4 text-gray-600" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-gray-600" />
+                      )}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{order.order_number}</div>
+                    <div className="text-xs text-gray-400">{order.order_id}</div>
+                  </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <StatusBadge status={order.order_status} />
                 </td>
@@ -322,10 +505,115 @@ function OrdersTable({
                   </div>
                 </td>
               </tr>
+
+              {/* Expanded Row - Line Items */}
+              {expandedRows.has(order.order_id) && (
+                <tr key={`${order.order_id}-expanded`}>
+                  <td colSpan={8} className="px-0 py-0">
+                    <div className="bg-gray-50 border-t border-b border-gray-200">
+                      {loadingLineItems.has(order.order_id) ? (
+                        <div className="px-8 py-6 text-center">
+                          <Loader className="h-6 w-6 animate-spin inline-block text-gray-400 mb-2" />
+                          <p className="text-sm text-gray-500">Loading line items...</p>
+                        </div>
+                      ) : (
+                        <LineItemsTable
+                          lineItems={lineItemsCache.get(order.order_id) || []}
+                          orderId={order.order_id}
+                        />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
             ))}
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function LineItemsTable({
+  lineItems,
+}: {
+  lineItems: OrderLineFlat[]
+  orderId: string
+}) {
+  if (lineItems.length === 0) {
+    return (
+      <div className="px-8 py-6 text-center">
+        <Package className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+        <p className="text-sm font-medium text-gray-700">No line items</p>
+        <p className="text-xs text-gray-500 mt-1">This order has no products added yet</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-8 py-4">
+      <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <Package className="h-4 w-4" />
+        Order Line Items ({lineItems.length})
+      </h4>
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Product</th>
+            <th className="text-center px-3 py-2 text-xs font-medium text-gray-600">Quantity</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Unit Price</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Line Total</th>
+            <th className="text-center px-3 py-2 text-xs font-medium text-gray-600 w-20">Status</th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-100">
+          {lineItems.map((item) => (
+            <tr key={item.line_id} className="hover:bg-gray-50">
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900">
+                    {item.product_name || item.product_id}
+                  </span>
+                  {item.perishable_flag && (
+                    <span title="Perishable - requires cold chain">
+                      <Snowflake className="h-4 w-4 text-blue-600" />
+                    </span>
+                  )}
+                </div>
+                {item.category && (
+                  <div className="text-xs text-gray-500 mt-0.5">{item.category}</div>
+                )}
+              </td>
+              <td className="px-3 py-2 text-center text-gray-900">{item.quantity}</td>
+              <td className="px-3 py-2 text-right text-gray-900">
+                ${formatAmount(item.unit_price)}
+              </td>
+              <td className="px-3 py-2 text-right font-medium text-gray-900">
+                ${formatAmount(item.line_amount)}
+              </td>
+              <td className="px-3 py-2 text-center">
+                {item.perishable_flag ? (
+                  <Snowflake className="h-4 w-4 inline-block text-blue-600" />
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="bg-gray-50 font-semibold">
+            <td colSpan={3} className="px-3 py-2 text-right text-gray-700">
+              Subtotal ({lineItems.reduce((sum, item) => sum + item.quantity, 0)} items):
+            </td>
+            <td className="px-3 py-2 text-right text-gray-900">
+              ${formatAmount(lineItems.reduce((sum, item) => sum + item.line_amount, 0))}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   )
 }
@@ -399,10 +687,29 @@ export default function OrdersDashboardPage() {
           object_type: 'timestamp',
         })
       }
-      return triplesApi.createBatch(triples)
+
+      // Create order first
+      await triplesApi.createBatch(triples)
+
+      // Then create line items if any exist in cart
+      const cartItems = useShoppingCartStore.getState().line_items
+      if (cartItems.length > 0) {
+        const lineItemsToCreate = cartItems.map((item, index) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          line_sequence: index + 1,
+          perishable_flag: item.perishable_flag,
+        }))
+
+        await freshmartApi.createOrderLinesBatch(orderId, lineItemsToCreate)
+      }
+
+      return { orderId }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
+      useShoppingCartStore.getState().clearCart()
       setShowModal(false)
       setEditingOrder(undefined)
     },

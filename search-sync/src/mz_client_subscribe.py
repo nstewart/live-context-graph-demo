@@ -446,6 +446,20 @@ class MaterializeSubscribeClient:
         """
         if view_name == "orders_search_source_mv":
             # Skip first 3 columns (mz_timestamp, mz_diff, mz_progressed)
+            # Column order: order_id(3), order_number(4), ..., delivery_eta(19),
+            # line_items(20), line_item_count(21), has_perishable_items(22), effective_updated_at(23)
+
+            # Parse line_items from JSONB to list of dicts
+            line_items_raw = row[20] if len(row) > 20 else None
+            line_items = []
+            if line_items_raw:
+                # psycopg returns JSONB as list already
+                if isinstance(line_items_raw, list):
+                    line_items = line_items_raw
+                elif isinstance(line_items_raw, str):
+                    import json
+                    line_items = json.loads(line_items_raw)
+
             return {
                 "order_id": row[3] if len(row) > 3 else None,
                 "order_number": row[4] if len(row) > 4 else None,
@@ -464,7 +478,10 @@ class MaterializeSubscribeClient:
                 "assigned_courier_id": row[17] if len(row) > 17 else None,
                 "delivery_task_status": row[18] if len(row) > 18 else None,
                 "delivery_eta": row[19] if len(row) > 19 else None,
-                "effective_updated_at": row[20] if len(row) > 20 else None,
+                "line_items": line_items,
+                "line_item_count": int(row[21]) if len(row) > 21 and row[21] is not None else 0,
+                "has_perishable_items": row[22] if len(row) > 22 else None,
+                "effective_updated_at": row[23] if len(row) > 23 else None,
             }
         else:
             # Generic handling - return all columns after metadata

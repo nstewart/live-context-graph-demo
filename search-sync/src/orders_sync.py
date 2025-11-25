@@ -516,6 +516,9 @@ class OrdersSyncWorker:
                 "assigned_courier_id": data.get("assigned_courier_id"),
                 "delivery_task_status": data.get("delivery_task_status"),
                 "delivery_eta": self._format_datetime(data.get("delivery_eta")),
+                "line_items": data.get("line_items", []),
+                "line_item_count": data.get("line_item_count", 0),
+                "has_perishable_items": data.get("has_perishable_items", False),
                 "effective_updated_at": self._format_datetime(data.get("effective_updated_at")),
             }
 

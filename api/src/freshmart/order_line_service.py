@@ -69,7 +69,7 @@ class OrderLineService:
             ),
             TripleCreate(
                 subject_id=line_id,
-                predicate="unit_price",
+                predicate="order_line_unit_price",
                 object_value=str(line_item.unit_price),
                 object_type="float",
             ),
@@ -151,7 +151,7 @@ class OrderLineService:
                     MAX(CASE WHEN t.predicate = 'line_of_order' THEN t.object_value END) AS order_id,
                     MAX(CASE WHEN t.predicate = 'line_product' THEN t.object_value END) AS product_id,
                     MAX(CASE WHEN t.predicate = 'quantity' THEN t.object_value END)::INT AS quantity,
-                    MAX(CASE WHEN t.predicate = 'unit_price' THEN t.object_value END)::DECIMAL(10,2) AS unit_price,
+                    MAX(CASE WHEN t.predicate = 'order_line_unit_price' THEN t.object_value END)::DECIMAL(10,2) AS unit_price,
                     MAX(CASE WHEN t.predicate = 'line_amount' THEN t.object_value END)::DECIMAL(10,2) AS line_amount,
                     MAX(CASE WHEN t.predicate = 'line_sequence' THEN t.object_value END)::INT AS line_sequence,
                     MAX(CASE WHEN t.predicate = 'perishable_flag' THEN t.object_value END)::BOOLEAN AS perishable_flag,

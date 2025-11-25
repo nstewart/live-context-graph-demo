@@ -43,6 +43,31 @@ ORDERS_INDEX_MAPPING = {
             "delivery_task_status": {"type": "keyword"},
             "delivery_eta": {"type": "date"},
             "effective_updated_at": {"type": "date"},
+            "line_items": {
+                "type": "nested",
+                "properties": {
+                    "line_id": {"type": "keyword"},
+                    "product_id": {"type": "keyword"},
+                    "product_name": {
+                        "type": "text",
+                        "copy_to": "search_text",
+                        "fields": {"keyword": {"type": "keyword"}},
+                    },
+                    "category": {
+                        "type": "text",
+                        "copy_to": "search_text",
+                        "fields": {"keyword": {"type": "keyword"}},
+                    },
+                    "quantity": {"type": "integer"},
+                    "unit_price": {"type": "float"},
+                    "line_amount": {"type": "float"},
+                    "line_sequence": {"type": "integer"},
+                    "perishable_flag": {"type": "boolean"},
+                    "unit_weight_grams": {"type": "integer"},
+                },
+            },
+            "line_item_count": {"type": "integer"},
+            "has_perishable_items": {"type": "boolean"},
             "search_text": {"type": "text"},
         }
     },
@@ -127,6 +152,12 @@ class OpenSearchClient:
                 raise_on_exception=False,
             )
             error_count = len(errors) if errors else 0
+
+            # Log detailed errors for debugging
+            if errors:
+                for error in errors[:5]:  # Log first 5 errors
+                    logger.error(f"Bulk upsert error detail: {error}")
+
             return success, error_count
         except Exception as e:
             logger.error(f"Bulk upsert failed: {e}")
@@ -186,7 +217,9 @@ class OpenSearchClient:
         Returns:
             List of matching order documents
         """
-        must_clauses = [
+        # Build search query with support for product searches in line items
+        # Use "should" to match either order fields OR product fields
+        should_clauses = [
             {
                 "multi_match": {
                     "query": query,
@@ -194,8 +227,23 @@ class OpenSearchClient:
                     "type": "best_fields",
                     "fuzziness": "AUTO",
                 }
+            },
+            {
+                "nested": {
+                    "path": "line_items",
+                    "query": {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["line_items.product_name^2", "line_items.category"],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                        }
+                    },
+                }
             }
         ]
+
+        must_clauses = [{"bool": {"should": should_clauses, "minimum_should_match": 1}}]
 
         if status:
             must_clauses.append({"term": {"order_status": status}})

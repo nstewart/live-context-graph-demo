@@ -113,7 +113,7 @@ async def list_orders(
     return await service.list_orders(filter_=filter_, limit=limit, offset=offset)
 
 
-@router.get("/orders/{order_id:path}", response_model=OrderFlat)
+@router.get("/orders/{order_id}", response_model=OrderFlat)
 async def get_order(order_id: str, service: FreshMartService = Depends(get_freshmart_service)):
     """
     Get detailed order information.
