@@ -157,7 +157,7 @@ export interface TripleCreate {
   subject_id: string
   predicate: string
   object_value: string
-  object_type: 'string' | 'integer' | 'decimal' | 'boolean' | 'datetime' | 'entity_ref'
+  object_type: 'string' | 'int' | 'float' | 'bool' | 'timestamp' | 'date' | 'entity_ref'
 }
 
 export interface SubjectCounts {

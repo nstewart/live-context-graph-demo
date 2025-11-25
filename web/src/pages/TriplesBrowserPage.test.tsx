@@ -38,7 +38,7 @@ const mockSubjectInfo = {
   triples: [
     { id: 1, subject_id: 'order:FM-1001', predicate: 'order_status', object_value: 'CREATED', object_type: 'string', created_at: '', updated_at: '' },
     { id: 2, subject_id: 'order:FM-1001', predicate: 'order_store', object_value: 'store:BK-01', object_type: 'entity_ref', created_at: '', updated_at: '' },
-    { id: 3, subject_id: 'order:FM-1001', predicate: 'order_total_amount', object_value: '99.50', object_type: 'decimal', created_at: '', updated_at: '' },
+    { id: 3, subject_id: 'order:FM-1001', predicate: 'order_total_amount', object_value: '99.50', object_type: 'float', created_at: '', updated_at: '' },
   ],
 }
 
@@ -52,7 +52,7 @@ const mockClasses = [
 const mockProperties = [
   { id: 1, prop_name: 'order_status', domain_class_id: 1, range_kind: 'string', range_class_id: null, is_multi_valued: false, is_required: true, description: 'Order status', domain_class_name: 'Order', range_class_name: null, created_at: '', updated_at: '' },
   { id: 2, prop_name: 'order_store', domain_class_id: 1, range_kind: 'entity_ref', range_class_id: 2, is_multi_valued: false, is_required: true, description: 'Store for order', domain_class_name: 'Order', range_class_name: 'Store', created_at: '', updated_at: '' },
-  { id: 3, prop_name: 'order_total_amount', domain_class_id: 1, range_kind: 'decimal', range_class_id: null, is_multi_valued: false, is_required: false, description: 'Order total', domain_class_name: 'Order', range_class_name: null, created_at: '', updated_at: '' },
+  { id: 3, prop_name: 'order_total_amount', domain_class_id: 1, range_kind: 'float', range_class_id: null, is_multi_valued: false, is_required: false, description: 'Order total', domain_class_name: 'Order', range_class_name: null, created_at: '', updated_at: '' },
   { id: 4, prop_name: 'store_name', domain_class_id: 2, range_kind: 'string', range_class_id: null, is_multi_valued: false, is_required: true, description: 'Store name', domain_class_name: 'Store', range_class_name: null, created_at: '', updated_at: '' },
 ]
 

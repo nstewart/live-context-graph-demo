@@ -7,7 +7,7 @@ interface TripleFormData {
   subject_id: string
   predicate: string
   object_value: string
-  object_type: 'string' | 'integer' | 'decimal' | 'boolean' | 'datetime' | 'entity_ref'
+  object_type: 'string' | 'int' | 'float' | 'bool' | 'timestamp' | 'date' | 'entity_ref'
 }
 
 const initialFormData: TripleFormData = {
@@ -197,7 +197,7 @@ function TripleFormModal({
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-            ) : selectedProperty?.range_kind === 'boolean' ? (
+            ) : selectedProperty?.range_kind === 'bool' ? (
               <select
                 required
                 value={formData.object_value}
@@ -208,7 +208,7 @@ function TripleFormModal({
                 <option value="true">true</option>
                 <option value="false">false</option>
               </select>
-            ) : selectedProperty?.range_kind === 'datetime' ? (
+            ) : selectedProperty?.range_kind === 'timestamp' ? (
               <input
                 type="datetime-local"
                 required
@@ -218,8 +218,8 @@ function TripleFormModal({
               />
             ) : (
               <input
-                type={selectedProperty?.range_kind === 'integer' || selectedProperty?.range_kind === 'decimal' ? 'number' : 'text'}
-                step={selectedProperty?.range_kind === 'decimal' ? '0.01' : undefined}
+                type={selectedProperty?.range_kind === 'int' || selectedProperty?.range_kind === 'float' ? 'number' : 'text'}
+                step={selectedProperty?.range_kind === 'float' ? '0.01' : undefined}
                 required
                 value={formData.object_value}
                 onChange={e => setFormData({ ...formData, object_value: e.target.value })}
