@@ -270,7 +270,17 @@ class OrderLineService:
         new_sequence = (
             updates.line_sequence if updates.line_sequence is not None else current.line_sequence
         )
-        new_line_amount = new_quantity * new_unit_price
+
+        # Calculate line amount - handle case where unit_price might be None
+        if new_unit_price is not None:
+            new_line_amount = new_quantity * new_unit_price
+        elif current.line_amount is not None and current.quantity:
+            # Calculate unit price from existing line amount
+            new_unit_price = current.line_amount / current.quantity
+            new_line_amount = new_quantity * new_unit_price
+        else:
+            # Fallback - keep existing line amount or set to 0
+            new_line_amount = current.line_amount or 0
 
         # Update triples
         if updates.quantity is not None:

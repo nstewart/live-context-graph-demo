@@ -1,7 +1,7 @@
 /**
  * Zero Schema Definition
- * Maps to Zero server's replicated tables (Materialize views)
- */
+  * Maps to Zero server's replicated tables (Materialize views)
+*/
 
 import {
   createSchema,
@@ -64,7 +64,7 @@ const orders_with_lines_mv = table('orders_with_lines_mv')
     delivery_window_start: string().optional(),
     delivery_window_end: string().optional(),
     order_total_amount: number().optional(),
-    effective_updated_at: string().optional(),
+    effective_updated_at: number().optional(),
     line_items: json<OrderLineItem[]>(),
     line_item_count: number().optional(),
     computed_total: number().optional(),

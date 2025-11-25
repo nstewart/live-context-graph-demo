@@ -445,63 +445,63 @@ ON CONFLICT (subject_id, predicate, object_value) DO NOTHING;
 -- =============================================================================
 INSERT INTO triples (subject_id, predicate, object_value, object_type) VALUES
     -- Order FM-1001 lines
-    ('order_line:FM1001-1', 'line_of_order', 'order:FM-1001', 'entity_ref'),
-    ('order_line:FM1001-1', 'line_product', 'product:milk-1L', 'entity_ref'),
-    ('order_line:FM1001-1', 'quantity', '2', 'int'),
-    ('order_line:FM1001-1', 'line_amount', '9.98', 'float'),
+    ('orderline:FM1001-1', 'line_of_order', 'order:FM-1001', 'entity_ref'),
+    ('orderline:FM1001-1', 'line_product', 'product:milk-1L', 'entity_ref'),
+    ('orderline:FM1001-1', 'quantity', '2', 'int'),
+    ('orderline:FM1001-1', 'line_amount', '9.98', 'float'),
 
-    ('order_line:FM1001-2', 'line_of_order', 'order:FM-1001', 'entity_ref'),
-    ('order_line:FM1001-2', 'line_product', 'product:bread-sourdough', 'entity_ref'),
-    ('order_line:FM1001-2', 'quantity', '1', 'int'),
-    ('order_line:FM1001-2', 'line_amount', '5.49', 'float'),
+    ('orderline:FM1001-2', 'line_of_order', 'order:FM-1001', 'entity_ref'),
+    ('orderline:FM1001-2', 'line_product', 'product:bread-sourdough', 'entity_ref'),
+    ('orderline:FM1001-2', 'quantity', '1', 'int'),
+    ('orderline:FM1001-2', 'line_amount', '5.49', 'float'),
 
-    ('order_line:FM1001-3', 'line_of_order', 'order:FM-1001', 'entity_ref'),
-    ('order_line:FM1001-3', 'line_product', 'product:bananas-bunch', 'entity_ref'),
-    ('order_line:FM1001-3', 'quantity', '2', 'int'),
-    ('order_line:FM1001-3', 'line_amount', '4.98', 'float'),
+    ('orderline:FM1001-3', 'line_of_order', 'order:FM-1001', 'entity_ref'),
+    ('orderline:FM1001-3', 'line_product', 'product:bananas-bunch', 'entity_ref'),
+    ('orderline:FM1001-3', 'quantity', '2', 'int'),
+    ('orderline:FM1001-3', 'line_amount', '4.98', 'float'),
 
     -- Order FM-1002 lines
-    ('order_line:FM1002-1', 'line_of_order', 'order:FM-1002', 'entity_ref'),
-    ('order_line:FM1002-1', 'line_product', 'product:chicken-breast', 'entity_ref'),
-    ('order_line:FM1002-1', 'quantity', '2', 'int'),
-    ('order_line:FM1002-1', 'line_amount', '17.98', 'float'),
+    ('orderline:FM1002-1', 'line_of_order', 'order:FM-1002', 'entity_ref'),
+    ('orderline:FM1002-1', 'line_product', 'product:chicken-breast', 'entity_ref'),
+    ('orderline:FM1002-1', 'quantity', '2', 'int'),
+    ('orderline:FM1002-1', 'line_amount', '17.98', 'float'),
 
-    ('order_line:FM1002-2', 'line_of_order', 'order:FM-1002', 'entity_ref'),
-    ('order_line:FM1002-2', 'line_product', 'product:spinach-bag', 'entity_ref'),
-    ('order_line:FM1002-2', 'quantity', '3', 'int'),
-    ('order_line:FM1002-2', 'line_amount', '11.97', 'float'),
+    ('orderline:FM1002-2', 'line_of_order', 'order:FM-1002', 'entity_ref'),
+    ('orderline:FM1002-2', 'line_product', 'product:spinach-bag', 'entity_ref'),
+    ('orderline:FM1002-2', 'quantity', '3', 'int'),
+    ('orderline:FM1002-2', 'line_amount', '11.97', 'float'),
 
     -- Order FM-1003 lines
-    ('order_line:FM1003-1', 'line_of_order', 'order:FM-1003', 'entity_ref'),
-    ('order_line:FM1003-1', 'line_product', 'product:coffee-beans', 'entity_ref'),
-    ('order_line:FM1003-1', 'quantity', '2', 'int'),
-    ('order_line:FM1003-1', 'line_amount', '23.98', 'float'),
+    ('orderline:FM1003-1', 'line_of_order', 'order:FM-1003', 'entity_ref'),
+    ('orderline:FM1003-1', 'line_product', 'product:coffee-beans', 'entity_ref'),
+    ('orderline:FM1003-1', 'quantity', '2', 'int'),
+    ('orderline:FM1003-1', 'line_amount', '23.98', 'float'),
 
-    ('order_line:FM1003-2', 'line_of_order', 'order:FM-1003', 'entity_ref'),
-    ('order_line:FM1003-2', 'line_product', 'product:croissants-4', 'entity_ref'),
-    ('order_line:FM1003-2', 'quantity', '2', 'int'),
-    ('order_line:FM1003-2', 'line_amount', '13.98', 'float'),
+    ('orderline:FM1003-2', 'line_of_order', 'order:FM-1003', 'entity_ref'),
+    ('orderline:FM1003-2', 'line_product', 'product:croissants-4', 'entity_ref'),
+    ('orderline:FM1003-2', 'quantity', '2', 'int'),
+    ('orderline:FM1003-2', 'line_amount', '13.98', 'float'),
 
-    ('order_line:FM1003-3', 'line_of_order', 'order:FM-1003', 'entity_ref'),
-    ('order_line:FM1003-3', 'line_product', 'product:orange-juice', 'entity_ref'),
-    ('order_line:FM1003-3', 'quantity', '1', 'int'),
-    ('order_line:FM1003-3', 'line_amount', '7.49', 'float'),
+    ('orderline:FM1003-3', 'line_of_order', 'order:FM-1003', 'entity_ref'),
+    ('orderline:FM1003-3', 'line_product', 'product:orange-juice', 'entity_ref'),
+    ('orderline:FM1003-3', 'quantity', '1', 'int'),
+    ('orderline:FM1003-3', 'line_amount', '7.49', 'float'),
 
     -- Order FM-1005 lines
-    ('order_line:FM1005-1', 'line_of_order', 'order:FM-1005', 'entity_ref'),
-    ('order_line:FM1005-1', 'line_product', 'product:ground-beef', 'entity_ref'),
-    ('order_line:FM1005-1', 'quantity', '2', 'int'),
-    ('order_line:FM1005-1', 'line_amount', '15.98', 'float'),
+    ('orderline:FM1005-1', 'line_of_order', 'order:FM-1005', 'entity_ref'),
+    ('orderline:FM1005-1', 'line_product', 'product:ground-beef', 'entity_ref'),
+    ('orderline:FM1005-1', 'quantity', '2', 'int'),
+    ('orderline:FM1005-1', 'line_amount', '15.98', 'float'),
 
-    ('order_line:FM1005-2', 'line_of_order', 'order:FM-1005', 'entity_ref'),
-    ('order_line:FM1005-2', 'line_product', 'product:pasta-penne', 'entity_ref'),
-    ('order_line:FM1005-2', 'quantity', '2', 'int'),
-    ('order_line:FM1005-2', 'line_amount', '5.98', 'float'),
+    ('orderline:FM1005-2', 'line_of_order', 'order:FM-1005', 'entity_ref'),
+    ('orderline:FM1005-2', 'line_product', 'product:pasta-penne', 'entity_ref'),
+    ('orderline:FM1005-2', 'quantity', '2', 'int'),
+    ('orderline:FM1005-2', 'line_amount', '5.98', 'float'),
 
-    ('order_line:FM1005-3', 'line_of_order', 'order:FM-1005', 'entity_ref'),
-    ('order_line:FM1005-3', 'line_product', 'product:olive-oil', 'entity_ref'),
-    ('order_line:FM1005-3', 'quantity', '1', 'int'),
-    ('order_line:FM1005-3', 'line_amount', '12.99', 'float')
+    ('orderline:FM1005-3', 'line_of_order', 'order:FM-1005', 'entity_ref'),
+    ('orderline:FM1005-3', 'line_product', 'product:olive-oil', 'entity_ref'),
+    ('orderline:FM1005-3', 'quantity', '1', 'int'),
+    ('orderline:FM1005-3', 'line_amount', '12.99', 'float')
 ON CONFLICT (subject_id, predicate, object_value) DO NOTHING;
 
 -- =============================================================================

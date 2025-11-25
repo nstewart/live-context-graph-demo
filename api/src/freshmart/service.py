@@ -179,20 +179,23 @@ class FreshMartService:
         params: dict = {"limit": limit, "offset": offset}
 
         if store_id:
-            conditions.append("store_id = :store_id")
+            conditions.append("i.store_id = :store_id")
             params["store_id"] = store_id
         if low_stock_only:
-            conditions.append("stock_level < 10")
+            conditions.append("i.stock_level < 10")
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
+        # Join with products_mv to get product details
+        products_view = self._get_view("products_flat")
         query = f"""
-            SELECT inventory_id, store_id, product_id, stock_level,
-                   replenishment_eta, effective_updated_at,
-                   product_name, category, perishable
-            FROM {view}
+            SELECT i.inventory_id, i.store_id, i.product_id, i.stock_level,
+                   i.replenishment_eta, i.effective_updated_at,
+                   p.product_name, p.category, p.perishable
+            FROM {view} i
+            LEFT JOIN {products_view} p ON i.product_id = p.product_id
             {where_clause}
-            ORDER BY store_id, product_id
+            ORDER BY i.store_id, i.product_id
             LIMIT :limit OFFSET :offset
         """
 
