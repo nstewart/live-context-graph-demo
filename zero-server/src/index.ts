@@ -18,7 +18,7 @@ const MZ_DATABASE = process.env.MZ_DATABASE || "materialize";
 
 // Parse collections from comma-separated list
 const COLLECTIONS = (
-  process.env.ZERO_COLLECTIONS || "orders,stores,couriers,inventory,triples"
+  process.env.ZERO_COLLECTIONS || "orders,stores,couriers,inventory,order_lines,triples"
 ).split(",").map((c) => c.trim());
 
 async function main() {

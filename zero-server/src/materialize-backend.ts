@@ -388,6 +388,22 @@ export class MaterializeBackend {
           tasks: row.tasks || [], // JSONB array of tasks
         };
 
+      case "order_lines_flat_mv":
+        return {
+          id: row.line_id, // Primary key for Zero
+          line_id: row.line_id,
+          order_id: row.order_id,
+          product_id: row.product_id,
+          product_name: row.product_name,
+          quantity: row.quantity,
+          unit_price: row.unit_price,
+          line_amount: row.line_amount,
+          line_sequence: row.line_sequence,
+          perishable_flag: row.perishable_flag,
+          category: row.category,
+          effective_updated_at: row.effective_updated_at,
+        };
+
       default:
         return row;
     }

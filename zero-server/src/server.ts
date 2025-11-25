@@ -176,6 +176,7 @@ export class ZeroServer {
       couriers: "courier_schedule_mv",
       inventory: "store_inventory_mv",
       courier_tasks: "delivery_task_mv",
+      order_lines: "order_lines_flat_mv",  // Line items with product enrichment
       triples: "triples",
     };
 

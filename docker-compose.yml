@@ -157,7 +157,7 @@ services:
       - MZ_USER=${MZ_USER:-materialize}
       - MZ_PASSWORD=${MZ_PASSWORD:-materialize}
       - MZ_DATABASE=${MZ_DATABASE:-materialize}
-      - ZERO_COLLECTIONS=orders,stores,couriers,inventory
+      - ZERO_COLLECTIONS=orders,stores,couriers,inventory,order_lines
     ports:
       - "${ZERO_PORT:-8090}:8090"
     depends_on:

@@ -403,47 +403,32 @@ function OrderFormModal({
 
 function OrdersTable({
   orders,
+  allOrderLines,
   onEdit,
   onDelete,
 }: {
   orders: OrderFlat[]
+  allOrderLines: OrderLineFlat[] | undefined
   onEdit: (order: OrderFlat) => void
   onDelete: (order: OrderFlat) => void
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [loadingLineItems, setLoadingLineItems] = useState<Set<string>>(new Set())
-  const [lineItemsCache, setLineItemsCache] = useState<Map<string, OrderLineFlat[]>>(new Map())
+  // Helper to get line items for an order from Zero data
+  const getLineItemsForOrder = (orderId: string): OrderLineFlat[] => {
+    if (!allOrderLines) return []
+    return allOrderLines.filter(line => line.order_id === orderId).sort((a, b) => a.line_sequence - b.line_sequence)
+  }
 
-  const toggleRow = async (orderId: string) => {
+  const toggleRow = (orderId: string) => {
     const newExpanded = new Set(expandedRows)
 
     if (newExpanded.has(orderId)) {
       // Collapse
       newExpanded.delete(orderId)
     } else {
-      // Expand and load line items if not cached
+      // Expand - line items will be automatically available via Zero
       newExpanded.add(orderId)
-
-      if (!lineItemsCache.has(orderId)) {
-        setLoadingLineItems(prev => new Set(prev).add(orderId))
-        try {
-          const response = await freshmartApi.listOrderLines(orderId)
-          setLineItemsCache(prev => new Map(prev).set(orderId, response.data))
-        } catch (error: any) {
-          // If 404, the order has no line items yet - cache empty array
-          if (error.response?.status === 404) {
-            setLineItemsCache(prev => new Map(prev).set(orderId, []))
-          } else {
-            console.error('Failed to load line items:', error)
-          }
-        } finally {
-          setLoadingLineItems(prev => {
-            const next = new Set(prev)
-            next.delete(orderId)
-            return next
-          })
-        }
-      }
     }
 
     setExpandedRows(newExpanded)
@@ -575,7 +560,7 @@ function OrdersTable({
                         </div>
                       ) : (
                         <LineItemsTable
-                          lineItems={lineItemsCache.get(order.order_id) || []}
+                          lineItems={getLineItemsForOrder(order.order_id)}
                           orderId={order.order_id}
                         />
                       )}
@@ -690,6 +675,11 @@ export default function OrdersDashboardPage() {
     collection: 'orders',
   })
 
+  // Subscribe to order_lines for real-time updates
+  const { data: allOrderLines } = useZeroQuery<OrderLineFlat>({
+    collection: 'order_lines',
+  })
+
   // Track last update time for visual feedback
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
   useEffect(() => {
@@ -770,8 +760,7 @@ export default function OrdersDashboardPage() {
       useShoppingCartStore.getState().clearCart()
       setShowModal(false)
       setEditingOrder(undefined)
-      // Clear line items cache so expanded rows refresh
-      setLineItemsCache(new Map())
+      // Zero will automatically update line items via WebSocket
       // Force refresh Zero cache by resubscribing
       setTimeout(() => {
         unsubscribe('orders')
@@ -895,8 +884,7 @@ export default function OrdersDashboardPage() {
       useShoppingCartStore.getState().clearCart()
       setShowModal(false)
       setEditingOrder(undefined)
-      // Clear line items cache so expanded rows refresh
-      setLineItemsCache(new Map())
+      // Zero will automatically update line items via WebSocket
       // Force refresh Zero cache by resubscribing
       setTimeout(() => {
         unsubscribe('orders')
@@ -1021,7 +1009,7 @@ export default function OrdersDashboardPage() {
           </div>
 
           {/* Orders table */}
-          <OrdersTable orders={paginatedOrders} onEdit={handleEdit} onDelete={handleDelete} />
+          <OrdersTable orders={paginatedOrders} allOrderLines={allOrderLines} onEdit={handleEdit} onDelete={handleDelete} />
 
           {/* Pagination Controls */}
           {totalPages > 1 && (
