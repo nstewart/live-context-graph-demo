@@ -39,7 +39,10 @@ setup:
 		cp .env.example .env; \
 		echo "Created .env from .env.example"; \
 	fi
+	@echo "Building Docker images (this will install all dependencies)..."
 	docker-compose build
+	@echo ""
+	@echo "Setup complete! Run 'make up' or 'make up-agent' to start services."
 
 # Initialize Materialize
 init-mz:
@@ -57,6 +60,7 @@ init-checkpointer:
 # Start services
 up:
 	@docker network create freshmart-network 2>/dev/null || true
+	docker-compose build web zero-permissions
 	docker-compose up -d
 	@echo ""
 	@echo "Services starting..."
@@ -71,6 +75,7 @@ up:
 
 up-agent:
 	@docker network create freshmart-network 2>/dev/null || true
+	docker-compose build web zero-permissions
 	docker-compose --profile agent up -d
 	@echo ""
 	@echo "Waiting for services to be ready..."
