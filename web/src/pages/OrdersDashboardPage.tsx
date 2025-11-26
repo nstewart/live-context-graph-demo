@@ -27,12 +27,12 @@ import {
   Filter,
   X,
 } from "lucide-react";
-import { useShoppingCartStore } from "../stores/shoppingCartStore";
 import {
   OrderFormModal,
   OrderWithLines,
   OrderFormData,
 } from "../components/OrderFormModal";
+import { CartLineItem } from "../components/ShoppingCart";
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: "bg-blue-100 text-blue-800", icon: Package },
@@ -50,7 +50,7 @@ const statusOrder = [
   "CANCELLED",
 ];
 
-function StatusBadge({ status }: { status: string | null }) {
+function StatusBadge({ status }: { status?: string | null }) {
   const config = statusConfig[status || ""] || {
     color: "bg-gray-100 text-gray-800",
     icon: Package,
@@ -350,83 +350,51 @@ export default function OrdersDashboardPage() {
   // Get stores for filter dropdown
   const [storesData] = useQuery(z.query.stores_mv.orderBy("store_name", "asc"));
 
-  // Build filtered queries inline
-  let ordersWithLinesQuery = z.query.orders_with_lines_mv;
-  let ordersSearchQuery = z.query.orders_search_source_mv;
+  // Build filtered query with related data (joins orders_with_lines_mv with orders_search_source_mv)
+  let ordersQuery = z.query.orders_with_lines_mv.related("searchData");
 
   if (statusFilter) {
-    ordersWithLinesQuery = ordersWithLinesQuery.where(
-      "order_status",
-      "=",
-      statusFilter
-    );
-    ordersSearchQuery = ordersSearchQuery.where(
-      "order_status",
-      "=",
-      statusFilter
-    );
+    ordersQuery = ordersQuery.where("order_status", "=", statusFilter);
   }
   if (storeFilter) {
-    ordersWithLinesQuery = ordersWithLinesQuery.where(
-      "store_id",
-      "=",
-      storeFilter
-    );
-    ordersSearchQuery = ordersSearchQuery.where("store_id", "=", storeFilter);
+    ordersQuery = ordersQuery.where("store_id", "=", storeFilter);
   }
   if (searchQuery.trim()) {
     const pattern = `%${searchQuery.trim()}%`;
-    ordersWithLinesQuery = ordersWithLinesQuery.where(
-      "order_number",
-      "ILIKE",
-      pattern
-    );
-    ordersSearchQuery = ordersSearchQuery.where(
-      "order_number",
-      "ILIKE",
-      pattern
-    );
+    ordersQuery = ordersQuery.where("order_number", "ILIKE", pattern);
   }
-  console.log(ordersWithLinesQuery);
 
-  const [ordersWithLinesData] = useQuery(
-    ordersWithLinesQuery.orderBy("order_number", "asc")
-  );
-  const [ordersSearchData] = useQuery(
-    ordersSearchQuery.orderBy("order_number", "asc")
-  );
+  const [ordersData] = useQuery(ordersQuery.orderBy("order_number", "asc"));
 
-  // Merge orders data: combine line items from orders_with_lines_mv with names from orders_search_source_mv
-  const orders: OrderWithLines[] = useMemo(() => {
-    const searchMap = new Map(ordersSearchData.map((o) => [o.order_id, o]));
-    return ordersWithLinesData.map((o) => {
-      const searchData = searchMap.get(o.order_id);
-      return {
+  // Map to OrderWithLines type, pulling names from the related searchData
+  const orders: OrderWithLines[] = useMemo(
+    () =>
+      ordersData.map((o) => ({
         order_id: o.order_id,
-        order_number: o.order_number ?? null,
-        order_status: o.order_status ?? null,
-        store_id: o.store_id ?? null,
-        customer_id: o.customer_id ?? null,
-        delivery_window_start: o.delivery_window_start ?? null,
-        delivery_window_end: o.delivery_window_end ?? null,
-        order_total_amount: o.order_total_amount ?? null,
-        // Names from search source
-        customer_name: searchData?.customer_name ?? null,
-        customer_email: searchData?.customer_email ?? null,
-        customer_address: searchData?.customer_address ?? null,
-        store_name: searchData?.store_name ?? null,
-        store_zone: searchData?.store_zone ?? null,
-        store_address: searchData?.store_address ?? null,
-        assigned_courier_id: searchData?.assigned_courier_id ?? null,
-        delivery_task_status: searchData?.delivery_task_status ?? null,
-        delivery_eta: searchData?.delivery_eta ?? null,
-        // Line items from orders_with_lines_mv
+        order_number: o.order_number,
+        order_status: o.order_status,
+        store_id: o.store_id,
+        customer_id: o.customer_id,
+        delivery_window_start: o.delivery_window_start,
+        delivery_window_end: o.delivery_window_end,
+        order_total_amount: o.order_total_amount,
+        // Names from related searchData
+        customer_name: o.searchData?.customer_name,
+        customer_email: o.searchData?.customer_email,
+        customer_address: o.searchData?.customer_address,
+        store_name: o.searchData?.store_name,
+        store_zone: o.searchData?.store_zone,
+        store_address: o.searchData?.store_address,
+        assigned_courier_id: o.searchData?.assigned_courier_id,
+        delivery_task_status: o.searchData?.delivery_task_status,
+        delivery_eta: o.searchData?.delivery_eta,
+        // Line items with defaults
         line_items: o.line_items ?? [],
         line_item_count: o.line_item_count ?? 0,
         has_perishable_items: o.has_perishable_items ?? false,
-      };
-    });
-  }, [ordersWithLinesData, ordersSearchData]);
+      })),
+    [ordersData]
+  );
 
   // Check if any filters are active
   const hasActiveFilters = statusFilter || storeFilter || searchQuery;
@@ -437,19 +405,19 @@ export default function OrdersDashboardPage() {
     setSearchQuery("");
   };
 
-  // Track last update time for visual feedback
+  // Track last update time when Zero data changes
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
+
   useEffect(() => {
-    if (orders.length > 0) {
+    if (ordersData.length > 0) {
       setLastUpdateTime(Date.now());
     }
-  }, [orders]);
+  }, [ordersData]);
 
-  const isLoading = ordersWithLinesData.length === 0;
-  const zeroConnected = true; // Zero handles connection internally
+  const isLoading = ordersData.length === 0 && !hasActiveFilters;
 
   const createMutation = useMutation({
-    mutationFn: async (data: OrderFormData) => {
+    mutationFn: async ({ data, lineItems }: { data: OrderFormData; lineItems: CartLineItem[] }) => {
       const orderId = `order:${data.order_number}`;
       const triples: TripleCreate[] = [
         {
@@ -505,25 +473,15 @@ export default function OrdersDashboardPage() {
       // Create order first
       await triplesApi.createBatch(triples);
 
-      // Then create line items if any exist in cart
-      type CartItem = {
-        product_id: string;
-        quantity: number;
-        unit_price: number;
-        perishable_flag: boolean;
-      };
-      const cartItems = useShoppingCartStore.getState()
-        .line_items as CartItem[];
-      if (cartItems.length > 0) {
-        const lineItemsToCreate = cartItems.map(
-          (item: CartItem, index: number) => ({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            line_sequence: index + 1,
-            perishable_flag: item.perishable_flag,
-          })
-        );
+      // Then create line items if any
+      if (lineItems.length > 0) {
+        const lineItemsToCreate = lineItems.map((item, index) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          line_sequence: index + 1,
+          perishable_flag: item.perishable_flag,
+        }));
 
         await freshmartApi.createOrderLinesBatch(orderId, lineItemsToCreate);
       }
@@ -532,7 +490,6 @@ export default function OrdersDashboardPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      useShoppingCartStore.getState().clearCart();
       setShowModal(false);
       setEditingOrder(undefined);
     },
@@ -542,9 +499,11 @@ export default function OrdersDashboardPage() {
     mutationFn: async ({
       order,
       data,
+      lineItems,
     }: {
       order: OrderFlat;
       data: OrderFormData;
+      lineItems: CartLineItem[];
     }) => {
       // Get existing triples for this order
       const subjectInfo = await triplesApi
@@ -606,25 +565,18 @@ export default function OrdersDashboardPage() {
 
       await Promise.all(updates);
 
-      // Handle line items: compare cart with existing line items
-      const cartItems = useShoppingCartStore.getState().line_items;
+      // Handle line items: compare with existing line items
       const existingLineItems = await freshmartApi
         .listOrderLines(order.order_id)
-        .then((r: any) => r.data)
+        .then((r: { data: any }) => r.data)
         .catch(() => []);
 
       // Build maps for easier lookup
-      type CartItem = {
-        product_id: string;
-        quantity: number;
-        unit_price: number;
-        perishable_flag: boolean;
-      };
       const existingByProductId = new Map<string, any>(
         existingLineItems.map((item: any) => [item.product_id, item])
       );
-      const cartByProductId = new Map<string, CartItem>(
-        cartItems.map((item: CartItem) => [item.product_id, item])
+      const cartByProductId = new Map<string, CartLineItem>(
+        lineItems.map((item) => [item.product_id, item])
       );
 
       const lineItemOperations: Promise<any>[] = [];
@@ -651,8 +603,8 @@ export default function OrdersDashboardPage() {
       }
 
       // 3. Add new items in cart (not in existing line items)
-      const newItems = cartItems.filter(
-        (item: any) => !existingByProductId.has(item.product_id)
+      const newItems = lineItems.filter(
+        (item) => !existingByProductId.has(item.product_id)
       );
       if (newItems.length > 0) {
         // Get next sequence number
@@ -663,7 +615,7 @@ export default function OrdersDashboardPage() {
               )
             : 0;
 
-        const lineItemsToCreate = newItems.map((item: any, index: number) => ({
+        const lineItemsToCreate = newItems.map((item, index) => ({
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
@@ -683,7 +635,6 @@ export default function OrdersDashboardPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      useShoppingCartStore.getState().clearCart();
       setShowModal(false);
       setEditingOrder(undefined);
     },
@@ -697,11 +648,11 @@ export default function OrdersDashboardPage() {
     },
   });
 
-  const handleSave = (data: OrderFormData, isEdit: boolean) => {
+  const handleSave = (data: OrderFormData, isEdit: boolean, lineItems: CartLineItem[]) => {
     if (isEdit && editingOrder) {
-      updateMutation.mutate({ order: editingOrder, data });
+      updateMutation.mutate({ order: editingOrder, data, lineItems });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate({ data, lineItems });
     }
   };
 
@@ -742,7 +693,7 @@ export default function OrdersDashboardPage() {
             <h1 className="text-2xl font-bold text-gray-900">
               Orders Dashboard
             </h1>
-            {zeroConnected ? (
+            {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
                 Real-time

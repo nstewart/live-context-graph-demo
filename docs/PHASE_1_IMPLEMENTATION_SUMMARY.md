@@ -250,7 +250,7 @@ order_lines: {
 4. **Batch Updates**: Schema supports multiple line items updating simultaneously
 
 **Files Modified**:
-- `/zero-server/src/schema.ts`
+- `web/src/schema.ts` - Zero schema definition
 
 ---
 
@@ -480,7 +480,7 @@ DELETE /api/freshmart/orders/{order_id}/line-items/{line_id}
 2. `/docs/ONTOLOGY.md` - OrderLine documentation updated
 3. `/api/src/freshmart/models.py` - 6 new models added
 4. `/api/src/routes/freshmart.py` - 5 endpoints added
-5. `/zero-server/src/schema.ts` - order_lines table added
+5. `web/src/schema.ts` - Zero schema with order line support
 
 ---
 

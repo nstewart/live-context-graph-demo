@@ -1,7 +1,17 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { freshmartApi, ProductInfo } from '../api/client'
-import { Search, Package, Snowflake, Loader } from 'lucide-react'
+import { useZero, useQuery } from '@rocicorp/zero/react'
+import { Schema } from '../schema'
+import { Search, Package, Snowflake } from 'lucide-react'
+
+export interface ProductWithStock {
+  product_id: string
+  product_name: string | null
+  category: string | null
+  unit_price: number | null
+  perishable: boolean | null
+  stock_level: number
+  inventory_id: string
+}
 
 interface ProductSelectorProps {
   storeId: string | null
@@ -9,49 +19,35 @@ interface ProductSelectorProps {
   disabled?: boolean
 }
 
-export interface ProductWithStock extends ProductInfo {
-  stock_level: number
-  inventory_id: string
-}
-
 export function ProductSelector({ storeId, onProductSelect, disabled }: ProductSelectorProps) {
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Fetch products
-  const { data: products = [], isLoading: productsLoading } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => freshmartApi.listProducts().then(r => r.data),
-  })
+  const z = useZero<Schema>()
 
-  // Fetch store inventory
-  const { data: store, isLoading: inventoryLoading } = useQuery({
-    queryKey: ['store', storeId],
-    queryFn: () => freshmartApi.getStore(storeId!).then(r => r.data),
-    enabled: !!storeId,
-  })
+  // Query inventory for the selected store with related product data
+  let inventoryQuery = z.query.store_inventory_mv.related('product')
+  if (storeId) {
+    inventoryQuery = inventoryQuery.where('store_id', '=', storeId)
+  }
+  const [inventoryData] = useQuery(inventoryQuery)
 
-  // Combine products with inventory data
+  // Transform inventory data to products with stock
   const availableProducts = useMemo(() => {
-    if (!store || !products.length) return []
+    if (!storeId) return []
 
-    const inventoryMap = new Map(
-      store.inventory_items
-        .filter(item => item.stock_level && item.stock_level > 0)
-        .map(item => [item.product_id, item])
-    )
-
-    return products
-      .filter(product => inventoryMap.has(product.product_id))
-      .map(product => {
-        const inventory = inventoryMap.get(product.product_id)!
-        return {
-          ...product,
-          stock_level: inventory.stock_level || 0,
-          inventory_id: inventory.inventory_id,
-        }
-      })
+    return inventoryData
+      .filter(inv => inv.stock_level && inv.stock_level > 0 && inv.product)
+      .map(inv => ({
+        product_id: inv.product_id || '',
+        product_name: inv.product?.product_name ?? null,
+        category: inv.product?.category ?? null,
+        unit_price: inv.product?.unit_price ?? null,
+        perishable: inv.product?.perishable ?? null,
+        stock_level: inv.stock_level || 0,
+        inventory_id: inv.inventory_id,
+      }))
       .sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''))
-  }, [store, products])
+  }, [inventoryData, storeId])
 
   // Filter products based on search term
   const filteredProducts = useMemo(() => {
@@ -74,7 +70,6 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
     }
   }
 
-  const isLoading = productsLoading || inventoryLoading
   const isDisabled = disabled || !storeId
 
   return (
@@ -89,17 +84,13 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
       {/* Search Input */}
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          {isLoading ? (
-            <Loader className="h-4 w-4 text-gray-400 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4 text-gray-400" />
-          )}
+          <Search className="h-4 w-4 text-gray-400" />
         </div>
         <input
           type="text"
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
-          disabled={isDisabled || isLoading}
+          disabled={isDisabled}
           placeholder="Search products..."
           className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
@@ -108,12 +99,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
       {/* Dropdown/List */}
       {!isDisabled && searchTerm && (
         <div className="border rounded-lg shadow-lg bg-white max-h-64 overflow-y-auto">
-          {isLoading ? (
-            <div className="p-4 text-center text-gray-500">
-              <Loader className="h-5 w-5 animate-spin inline-block mr-2" />
-              Loading products...
-            </div>
-          ) : filteredProducts.length === 0 ? (
+          {filteredProducts.length === 0 ? (
             <div className="p-4 text-center text-gray-500">
               {availableProducts.length === 0 ? (
                 <>
@@ -155,7 +141,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
                         <span>{product.category || 'Uncategorized'}</span>
                         <span className="text-gray-300">|</span>
                         <span className="font-medium text-green-600">
-                          ${typeof product.unit_price === 'number' ? product.unit_price.toFixed(2) : parseFloat(product.unit_price || '0').toFixed(2)}
+                          ${typeof product.unit_price === 'number' ? product.unit_price.toFixed(2) : '0.00'}
                         </span>
                       </div>
                     </div>
@@ -195,17 +181,10 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
       {/* Info when store is selected but no search */}
       {storeId && !searchTerm && (
         <div className="text-sm text-gray-500 mt-2">
-          {isLoading ? (
-            <span className="flex items-center gap-2">
-              <Loader className="h-3 w-3 animate-spin" />
-              Loading inventory...
-            </span>
-          ) : (
-            <span>
-              {availableProducts.length} product{availableProducts.length !== 1 ? 's' : ''}{' '}
-              available at this store
-            </span>
-          )}
+          <span>
+            {availableProducts.length} product{availableProducts.length !== 1 ? 's' : ''}{' '}
+            available at this store
+          </span>
         </div>
       )}
     </div>

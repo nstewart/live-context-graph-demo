@@ -54,19 +54,22 @@ export interface SubjectInfo {
 
 export interface OrderFlat {
   order_id: string
-  order_number: string | null
-  order_status: string | null
-  store_id: string | null
-  customer_id: string | null
-  delivery_window_start: string | null
-  delivery_window_end: string | null
-  order_total_amount: number | null
-  customer_name: string | null
-  customer_address: string | null
-  store_name: string | null
-  store_zone: string | null
-  assigned_courier_id: string | null
-  delivery_task_status: string | null
+  order_number?: string | null
+  order_status?: string | null
+  store_id?: string | null
+  customer_id?: string | null
+  delivery_window_start?: string | null
+  delivery_window_end?: string | null
+  order_total_amount?: number | null
+  customer_name?: string | null
+  customer_email?: string | null
+  customer_address?: string | null
+  store_name?: string | null
+  store_zone?: string | null
+  store_address?: string | null
+  assigned_courier_id?: string | null
+  delivery_task_status?: string | null
+  delivery_eta?: string | null
 }
 
 export interface StoreInfo {

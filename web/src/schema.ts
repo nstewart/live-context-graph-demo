@@ -152,9 +152,27 @@ const courierRelationships = relationships(courier_schedule_mv, ({ one }) => ({
   }),
 }))
 
+// Join orders_with_lines to search source for customer/store names
+const orderWithLinesRelationships = relationships(orders_with_lines_mv, ({ one }) => ({
+  searchData: one({
+    sourceField: ['order_id'],
+    destSchema: orders_search_source_mv,
+    destField: ['order_id'],
+  }),
+}))
+
+// Join inventory to products for product details
+const inventoryRelationships = relationships(store_inventory_mv, ({ one }) => ({
+  product: one({
+    sourceField: ['product_id'],
+    destSchema: products_mv,
+    destField: ['product_id'],
+  }),
+}))
+
 export const schema = createSchema({
   tables: [orders_search_source_mv, orders_with_lines_mv, stores_mv, store_inventory_mv, courier_schedule_mv, customers_mv, products_mv],
-  relationships: [storeRelationships, courierRelationships],
+  relationships: [storeRelationships, courierRelationships, orderWithLinesRelationships, inventoryRelationships],
 })
 
 export type Schema = typeof schema

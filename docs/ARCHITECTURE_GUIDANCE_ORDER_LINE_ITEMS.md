@@ -1261,7 +1261,7 @@ web/src/components/OrdersTable.tsx  # Expandable rows
 web/src/pages/OrdersDashboardPage.tsx # Order creation flow
 
 # Infrastructure
-zero-server/src/schema.ts           # Add order_lines table
+web/src/schema.ts                   # Zero schema with order lines
 search-sync/src/mappings.py         # Update OpenSearch mapping
 ```
 

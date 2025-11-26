@@ -503,10 +503,10 @@ npm run build
 - ✅ Integrates with TanStack Query patterns
 - ✅ Compatible with Zero WebSocket (future real-time updates)
 
-### With Zero WebSocket (Future)
-- 🔄 Ready for real-time inventory updates
-- 🔄 Ready for real-time line items sync
-- 🔄 Schema extension needed in `/zero-server/src/schema.ts`
+### With Zero (Implemented)
+- ✅ Real-time inventory updates via Zero
+- ✅ Real-time order data sync
+- ✅ Schema defined in `web/src/schema.ts`
 
 ---
 
