@@ -6,11 +6,12 @@ This document describes the architecture of the FreshMart Digital Twin system.
 
 The system implements a **knowledge graph** architecture for representing FreshMart's same-day delivery operations. It combines:
 
-1. **Triple Store** - Generic subject-predicate-object data model
+1. **Triple Store** - Generic subject-predicate-object data model (PostgreSQL)
 2. **Ontology Layer** - Schema validation and semantic structure
-3. **Materialized Views** - Denormalized operational queries
-4. **Search Index** - Full-text search for discovery
-5. **Agent Layer** - AI-powered operations assistance
+3. **Materialized Views** - Denormalized operational queries (Materialize)
+4. **Real-time Sync** - Zero (hosted service at zero.rocicorp.dev) for live client updates
+5. **Search Index** - Full-text search for discovery (OpenSearch)
+6. **Agent Layer** - AI-powered operations assistance
 
 ## Component Architecture
 
@@ -18,34 +19,37 @@ The system implements a **knowledge graph** architecture for representing FreshM
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Client Layer                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  Admin UI (React)           │  Agent CLI (LangGraph)                        │
+│  Admin UI (React + Zero)    │  Agent CLI (LangGraph)                        │
 │  - Ontology management      │  - Natural language queries                   │
 │  - Triple browser           │  - Status updates                             │
 │  - Operations dashboards    │  - Tool-based reasoning                       │
+│  - Real-time WebSocket sync │                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              API Layer (FastAPI)                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Ontology Service           │  Triple Service          │  FreshMart Service │
-│  - Class CRUD               │  - CRUD operations       │  - Order queries   │
-│  - Property CRUD            │  - Validation layer      │  - Store queries   │
-│  - Schema queries           │  - Batch operations      │  - Courier queries │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                    ┌──────────────────┼──────────────────┐
-                    │                  │                  │
-                    ▼                  ▼                  ▼
-┌───────────────────────┐ ┌───────────────────┐ ┌───────────────────┐
-│     PostgreSQL        │ │    Materialize    │ │    OpenSearch     │
-│                       │ │    Emulator       │ │                   │
-│  Source of Truth      │ │  Operational      │ │  Search Index     │
-│  - ontology_classes   │ │  Views            │ │  - orders index   │
-│  - ontology_properties│ │  - orders_flat    │ │                   │
-│  - triples            │ │  - inventory      │ │                   │
-│                       │ │  - couriers       │ │                   │
-└───────────────────────┘ └───────────────────┘ └───────────────────┘
+                     │ WebSocket                    │ REST
+                     ▼                              ▼
+┌─────────────────────────┐   ┌───────────────────────────────────────────────┐
+│   Zero (Hosted Service) │   │              API Layer (FastAPI)               │
+│   (zero.rocicorp.dev)   │   ├───────────────────────────────────────────────┤
+│   - Sync Materialize    │   │  Ontology Service  │  Triple Service          │
+│     views to clients    │   │  - Class CRUD      │  - CRUD operations       │
+│   - ZQL query filtering │   │  - Property CRUD   │  - Validation layer      │
+│   - Differential sync   │   │  - Schema queries  │  - Batch operations      │
+└─────────────────────────┘   └───────────────────────────────────────────────┘
+           │ Connects to                           │
+           ▼                                        ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         Materialize (Streaming SQL)                        │
+│  Materialized Views (auto-updated via CDC from PostgreSQL):                │
+│  - orders_with_lines_mv    - stores_mv          - courier_schedule_mv     │
+│  - orders_search_source_mv - customers_mv       - store_inventory_mv      │
+└───────────────────────────────────────────────────────────────────────────┘
+           │ CDC (Logical Replication)
+           ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         PostgreSQL (Source of Truth)                       │
+│  - ontology_classes        - triples            - sync_cursors            │
+│  - ontology_properties     - order_line_items                             │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
@@ -56,14 +60,28 @@ The system implements a **knowledge graph** architecture for representing FreshM
 2. API validates against ontology
 3. Triple inserted into PostgreSQL
 4. Materialize views auto-refresh via CDC (Change Data Capture)
-5. SUBSCRIBE streams differential updates to Zero and Search Sync workers
+5. Zero syncs changes to connected clients
 6. Documents upserted to OpenSearch with event consolidation
 
-### Read Path (Operational)
+### Read Path (Operational via Zero)
 
-1. Client requests operational data (e.g., orders)
-2. API queries Materialize flattened view
-3. Denormalized data returned directly
+1. Admin UI connects to Zero hosted service (zero.rocicorp.dev)
+2. Client subscribes to views with optional ZQL filters (WHERE clauses)
+3. Zero syncs data from Materialize views
+4. Initial data snapshot sent to client
+5. Subsequent changes streamed as differential updates
+6. Client state automatically updated in real-time
+
+```typescript
+// Example: Filtered real-time subscription
+const [orders] = useQuery(
+  z.query.orders_with_lines_mv
+    .where("order_status", "=", "PICKING")
+    .where("store_id", "=", "store:BK-01")
+    .orderBy("order_number", "asc")
+);
+// orders automatically updates when matching data changes
+```
 
 ### Read Path (Search)
 
@@ -73,9 +91,9 @@ The system implements a **knowledge graph** architecture for representing FreshM
 
 ### SUBSCRIBE Event Consolidation
 
-Both Zero WebSocket Server and Search Sync Worker implement a critical event consolidation pattern to handle Materialize UPDATE operations correctly:
+The Search Sync Worker implements event consolidation to handle Materialize UPDATE operations correctly:
 
-**The Challenge**: Materialize emits UPDATEs as DELETE (diff=-1) + INSERT (diff=+1) pairs at the **same timestamp**. Broadcasting these separately causes records to disappear temporarily from Zero cache and OpenSearch.
+**The Challenge**: Materialize emits UPDATEs as DELETE (diff=-1) + INSERT (diff=+1) pairs at the **same timestamp**. Broadcasting these separately causes records to disappear temporarily from OpenSearch.
 
 **The Solution**: Events are accumulated by timestamp and only broadcast when the timestamp **increases** (not just changes). The timestamp check happens **before** adding events to the batch, ensuring all events at timestamp X are consolidated before broadcasting.
 
@@ -85,11 +103,10 @@ Both Zero WebSocket Server and Search Sync Worker implement a critical event con
 - Result: DELETE + INSERT at same timestamp → consolidated into single UPDATE operation
 
 **Files**:
-- `zero-server/src/materialize-backend.ts:147-161` (TypeScript implementation)
 - `search-sync/src/mz_client_subscribe.py:334-350` (Python implementation)
 - `search-sync/tests/test_subscribe_consolidation.py` (Consolidation tests)
 
-This pattern ensures consistency across all downstream systems and prevents spurious deletes during status updates.
+This pattern ensures consistency across downstream systems and prevents spurious deletes during status updates.
 
 ## Service Responsibilities
 
@@ -109,6 +126,25 @@ This pattern ensures consistency across all downstream systems and prevents spur
 - Async throughout (asyncpg, httpx)
 - Pydantic v2 for validation
 - Single write entrypoint for data integrity
+
+### Zero (Hosted Service)
+
+**Technology**: Zero by Rocicorp (hosted at zero.rocicorp.dev)
+
+**Responsibilities**:
+- Real-time sync of Materialize views to web clients
+- WebSocket connection management
+- ZQL query parsing and filtering
+- Differential sync (only changed data sent)
+
+**Key Design Decisions**:
+- Hosted service eliminates need for local Zero server
+- Schema-driven type safety via `web/src/schema.ts`
+- Client connects directly to zero.rocicorp.dev
+
+**Files**:
+- `web/src/schema.ts` - Zero schema definition (maps to Materialize views)
+- `web/src/zero.ts` - Zero client initialization
 
 ### Search Sync Worker
 
@@ -133,14 +169,59 @@ This pattern ensures consistency across all downstream systems and prevents spur
 **Responsibilities**:
 - Ontology management interface
 - Triple browser and editor
-- Operations dashboards
+- Operations dashboards (Orders, Stores, Couriers)
+- Ontology visualization graph
 - Settings and health display
 
 **Key Design Decisions**:
-- TanStack Query for data fetching
+- **Zero (@rocicorp/zero)** for real-time data sync via WebSocket
+- ZQL (Zero Query Language) for declarative, filterable queries
+- TanStack Query for non-real-time API calls (mutations, ontology CRUD)
 - Tailwind CSS for styling
 - Component-based architecture
-- Real-time updates via polling
+
+**Zero Integration**:
+The Admin UI uses Zero for real-time sync of operational data from Materialize views:
+
+```typescript
+// Zero client setup (web/src/zero.ts)
+const zero = new Zero({
+  userID: 'anon',
+  server: 'https://zero.rocicorp.dev',
+  schema,
+})
+
+// Schema maps to Materialize views (web/src/schema.ts)
+const orders_with_lines_mv = table('orders_with_lines_mv')
+  .columns({
+    order_id: string(),
+    order_status: string().optional(),
+    // ... embedded line_items as JSON
+  })
+  .primaryKey('order_id')
+```
+
+**ZQL Queries with Filters**:
+Zero queries support SQL-compatible filtering that pushes predicates to the server:
+
+```typescript
+// Build filtered query inline - state changes trigger re-render
+let query = z.query.orders_with_lines_mv;
+
+if (statusFilter) {
+  query = query.where("order_status", "=", statusFilter);
+}
+if (storeFilter) {
+  query = query.where("store_id", "=", storeFilter);
+}
+if (searchQuery) {
+  query = query.where("order_number", "ILIKE", `%${searchQuery}%`);
+}
+
+const [orders] = useQuery(query.orderBy("order_number", "asc"));
+```
+
+Supported ZQL operators: `=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `ILIKE`, `IN`, `IS`, `IS NOT`
 
 ### Agent Service
 

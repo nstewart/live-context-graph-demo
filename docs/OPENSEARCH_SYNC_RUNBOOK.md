@@ -136,7 +136,7 @@ docker-compose logs --since 1h search-sync | grep "Broadcasting" | wc -l
 [INFO] Connected to Materialize for SUBSCRIBE
 [INFO] Starting SUBSCRIBE for view: orders_search_source_mv
 [INFO] SUBSCRIBE started for orders_search_source_mv, receiving snapshot...
-[INFO] Snapshot complete for orders_search_source_mv: 1234 rows (discarding as per zero-server pattern)
+[INFO] Snapshot complete for orders_search_source_mv: 1234 rows (discarding snapshot, streaming changes only)
 [INFO] Broadcasting 15 changes for orders_search_source_mv
 [INFO] Synced 15 documents, 0 errors
 [DEBUG] Progress update: orders_search_source_mv at ts=1701234567890
@@ -808,9 +808,8 @@ FROM ...;  -- (joins triples)
 
 ## 7. Related Documentation
 
-- **Architecture Spec**: `/Users/natestewart/Projects/live-agent-ontology-demo/OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md`
-- **SUBSCRIBE Client Code**: `/Users/natestewart/Projects/live-agent-ontology-demo/search-sync/src/mz_client_subscribe.py`
-- **Reference Implementation**: `/Users/natestewart/Projects/live-agent-ontology-demo/zero-server/src/materialize-backend.ts`
+- **Architecture Spec**: `OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md`
+- **SUBSCRIBE Client Code**: `search-sync/src/mz_client_subscribe.py`
 - **Materialize SUBSCRIBE Docs**: https://materialize.com/docs/sql/subscribe/
 
 ---

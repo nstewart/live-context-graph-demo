@@ -314,9 +314,98 @@ WHERE predicate = 'order_status'
   AND object_value = 'OUT_FOR_DELIVERY';
 ```
 
+## Zero Schema (Client-Side)
+
+The Admin UI uses Zero for real-time sync. The Zero schema (`web/src/schema.ts`) maps to Materialize views:
+
+```typescript
+import { createSchema, table, string, number, boolean, json } from '@rocicorp/zero'
+
+// Orders with embedded line items as JSON
+const orders_with_lines_mv = table('orders_with_lines_mv')
+  .columns({
+    order_id: string(),
+    order_number: string().optional(),
+    order_status: string().optional(),
+    store_id: string().optional(),
+    customer_id: string().optional(),
+    delivery_window_start: string().optional(),
+    delivery_window_end: string().optional(),
+    order_total_amount: number().optional(),
+    line_items: json<OrderLineItem[]>(),
+    line_item_count: number().optional(),
+    has_perishable_items: boolean().optional(),
+  })
+  .primaryKey('order_id')
+
+// Stores
+const stores_mv = table('stores_mv')
+  .columns({
+    store_id: string(),
+    store_name: string().optional(),
+    store_zone: string().optional(),
+    store_address: string().optional(),
+    store_status: string().optional(),
+  })
+  .primaryKey('store_id')
+
+// Relationships for Zero joins
+const storeRelationships = relationships(stores_mv, ({ many }) => ({
+  inventory: many({
+    sourceField: ['store_id'],
+    destSchema: store_inventory_mv,
+    destField: ['store_id'],
+  }),
+}))
+
+export const schema = createSchema({
+  tables: [orders_with_lines_mv, stores_mv, customers_mv, ...],
+  relationships: [storeRelationships, courierRelationships],
+})
+```
+
+### Using Zero Queries
+
+```typescript
+// In React components
+const z = useZero<Schema>();
+
+// Simple query - all orders
+const [orders] = useQuery(z.query.orders_with_lines_mv);
+
+// Filtered query - specific status
+const [pickingOrders] = useQuery(
+  z.query.orders_with_lines_mv.where("order_status", "=", "PICKING")
+);
+
+// Multiple filters with ILIKE for search
+let query = z.query.orders_with_lines_mv;
+if (statusFilter) {
+  query = query.where("order_status", "=", statusFilter);
+}
+if (searchQuery) {
+  query = query.where("order_number", "ILIKE", `%${searchQuery}%`);
+}
+const [filteredOrders] = useQuery(query.orderBy("order_number", "asc"));
+```
+
+### ZQL Filter Operators
+
+| Operator | Example | Description |
+|----------|---------|-------------|
+| `=` | `where("status", "=", "ACTIVE")` | Exact match |
+| `!=` | `where("status", "!=", "CANCELLED")` | Not equal |
+| `<`, `>`, `<=`, `>=` | `where("amount", ">", 100)` | Numeric comparison |
+| `LIKE` | `where("name", "LIKE", "FM-%")` | Case-sensitive pattern |
+| `ILIKE` | `where("name", "ILIKE", "%search%")` | Case-insensitive pattern |
+| `IN` | `where("status", "IN", ["A", "B"])` | In list |
+| `IS` | `where("value", "IS", null)` | Null check |
+
 ## Performance Considerations
 
 1. **Indexes**: Key indexes on `subject_id`, `predicate`, and combined
 2. **Materialized Views**: Use for operational queries, not raw triples
-3. **Cursor-based Sync**: Incremental updates to search index
-4. **Batch Operations**: Use batch endpoints for bulk inserts
+3. **Zero Sync**: WebSocket-based real-time updates from Materialize
+4. **ZQL Filters**: Push predicates to server for efficient filtering
+5. **Cursor-based Sync**: Incremental updates to search index
+6. **Batch Operations**: Use batch endpoints for bulk inserts

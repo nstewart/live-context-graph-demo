@@ -190,8 +190,6 @@ export default function StoresInventoryPage() {
       .orderBy('store_id', 'asc')
   )
 
-  const zeroConnected = true // Zero handles connection internally
-
   // Convert Zero data to StoreInfo format (inventory comes from relationship)
   const stores: StoreInfo[] = storesData.map(store => ({
     store_id: store.store_id,
@@ -358,7 +356,7 @@ export default function StoresInventoryPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900">Stores & Inventory</h1>
-            {zeroConnected ? (
+            {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
                 Real-time

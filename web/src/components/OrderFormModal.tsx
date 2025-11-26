@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema, OrderLineItem } from "../schema";
 import { X, AlertTriangle } from "lucide-react";
 import { ProductSelector, ProductWithStock } from "./ProductSelector";
-import { ShoppingCart } from "./ShoppingCart";
-import { useShoppingCartStore } from "../stores/shoppingCartStore";
+import { ShoppingCart, CartLineItem } from "./ShoppingCart";
 import { OrderFlat } from "../api/client";
 
 const statusOrder = [
@@ -46,7 +45,7 @@ interface OrderFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   order?: OrderWithLines;
-  onSave: (data: OrderFormData, isEdit: boolean) => void;
+  onSave: (data: OrderFormData, isEdit: boolean, lineItems: CartLineItem[]) => void;
   isLoading: boolean;
 }
 
@@ -58,20 +57,23 @@ export function OrderFormModal({
   isLoading,
 }: OrderFormModalProps) {
   const [formData, setFormData] = useState<OrderFormData>(initialFormData);
+  const [lineItems, setLineItems] = useState<CartLineItem[]>([]);
   const [showStoreChangeConfirm, setShowStoreChangeConfirm] = useState(false);
   const [pendingStoreId, setPendingStoreId] = useState<string>("");
 
-  // 🔥 COLOCATED ZERO QUERIES - Component queries its own data
+  // Zero queries for stores and customers
   const z = useZero<Schema>();
   const [storesData] = useQuery(z.query.stores_mv.orderBy("store_id", "asc"));
   const [customersData] = useQuery(
     z.query.customers_mv.orderBy("customer_id", "asc")
   );
 
-  const { line_items, setStore, clearCart, addItem, getTotal, loadLineItems } =
-    useShoppingCartStore();
+  // Calculate total from line items
+  const getTotal = useCallback(() => {
+    return lineItems.reduce((sum, item) => sum + item.line_amount, 0);
+  }, [lineItems]);
 
-  // Load existing line items when editing - use embedded line_items from Zero
+  // Load existing data when editing
   useEffect(() => {
     if (order && order.order_id) {
       setFormData({
@@ -83,18 +85,12 @@ export function OrderFormModal({
         delivery_window_start: order.delivery_window_start?.slice(0, 16) || "",
         delivery_window_end: order.delivery_window_end?.slice(0, 16) || "",
       });
-      // Set store in cart when editing
-      if (order.store_id) {
-        setStore(order.store_id, true);
-      }
 
-      // Use embedded line_items from Zero (orders_with_lines_mv)
-      const lineItems = order.line_items || [];
-
-      const cartItems = lineItems.map((item) => {
+      // Load line items from order
+      const items = order.line_items || [];
+      const cartItems: CartLineItem[] = items.map((item) => {
         const lineAmount = item.line_amount || 0;
         const quantity = item.quantity || 0;
-        // Calculate unit_price from line_amount/quantity if not provided
         const unitPrice =
           Number(item.unit_price) || (quantity > 0 ? lineAmount / quantity : 0);
         return {
@@ -108,70 +104,54 @@ export function OrderFormModal({
           line_amount: lineAmount,
         };
       });
-
-      loadLineItems(cartItems);
+      setLineItems(cartItems);
     } else {
       setFormData(initialFormData);
-      clearCart();
+      setLineItems([]);
     }
-  }, [order, setStore, clearCart, loadLineItems]);
+  }, [order]);
 
-  // Sync cart total with form total
-  useEffect(() => {
-    const total = getTotal();
-    if (total > 0) {
-      setFormData((prev) => {
-        return { ...prev, order_total_amount: total.toFixed(2) };
-      });
-    }
-  }, [line_items, getTotal]);
-
-  // Cleanup: clear cart when modal closes
+  // Clear state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      clearCart();
+      setLineItems([]);
+      setFormData(initialFormData);
     }
-  }, [isOpen, clearCart]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate that cart is not empty for new orders
-    if (!order && line_items.length === 0) {
+    if (!order && lineItems.length === 0) {
       alert("Please add at least one product to the order");
       return;
     }
 
-    // Calculate fresh total from cart at save time (don't rely on potentially stale form state)
-    const freshTotal = getTotal();
-    const dataWithFreshTotal = {
+    const total = getTotal();
+    const dataWithTotal = {
       ...formData,
-      order_total_amount:
-        freshTotal > 0 ? freshTotal.toFixed(2) : formData.order_total_amount,
+      order_total_amount: total > 0 ? total.toFixed(2) : formData.order_total_amount,
     };
 
-    onSave(dataWithFreshTotal, !!order);
+    onSave(dataWithTotal, !!order, lineItems);
   };
 
   const handleStoreChange = (newStoreId: string) => {
-    // Try to set the store
-    const success = setStore(newStoreId, false);
-
-    if (!success) {
-      // Store change requires confirmation
+    if (formData.store_id && formData.store_id !== newStoreId && lineItems.length > 0) {
+      // Store change requires confirmation when cart has items
       setPendingStoreId(newStoreId);
       setShowStoreChangeConfirm(true);
     } else {
-      // Store changed successfully
       setFormData({ ...formData, store_id: newStoreId });
+      setLineItems([]); // Clear cart when store changes
     }
   };
 
   const confirmStoreChange = () => {
-    setStore(pendingStoreId, true);
     setFormData({ ...formData, store_id: pendingStoreId });
+    setLineItems([]);
     setShowStoreChangeConfirm(false);
     setPendingStoreId("");
   };
@@ -182,20 +162,84 @@ export function OrderFormModal({
   };
 
   const handleProductSelect = (product: ProductWithStock) => {
-    try {
-      addItem({
-        product_id: product.product_id,
-        product_name: product.product_name || "Unknown Product",
-        quantity: 1,
-        unit_price: product.unit_price || 0,
-        perishable_flag: product.perishable || false,
-        available_stock: product.stock_level,
-        category: product.category || undefined,
-      });
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to add product");
-    }
+    setLineItems((prev) => {
+      const existingIndex = prev.findIndex(
+        (item) => item.product_id === product.product_id
+      );
+
+      if (existingIndex !== -1) {
+        // Update existing item
+        const existing = prev[existingIndex];
+        const newQuantity = existing.quantity + 1;
+
+        if (newQuantity > product.stock_level) {
+          alert(
+            `Cannot add more. Only ${product.stock_level - existing.quantity} remaining in stock.`
+          );
+          return prev;
+        }
+
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...existing,
+          quantity: newQuantity,
+          line_amount: newQuantity * existing.unit_price,
+          available_stock: product.stock_level,
+        };
+        return updated;
+      } else {
+        // Add new item
+        if (product.stock_level < 1) {
+          alert("Product is out of stock");
+          return prev;
+        }
+
+        return [
+          ...prev,
+          {
+            product_id: product.product_id,
+            product_name: product.product_name || "Unknown Product",
+            quantity: 1,
+            unit_price: product.unit_price || 0,
+            perishable_flag: product.perishable || false,
+            available_stock: product.stock_level,
+            category: product.category || undefined,
+            line_amount: product.unit_price || 0,
+          },
+        ];
+      }
+    });
   };
+
+  const handleUpdateQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      handleRemoveItem(productId);
+      return;
+    }
+
+    setLineItems((prev) => {
+      const item = prev.find((i) => i.product_id === productId);
+      if (!item) return prev;
+
+      if (quantity > item.available_stock) {
+        throw new Error(
+          `Cannot set quantity to ${quantity}. Only ${item.available_stock} available.`
+        );
+      }
+
+      return prev.map((i) =>
+        i.product_id === productId
+          ? { ...i, quantity, line_amount: quantity * i.unit_price }
+          : i
+      );
+    });
+  };
+
+  const handleRemoveItem = (productId: string) => {
+    setLineItems((prev) => prev.filter((item) => item.product_id !== productId));
+  };
+
+  const total = getTotal();
 
   return (
     <>
@@ -306,7 +350,11 @@ export function OrderFormModal({
 
             {/* Shopping Cart */}
             <div>
-              <ShoppingCart />
+              <ShoppingCart
+                lineItems={lineItems}
+                onUpdateQuantity={handleUpdateQuantity}
+                onRemoveItem={handleRemoveItem}
+              />
             </div>
 
             <div>
@@ -319,7 +367,7 @@ export function OrderFormModal({
               <input
                 type="number"
                 step="0.01"
-                value={formData.order_total_amount}
+                value={total > 0 ? total.toFixed(2) : formData.order_total_amount}
                 readOnly
                 placeholder="0.00"
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-700"

@@ -1,24 +1,42 @@
 import { useState } from 'react'
-import { useShoppingCartStore } from '../stores/shoppingCartStore'
 import { Minus, Plus, Trash2, ShoppingCart as CartIcon, Snowflake } from 'lucide-react'
 import { formatAmount } from '../test/utils'
 
+export interface CartLineItem {
+  product_id: string
+  product_name: string
+  quantity: number
+  unit_price: number
+  line_amount: number
+  perishable_flag: boolean
+  available_stock: number
+  category?: string
+}
+
 interface ShoppingCartProps {
+  lineItems: CartLineItem[]
+  onUpdateQuantity: (productId: string, quantity: number) => void
+  onRemoveItem: (productId: string) => void
   className?: string
 }
 
-export function ShoppingCart({ className = '' }: ShoppingCartProps) {
-  const { line_items, updateQuantity, removeItem, getTotal, hasPerishableItems } =
-    useShoppingCartStore()
-
+export function ShoppingCart({
+  lineItems,
+  onUpdateQuantity,
+  onRemoveItem,
+  className = '',
+}: ShoppingCartProps) {
   const [updatingItem, setUpdatingItem] = useState<string | null>(null)
   const [errorItem, setErrorItem] = useState<{ productId: string; message: string } | null>(null)
+
+  const total = lineItems.reduce((sum, item) => sum + item.line_amount, 0)
+  const hasPerishableItems = lineItems.some(item => item.perishable_flag)
 
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     try {
       setErrorItem(null)
       setUpdatingItem(productId)
-      updateQuantity(productId, newQuantity)
+      onUpdateQuantity(productId, newQuantity)
     } catch (error) {
       setErrorItem({
         productId,
@@ -37,19 +55,17 @@ export function ShoppingCart({ className = '' }: ShoppingCartProps) {
     if (currentQuantity > 1) {
       handleQuantityChange(productId, currentQuantity - 1)
     } else {
-      removeItem(productId)
+      onRemoveItem(productId)
     }
   }
 
   const handleRemove = (productId: string) => {
-    removeItem(productId)
+    onRemoveItem(productId)
     setErrorItem(null)
   }
 
-  const total = getTotal()
-
   // Empty cart state
-  if (line_items.length === 0) {
+  if (lineItems.length === 0) {
     return (
       <div className={`bg-white rounded-lg border-2 border-dashed border-gray-200 ${className}`}>
         <div className="p-8 text-center">
@@ -70,9 +86,9 @@ export function ShoppingCart({ className = '' }: ShoppingCartProps) {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
             <CartIcon className="h-5 w-5" />
-            Shopping Cart ({line_items.length} item{line_items.length !== 1 ? 's' : ''})
+            Shopping Cart ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})
           </h3>
-          {hasPerishableItems() && (
+          {hasPerishableItems && (
             <span className="flex items-center gap-1 text-sm text-blue-600">
               <Snowflake className="h-4 w-4" />
               Contains perishables
@@ -104,7 +120,7 @@ export function ShoppingCart({ className = '' }: ShoppingCartProps) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {line_items.map(item => (
+            {lineItems.map(item => (
               <tr
                 key={item.product_id}
                 className={`hover:bg-gray-50 transition-colors ${
@@ -175,7 +191,7 @@ export function ShoppingCart({ className = '' }: ShoppingCartProps) {
 
       {/* Cart Items - Mobile Cards */}
       <div className="md:hidden divide-y divide-gray-200">
-        {line_items.map(item => (
+        {lineItems.map(item => (
           <div
             key={item.product_id}
             className={`p-4 ${updatingItem === item.product_id ? 'opacity-50' : ''}`}
@@ -243,7 +259,7 @@ export function ShoppingCart({ className = '' }: ShoppingCartProps) {
           <span className="text-lg font-semibold text-gray-900">Order Total</span>
           <span className="text-2xl font-bold text-green-600">${formatAmount(total)}</span>
         </div>
-        {hasPerishableItems() && (
+        {hasPerishableItems && (
           <p className="text-xs text-gray-500 mt-2">
             This order contains perishable items requiring cold chain delivery
           </p>
