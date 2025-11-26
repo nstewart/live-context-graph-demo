@@ -8,6 +8,7 @@ import sys
 from src.config import get_settings
 from src.opensearch_client import OpenSearchClient
 from src.orders_sync import OrdersSyncWorker
+from src.inventory_sync import InventorySyncWorker
 
 # Configure logging
 settings = get_settings()
@@ -37,29 +38,37 @@ async def main():
         logger.error("OpenSearch failed to become ready")
         sys.exit(1)
 
-    # Create worker (MaterializeClient is created inside worker for SUBSCRIBE mode)
-    worker = OrdersSyncWorker(os_client)
+    # Create workers (MaterializeClient is created inside each worker for SUBSCRIBE mode)
+    orders_worker = OrdersSyncWorker(os_client)
+    inventory_worker = InventorySyncWorker(os_client)
 
     # Set up signal handlers
     loop = asyncio.get_event_loop()
 
     def handle_shutdown():
         logger.info("Shutdown signal received")
-        worker.stop()
+        orders_worker.stop()
+        inventory_worker.stop()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_shutdown)
 
-    # Run worker
+    # Run both workers concurrently
     try:
-        await worker.run()
+        await asyncio.gather(
+            orders_worker.run(),
+            inventory_worker.run(),
+        )
     finally:
         logger.info("Cleaning up...")
 
         # Flush any pending events before shutdown
         try:
-            logger.info("Flushing pending events...")
-            await worker._flush_batch()
+            logger.info("Flushing pending events from both workers...")
+            await asyncio.gather(
+                orders_worker._flush_batch(),
+                inventory_worker._flush_batch(),
+            )
         except Exception as e:
             logger.error(f"Error flushing on shutdown: {e}")
 

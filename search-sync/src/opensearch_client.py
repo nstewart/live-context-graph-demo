@@ -77,6 +77,83 @@ ORDERS_INDEX_MAPPING = {
     },
 }
 
+# Inventory index mapping
+INVENTORY_INDEX_MAPPING = {
+    "mappings": {
+        "properties": {
+            "inventory_id": {"type": "keyword"},
+            "store_id": {"type": "keyword"},
+            "product_id": {"type": "keyword"},
+            "stock_level": {"type": "integer"},
+            "replenishment_eta": {"type": "date"},
+            "product_name": {
+                "type": "text",
+                "copy_to": "search_text",
+                "fields": {"keyword": {"type": "keyword"}},
+                "analyzer": "ingredient_analyzer",
+            },
+            "category": {
+                "type": "text",
+                "copy_to": "search_text",
+                "fields": {"keyword": {"type": "keyword"}},
+                "analyzer": "ingredient_analyzer",
+            },
+            "unit_price": {"type": "float"},
+            "perishable": {"type": "boolean"},
+            "unit_weight_grams": {"type": "integer"},
+            "store_name": {
+                "type": "text",
+                "copy_to": "search_text",
+                "fields": {"keyword": {"type": "keyword"}},
+            },
+            "store_zone": {"type": "keyword"},
+            "store_address": {"type": "text"},
+            "availability_status": {"type": "keyword"},
+            "low_stock": {"type": "boolean"},
+            "effective_updated_at": {"type": "date"},
+            "search_text": {
+                "type": "text",
+                "analyzer": "ingredient_analyzer",
+            },
+        }
+    },
+    "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "analysis": {
+            "analyzer": {
+                "ingredient_analyzer": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": ["lowercase", "asciifolding", "ingredient_synonyms"],
+                }
+            },
+            "filter": {
+                "ingredient_synonyms": {
+                    "type": "synonym",
+                    "synonyms": [
+                        "milk, whole milk, 2% milk, skim milk, dairy milk",
+                        "eggs, egg, dozen eggs, large eggs",
+                        "chicken, poultry, chicken breast, chicken thigh",
+                        "beef, ground beef, steak, sirloin",
+                        "bread, loaf, sourdough, whole wheat bread",
+                        "pasta, penne, spaghetti, linguine, noodles",
+                        "rice, white rice, brown rice, jasmine rice",
+                        "cheese, cheddar, mozzarella, parmesan",
+                        "tomato, tomatoes, cherry tomatoes",
+                        "onion, onions, yellow onion, white onion",
+                        "garlic, garlic cloves, minced garlic",
+                        "olive oil, extra virgin olive oil, evoo",
+                        "butter, unsalted butter, salted butter",
+                        "salt, sea salt, kosher salt, table salt",
+                        "pepper, black pepper, ground pepper",
+                    ]
+                }
+            },
+        },
+    },
+}
+
 
 class OpenSearchClient:
     """Client for OpenSearch operations."""
@@ -97,6 +174,7 @@ class OpenSearchClient:
             ssl_show_warn=False,
         )
         self.orders_index = "orders"
+        self.inventory_index = "inventory"
 
     async def close(self):
         """Close the client."""
@@ -118,6 +196,7 @@ class OpenSearchClient:
     async def setup_indices(self):
         """Set up all required indices."""
         await self.ensure_index(self.orders_index, ORDERS_INDEX_MAPPING)
+        await self.ensure_index(self.inventory_index, INVENTORY_INDEX_MAPPING)
 
     async def bulk_upsert(self, index_name: str, documents: list[dict]) -> tuple[int, int]:
         """
@@ -135,7 +214,7 @@ class OpenSearchClient:
 
         actions = []
         for doc in documents:
-            doc_id = doc.get("order_id") or doc.get("id")
+            doc_id = doc.get("order_id") or doc.get("inventory_id") or doc.get("id")
             actions.append(
                 {
                     "_index": index_name,
