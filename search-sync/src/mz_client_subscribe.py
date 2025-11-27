@@ -483,29 +483,29 @@ class MaterializeSubscribeClient:
                 "has_perishable_items": row[22] if len(row) > 22 else None,
                 "effective_updated_at": row[23] if len(row) > 23 else None,
             }
-        elif view_name == "inventory_search_source_mv":
+        elif view_name == "store_inventory_mv":
             # Skip first 3 columns (mz_timestamp, mz_progressed, mz_diff)
             # Column order: inventory_id(3), store_id(4), product_id(5), stock_level(6),
-            # replenishment_eta(7), product_name(8), category(9), unit_price(10),
-            # perishable(11), unit_weight_grams(12), store_name(13), store_zone(14),
-            # store_address(15), availability_status(16), low_stock(17), effective_updated_at(18)
+            # replenishment_eta(7), effective_updated_at(8), product_name(9), category(10),
+            # unit_price(11), perishable(12), unit_weight_grams(13), store_name(14),
+            # store_zone(15), store_address(16), availability_status(17), low_stock(18)
             return {
                 "inventory_id": row[3] if len(row) > 3 else None,
                 "store_id": row[4] if len(row) > 4 else None,
                 "product_id": row[5] if len(row) > 5 else None,
                 "stock_level": int(row[6]) if len(row) > 6 and row[6] is not None else 0,
                 "replenishment_eta": row[7] if len(row) > 7 else None,
-                "product_name": row[8] if len(row) > 8 else None,
-                "category": row[9] if len(row) > 9 else None,
-                "unit_price": float(row[10]) if len(row) > 10 and row[10] else None,
-                "perishable": row[11] if len(row) > 11 else None,
-                "unit_weight_grams": int(row[12]) if len(row) > 12 and row[12] is not None else None,
-                "store_name": row[13] if len(row) > 13 else None,
-                "store_zone": row[14] if len(row) > 14 else None,
-                "store_address": row[15] if len(row) > 15 else None,
-                "availability_status": row[16] if len(row) > 16 else None,
-                "low_stock": row[17] if len(row) > 17 else None,
-                "effective_updated_at": row[18] if len(row) > 18 else None,
+                "effective_updated_at": row[8] if len(row) > 8 else None,
+                "product_name": row[9] if len(row) > 9 else None,
+                "category": row[10] if len(row) > 10 else None,
+                "unit_price": float(row[11]) if len(row) > 11 and row[11] else None,
+                "perishable": row[12] if len(row) > 12 else None,
+                "unit_weight_grams": int(row[13]) if len(row) > 13 and row[13] is not None else None,
+                "store_name": row[14] if len(row) > 14 else None,
+                "store_zone": row[15] if len(row) > 15 else None,
+                "store_address": row[16] if len(row) > 16 else None,
+                "availability_status": row[17] if len(row) > 17 else None,
+                "low_stock": row[18] if len(row) > 18 else None,
             }
         else:
             # Generic handling - return all columns after metadata
