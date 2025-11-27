@@ -9,6 +9,26 @@ A forkable, batteries-included repository demonstrating how to build a **digital
 - **LangGraph Agents** with tools for AI-powered operations (search, create customers/orders, update status)
 - **React Admin UI** with real-time updates for managing operations
 
+## Architecture Pattern: CQRS
+
+This system implements **CQRS (Command Query Responsibility Segregation)** to separate write and read concerns:
+
+**Commands (Writes)**:
+- All modifications flow through the **PostgreSQL triple store** as RDF-style subject-predicate-object statements
+- Writes are validated against the **ontology schema** (classes, properties, ranges, domains)
+- This ensures data integrity and semantic consistency at write time
+
+**Queries (Reads)**:
+- Read operations use **Materialize materialized views** that are pre-computed, denormalized, and indexed
+- Views are maintained in real-time via **Change Data Capture (CDC)** from PostgreSQL
+- Optimized for fast queries without impacting write performance
+
+**Benefits**:
+- **Write model**: Enforces schema through ontology, maintains graph relationships
+- **Read model**: Optimized for specific query patterns (orders, inventory, customer lookups)
+- **Real-time consistency**: CDC ensures views reflect writes within milliseconds
+- **Scalability**: Independent scaling of write (PostgreSQL) and read (Materialize) workloads
+
 ## Quick Start
 
 ```bash
