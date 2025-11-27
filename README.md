@@ -29,6 +29,586 @@ This system implements **CQRS (Command Query Responsibility Segregation)** to se
 - **Real-time consistency**: CDC ensures views reflect writes within milliseconds
 - **Scalability**: Independent scaling of write (PostgreSQL) and read (Materialize) workloads
 
+## Adding Ontological Elements: A Complete Guide
+
+This guide explains how to extend the FreshMart ontology with new entity types and create corresponding Materialize views to support different use cases.
+
+### Core Concepts You Need to Know
+
+#### 1. **The Triple Store Foundation**
+
+All data is stored as subject-predicate-object triples:
+
+```
+subject_id: "customer:123"
+predicate: "customer_name"
+object_value: "Alex Thompson"
+object_type: "string"
+```
+
+The triple store is your **governed source of truth** - all writes flow through it with ontology validation.
+
+#### 2. **Ontology = Your Schema**
+
+The ontology defines:
+- **Classes**: Entity types (Customer, Order, Store) with a unique prefix
+- **Properties**: Allowed predicates with domain (which class) and range (data type or target class)
+- **Validation Rules**: Domain constraints, range constraints, required fields
+
+#### 3. **CQRS Pattern**
+
+- **Writes**: Triple store (PostgreSQL) → validated, governed, normalized
+- **Reads**: Materialized views (Materialize) → denormalized, indexed, optimized
+
+#### 4. **Materialize Three-Tier Architecture**
+
+```
+Ingest Cluster  → CDC from PostgreSQL (pg_source)
+Compute Cluster → Materialized views (transform triples into entities)
+Serving Cluster → Indexes (fast lookups for queries)
+```
+
+### When to Materialize Views in Materialize
+
+Following the **Materialize MCP policy**, here's when to create different view types:
+
+#### **Base Entity Views (Regular Views)**
+
+Create **regular views** for intermediate transformations when:
+- Flattening triples into entity-shaped records
+- The view will be consumed by other views (not directly queried)
+- Used as building blocks for final materialized views
+
+```sql
+-- Example: customers_flat (intermediate view)
+CREATE VIEW customers_flat AS
+SELECT
+    subject_id AS customer_id,
+    MAX(CASE WHEN predicate = 'customer_name' THEN object_value END) AS customer_name,
+    MAX(CASE WHEN predicate = 'customer_email' THEN object_value END) AS customer_email,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'customer:%'
+GROUP BY subject_id;
+```
+
+#### **Materialized Views (IN CLUSTER compute)**
+
+Create **materialized views** when:
+- This is a "topmost" view that will be directly queried by applications
+- The view needs to be consumed by consumers on a **different cluster** (compute → serving)
+- You want results persisted and incrementally maintained
+- The view enriches base entities with joins to other entities
+
+```sql
+-- Example: orders_flat_mv (topmost materialized view)
+CREATE MATERIALIZED VIEW orders_flat_mv IN CLUSTER compute AS
+SELECT
+    subject_id AS order_id,
+    MAX(CASE WHEN predicate = 'order_number' THEN object_value END) AS order_number,
+    MAX(CASE WHEN predicate = 'order_status' THEN object_value END) AS order_status,
+    MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'order:%'
+GROUP BY subject_id;
+```
+
+#### **Indexes (IN CLUSTER serving ON materialized views)**
+
+**Always create indexes** on materialized views when:
+- The view is queried by applications/APIs
+- You need low-latency lookups
+- The view powers a user-facing feature
+
+```sql
+-- Example: Make orders queryable with low latency
+CREATE INDEX orders_flat_idx IN CLUSTER serving ON orders_flat_mv (order_id);
+```
+
+### Step-by-Step: Adding a New Entity Type
+
+Let's walk through adding a new **"Promotion"** entity to support marketing campaigns.
+
+#### Step 1: Define the Ontology
+
+**1a. Create the Class**
+
+Choose a unique prefix and create the class:
+
+```sql
+-- Via SQL
+INSERT INTO ontology_classes (class_name, prefix, description)
+VALUES ('Promotion', 'promo', 'A marketing promotion or discount campaign');
+
+-- Or via API
+POST /ontology/classes
+{
+  "class_name": "Promotion",
+  "prefix": "promo",
+  "description": "A marketing promotion or discount campaign"
+}
+```
+
+**1b. Define Properties**
+
+Think about what attributes promotions need:
+
+```sql
+-- Promotion name (required string)
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, is_required, description)
+SELECT 'promo_code', id, 'string', TRUE, 'Unique promotion code (e.g., SUMMER25)'
+FROM ontology_classes WHERE class_name = 'Promotion';
+
+-- Discount percentage (required float)
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, is_required, description)
+SELECT 'discount_percent', id, 'float', TRUE, 'Discount percentage (0.0 to 100.0)'
+FROM ontology_classes WHERE class_name = 'Promotion';
+
+-- Valid dates (required timestamps)
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, is_required, description)
+SELECT 'valid_from', id, 'timestamp', TRUE, 'Promotion start date'
+FROM ontology_classes WHERE class_name = 'Promotion';
+
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, is_required, description)
+SELECT 'valid_until', id, 'timestamp', TRUE, 'Promotion end date'
+FROM ontology_classes WHERE class_name = 'Promotion';
+
+-- Applicable store (optional entity reference)
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_required, description)
+SELECT 'promo_store', p.id, 'entity_ref', s.id, FALSE, 'Store where promotion is valid (NULL = all stores)'
+FROM ontology_classes p, ontology_classes s
+WHERE p.class_name = 'Promotion' AND s.class_name = 'Store';
+
+-- Active status (required boolean)
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, is_required, description)
+SELECT 'is_active', id, 'bool', TRUE, 'Whether promotion is currently active'
+FROM ontology_classes WHERE class_name = 'Promotion';
+```
+
+**1c. Extend Existing Classes (if needed)**
+
+If orders can use promotions, add a relationship:
+
+```sql
+-- Add promo_applied property to Order class
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_required, description)
+SELECT 'promo_applied', o.id, 'entity_ref', p.id, FALSE, 'Promotion code applied to this order'
+FROM ontology_classes o, ontology_classes p
+WHERE o.class_name = 'Order' AND p.class_name = 'Promotion';
+```
+
+#### Step 2: Write Triples
+
+Now you can create promotion entities:
+
+```bash
+# Via API
+POST /triples/batch
+[
+  {"subject_id": "promo:SUMMER25", "predicate": "promo_code", "object_value": "SUMMER25", "object_type": "string"},
+  {"subject_id": "promo:SUMMER25", "predicate": "discount_percent", "object_value": "15.0", "object_type": "float"},
+  {"subject_id": "promo:SUMMER25", "predicate": "valid_from", "object_value": "2025-06-01T00:00:00Z", "object_type": "timestamp"},
+  {"subject_id": "promo:SUMMER25", "predicate": "valid_until", "object_value": "2025-08-31T23:59:59Z", "object_type": "timestamp"},
+  {"subject_id": "promo:SUMMER25", "predicate": "promo_store", "object_value": "store:BK-01", "object_type": "entity_ref"},
+  {"subject_id": "promo:SUMMER25", "predicate": "is_active", "object_value": "true", "object_type": "bool"}
+]
+
+# Apply promotion to an order
+POST /triples
+{
+  "subject_id": "order:FM-1001",
+  "predicate": "promo_applied",
+  "object_value": "promo:SUMMER25",
+  "object_type": "entity_ref"
+}
+```
+
+The ontology validator will ensure:
+- ✅ Subject prefix `promo:` matches the Promotion class
+- ✅ All predicates are defined for the Promotion class
+- ✅ Data types match (string, float, timestamp, bool, entity_ref)
+- ✅ Entity references point to valid classes (Store)
+- ✅ Required fields are present
+
+#### Step 3: Create Materialize Views
+
+**3a. Create Base View (Regular View)**
+
+First, flatten the triples into an entity shape:
+
+```sql
+-- Intermediate view for promotions
+CREATE VIEW promotions_flat AS
+SELECT
+    subject_id AS promo_id,
+    MAX(CASE WHEN predicate = 'promo_code' THEN object_value END) AS promo_code,
+    MAX(CASE WHEN predicate = 'discount_percent' THEN object_value END)::DECIMAL(5,2) AS discount_percent,
+    MAX(CASE WHEN predicate = 'valid_from' THEN object_value END)::TIMESTAMPTZ AS valid_from,
+    MAX(CASE WHEN predicate = 'valid_until' THEN object_value END)::TIMESTAMPTZ AS valid_until,
+    MAX(CASE WHEN predicate = 'promo_store' THEN object_value END) AS store_id,
+    MAX(CASE WHEN predicate = 'is_active' THEN object_value END)::BOOLEAN AS is_active,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'promo:%'
+GROUP BY subject_id;
+```
+
+**3b. Create Materialized View (IN CLUSTER compute)**
+
+Create the topmost view that applications will query:
+
+```sql
+-- Materialized view with store enrichment
+CREATE MATERIALIZED VIEW promotions_mv IN CLUSTER compute AS
+SELECT
+    p.promo_id,
+    p.promo_code,
+    p.discount_percent,
+    p.valid_from,
+    p.valid_until,
+    p.store_id,
+    p.is_active,
+    s.store_name,
+    s.store_zone,
+    -- Computed: Is promotion currently valid?
+    CASE
+        WHEN p.is_active
+             AND mz_now() >= p.valid_from
+             AND mz_now() <= p.valid_until
+        THEN TRUE
+        ELSE FALSE
+    END AS is_currently_valid,
+    p.effective_updated_at
+FROM promotions_flat p
+LEFT JOIN stores_flat s ON s.store_id = p.store_id;
+```
+
+**3c. Create Index (IN CLUSTER serving)**
+
+Make it queryable with low latency:
+
+```sql
+CREATE INDEX promotions_idx IN CLUSTER serving ON promotions_mv (promo_id);
+```
+
+**3d. Enrich Existing Views (Optional)**
+
+If orders reference promotions, enrich the orders view:
+
+```sql
+-- Drop and recreate with promotion enrichment
+DROP MATERIALIZED VIEW orders_search_source_mv CASCADE;
+
+CREATE MATERIALIZED VIEW orders_search_source_mv IN CLUSTER compute AS
+SELECT
+    o.order_id,
+    o.order_number,
+    o.order_status,
+    o.order_total_amount,
+    c.customer_name,
+    s.store_name,
+    -- Promotion enrichment
+    promo.promo_id,
+    promo.promo_code,
+    promo.discount_percent,
+    GREATEST(o.effective_updated_at, promo.effective_updated_at) AS effective_updated_at
+FROM orders_flat_mv o
+LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
+LEFT JOIN stores_flat s ON s.store_id = o.store_id
+LEFT JOIN (
+    SELECT
+        t.subject_id AS order_id,
+        p.promo_id,
+        p.promo_code,
+        p.discount_percent,
+        p.effective_updated_at
+    FROM triples t
+    JOIN promotions_flat p ON p.promo_id = t.object_value
+    WHERE t.predicate = 'promo_applied'
+) promo ON promo.order_id = o.order_id;
+
+-- Recreate index
+CREATE INDEX orders_search_source_idx IN CLUSTER serving ON orders_search_source_mv (order_id);
+```
+
+#### Step 4: Add API Endpoints
+
+Create service methods to query promotions:
+
+```python
+# api/src/freshmart/service.py
+
+async def list_promotions(
+    store_id: Optional[str] = None,
+    active_only: bool = False,
+    valid_now: bool = False
+) -> List[dict]:
+    """List promotions with optional filters."""
+    query = """
+        SELECT
+            promo_id,
+            promo_code,
+            discount_percent,
+            valid_from,
+            valid_until,
+            store_id,
+            store_name,
+            is_active,
+            is_currently_valid
+        FROM promotions_mv
+        WHERE 1=1
+    """
+    params = {}
+
+    if store_id:
+        query += " AND (store_id = %(store_id)s OR store_id IS NULL)"
+        params['store_id'] = store_id
+
+    if active_only:
+        query += " AND is_active = TRUE"
+
+    if valid_now:
+        query += " AND is_currently_valid = TRUE"
+
+    query += " ORDER BY valid_from DESC"
+
+    return await execute_query(query, params, db='materialize')
+```
+
+Add the route:
+
+```python
+# api/src/routes/freshmart.py
+
+@router.get("/promotions")
+async def get_promotions(
+    store_id: Optional[str] = Query(None),
+    active_only: bool = Query(False),
+    valid_now: bool = Query(False)
+):
+    """List promotions with optional filters."""
+    return await freshmart_service.list_promotions(
+        store_id=store_id,
+        active_only=active_only,
+        valid_now=valid_now
+    )
+```
+
+#### Step 5: Use in Applications
+
+Now you can query promotions:
+
+```bash
+# Get all promotions
+GET /freshmart/promotions
+
+# Get active promotions for Brooklyn store
+GET /freshmart/promotions?store_id=store:BK-01&active_only=true
+
+# Get currently valid promotions (within date range)
+GET /freshmart/promotions?valid_now=true
+```
+
+The Admin UI can display promotions in real-time using Zero:
+
+```typescript
+// web/src/schema.ts - Add to schema
+const promotions_mv = table('promotions_mv')
+  .columns({
+    promo_id: string(),
+    promo_code: string(),
+    discount_percent: number(),
+    valid_from: string(),
+    valid_until: string(),
+    is_active: boolean(),
+    is_currently_valid: boolean(),
+    // ... other fields
+  })
+  .primaryKey('promo_id');
+
+// In a React component
+const [activePromos] = useQuery(
+  z.query.promotions_mv
+    .where("is_active", "=", true)
+    .where("is_currently_valid", "=", true)
+);
+```
+
+### Using the Ontology to Create Business Objects
+
+The ontology allows you to **automatically discover** how to create entities:
+
+#### Query the Ontology
+
+```bash
+# Get all properties for the Order class
+GET /ontology/class/Order/properties
+
+# Response shows:
+[
+  {"prop_name": "order_number", "range_kind": "string", "is_required": true},
+  {"prop_name": "order_status", "range_kind": "string", "is_required": true},
+  {"prop_name": "placed_by", "range_kind": "entity_ref", "range_class": "Customer", "is_required": true},
+  {"prop_name": "order_store", "range_kind": "entity_ref", "range_class": "Store", "is_required": true},
+  // ... more properties
+]
+```
+
+#### Generate Forms Dynamically
+
+The Admin UI uses the ontology to build forms:
+
+```typescript
+// Fetch properties for a class
+const properties = await api.getClassProperties('Order');
+
+// Generate form fields dynamically
+properties.forEach(prop => {
+  if (prop.range_kind === 'entity_ref') {
+    // Render dropdown with entities from range_class
+    renderEntityRefDropdown(prop.prop_name, prop.range_class);
+  } else if (prop.range_kind === 'bool') {
+    renderCheckbox(prop.prop_name);
+  } else if (prop.range_kind === 'timestamp') {
+    renderDateTimePicker(prop.prop_name);
+  } else {
+    renderTextInput(prop.prop_name, prop.range_kind);
+  }
+});
+```
+
+#### Validate Before Submitting
+
+```bash
+# Validate a triple before creating it
+POST /triples/validate
+{
+  "subject_id": "order:FM-NEW",
+  "predicate": "order_status",
+  "object_value": "CREATED",
+  "object_type": "string"
+}
+
+# Response:
+{
+  "is_valid": true,
+  "errors": []
+}
+```
+
+### Common Patterns
+
+#### Pattern 1: Time-Sensitive Data (Active Promotions, Scheduled Tasks)
+
+Use `mz_now()` for time-based logic:
+
+```sql
+CREATE MATERIALIZED VIEW active_promotions_mv IN CLUSTER compute AS
+SELECT
+    promo_id,
+    promo_code,
+    discount_percent
+FROM promotions_flat
+WHERE is_active = TRUE
+  AND mz_now() >= valid_from
+  AND mz_now() <= valid_until;
+```
+
+**Important**: `mz_now()` can only appear in `WHERE` or `HAVING` clauses, never in `SELECT`.
+
+#### Pattern 2: Aggregations (Order Counts, Inventory Summaries)
+
+```sql
+CREATE MATERIALIZED VIEW store_metrics_mv IN CLUSTER compute AS
+SELECT
+    s.store_id,
+    s.store_name,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    COUNT(DISTINCT CASE WHEN o.order_status = 'DELIVERED' THEN o.order_id END) AS delivered_orders,
+    SUM(i.stock_level) AS total_inventory_units,
+    MAX(o.effective_updated_at) AS last_order_update
+FROM stores_flat s
+LEFT JOIN orders_flat_mv o ON o.store_id = s.store_id
+LEFT JOIN store_inventory_mv i ON i.store_id = s.store_id
+GROUP BY s.store_id, s.store_name;
+```
+
+#### Pattern 3: Graph Traversal (Orders → Order Lines → Products)
+
+```sql
+CREATE MATERIALIZED VIEW orders_with_lines_mv IN CLUSTER compute AS
+SELECT
+    o.order_id,
+    o.order_number,
+    o.order_status,
+    -- Aggregate line items as JSON
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object(
+                'line_id', ol.line_id,
+                'product_id', ol.product_id,
+                'product_name', p.product_name,
+                'quantity', ol.quantity,
+                'unit_price', ol.unit_price,
+                'line_amount', ol.line_amount
+            ) ORDER BY ol.line_sequence
+        ) FILTER (WHERE ol.line_id IS NOT NULL),
+        '[]'::jsonb
+    ) AS line_items
+FROM orders_flat_mv o
+LEFT JOIN (
+    SELECT
+        subject_id AS line_id,
+        MAX(CASE WHEN predicate = 'line_of_order' THEN object_value END) AS order_id,
+        MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
+        MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
+        MAX(CASE WHEN predicate = 'unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
+        MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount,
+        MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence
+    FROM triples
+    WHERE subject_id LIKE 'orderline:%'
+    GROUP BY subject_id
+) ol ON ol.order_id = o.order_id
+LEFT JOIN products_flat p ON p.product_id = ol.product_id
+GROUP BY o.order_id, o.order_number, o.order_status;
+```
+
+### Summary: The Complete Workflow
+
+1. **Define Ontology** (Classes + Properties)
+   - Choose unique prefix
+   - Define properties with domain/range constraints
+   - Mark required fields
+
+2. **Write Governed Triples**
+   - All writes validated against ontology
+   - Subject prefix must match class
+   - Predicates must be defined properties
+   - Data types must match range
+
+3. **Create Views in Materialize**
+   - **Regular views**: Flatten triples into entity shapes (intermediate)
+   - **Materialized views IN CLUSTER compute**: Topmost views with joins/enrichment
+   - **Indexes IN CLUSTER serving**: Make materialized views queryable
+
+4. **Expose via API**
+   - Query materialized views for fast reads
+   - Use ontology to generate forms
+   - Validate triples before writes
+
+5. **Real-Time Sync**
+   - CDC streams changes to Materialize automatically
+   - Zero syncs Materialize views to UI clients
+   - OpenSearch indexes maintain search capability
+
+This pattern ensures:
+- ✅ Data integrity through ontology validation
+- ✅ Query performance through Materialize indexes
+- ✅ Real-time updates through CDC and Zero sync
+- ✅ Semantic relationships preserved in the graph
+- ✅ Flexibility to add new entity types without breaking existing code
+
 ## Quick Start
 
 ```bash
