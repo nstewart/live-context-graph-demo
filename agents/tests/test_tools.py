@@ -1131,6 +1131,56 @@ class TestSearchInventory:
                 assert len(results) == 1
                 assert "error" in results[0]
 
+    @pytest.mark.asyncio
+    async def test_fetches_products_in_parallel(self, mock_settings):
+        """Fetches all product details in parallel, not sequentially."""
+        with patch("src.tools.tool_search_inventory.get_settings", return_value=mock_settings):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                # Mock 3 products in inventory
+                mock_inventory_response = MagicMock()
+                mock_inventory_response.json.return_value = {
+                    "hits": {
+                        "hits": [
+                            {"_source": {"product_id": f"product:item{i}", "stock_level": 10}}
+                            for i in range(3)
+                        ]
+                    }
+                }
+                mock_inventory_response.raise_for_status = MagicMock()
+
+                mock_product_response = MagicMock()
+                mock_product_response.status_code = 200
+                mock_product_response.json.return_value = {
+                    "triples": [
+                        {"predicate": "product_name", "object_value": "Test Product"},
+                        {"predicate": "category", "object_value": "Test"},
+                        {"predicate": "unit_price", "object_value": "1.99"},
+                    ]
+                }
+
+                mock_client = AsyncMock()
+                mock_client.post = AsyncMock(return_value=mock_inventory_response)
+                mock_client.get = AsyncMock(return_value=mock_product_response)
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock()
+                mock_client_class.return_value = mock_client
+
+                from src.tools.tool_search_inventory import search_inventory
+
+                await search_inventory.ainvoke({
+                    "query": "test",
+                })
+
+                # Should have made exactly 3 GET calls (one per product)
+                # The fact that all succeed means asyncio.gather worked
+                assert mock_client.get.call_count == 3
+
+                # Verify all 3 product IDs were fetched
+                call_urls = [call.args[0] for call in mock_client.get.call_args_list]
+                assert any("product:item0" in url for url in call_urls)
+                assert any("product:item1" in url for url in call_urls)
+                assert any("product:item2" in url for url in call_urls)
+
 
 class TestCreateCustomer:
     """Tests for create_customer tool."""

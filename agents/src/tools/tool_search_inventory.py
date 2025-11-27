@@ -1,5 +1,6 @@
 """Tool for searching store inventory."""
 
+import asyncio
 from typing import Optional
 
 import httpx
@@ -82,13 +83,13 @@ async def search_inventory(
             if not inventory_items:
                 return []
 
-            # Step 2: Fetch product details for items in inventory
+            # Step 2: Fetch product details for items in inventory (in parallel)
             # Query the API to get product names and details
             product_ids = list(inventory_items.keys())
 
-            # Fetch product details from the triples API
-            product_details = {}
-            for product_id in product_ids:
+            # Helper function to fetch a single product's details
+            async def fetch_product_details(product_id: str) -> tuple[str, dict]:
+                """Fetch details for a single product. Returns (product_id, details_dict)."""
                 try:
                     detail_response = await client.get(
                         f"{settings.agent_api_base}/triples/subjects/{product_id}",
@@ -114,18 +115,25 @@ async def search_inventory(
                             except (ValueError, TypeError):
                                 pass
 
-                        product_details[product_id] = {
+                        return (product_id, {
                             "product_name": props.get("product_name", product_id),
                             "category": props.get("category", "Unknown"),
                             "unit_price": unit_price,
                             "is_perishable": props.get("perishable", "false").lower() == "true",
-                        }
+                        })
                 except httpx.HTTPError:
                     # If we can't fetch details, use product_id as name
-                    product_details[product_id] = {
+                    return (product_id, {
                         "product_name": product_id,
                         "category": "Unknown",
-                    }
+                    })
+
+            # Fetch all product details in parallel using asyncio.gather
+            fetch_tasks = [fetch_product_details(pid) for pid in product_ids]
+            product_results = await asyncio.gather(*fetch_tasks)
+
+            # Convert results list to dict
+            product_details = dict(product_results)
 
             # Step 3: Filter products by search query
             results = []
