@@ -35,6 +35,14 @@ except ImportError:
     print("  pip install psycopg2-binary faker")
     sys.exit(1)
 
+# Import realistic product catalog
+try:
+    from generate_1000_products import REALISTIC_PRODUCTS
+except ImportError:
+    print("ERROR: Cannot import REALISTIC_PRODUCTS from generate_1000_products.py")
+    print("Make sure generate_1000_products.py is in the same directory.")
+    sys.exit(1)
+
 # Initialize Faker with seed for reproducibility
 fake = Faker()
 Faker.seed(42)
@@ -48,78 +56,6 @@ NYC_ZONES = [
     ("BX", "Bronx", ["Grand Concourse", "Fordham Rd", "E Tremont Ave", "Webster Ave", "3rd Ave"]),
     ("SI", "Staten Island", ["Victory Blvd", "Forest Ave", "Hylan Blvd", "Richmond Ave", "Bay St"]),
 ]
-
-# Product categories and items
-PRODUCT_CATALOG = {
-    "Dairy": [
-        ("Whole Milk 1L", 4.99, False),
-        ("2% Milk 1L", 4.79, False),
-        ("Greek Yogurt", 6.49, False),
-        ("Cheddar Cheese Block", 8.99, False),
-        ("Butter Unsalted", 5.99, False),
-        ("Heavy Cream", 4.49, False),
-        ("Sour Cream", 3.49, False),
-        ("Cottage Cheese", 4.99, False),
-    ],
-    "Produce": [
-        ("Organic Bananas", 2.99, True),
-        ("Avocados 3-pack", 5.99, True),
-        ("Baby Spinach Bag", 4.49, True),
-        ("Roma Tomatoes lb", 3.99, True),
-        ("Red Onions lb", 2.49, True),
-        ("Garlic Head", 0.99, True),
-        ("Lemons 6-pack", 4.99, True),
-        ("Fresh Basil", 2.99, True),
-        ("Carrots 2lb Bag", 3.49, True),
-        ("Bell Peppers 3-pack", 4.99, True),
-    ],
-    "Bakery": [
-        ("Sourdough Bread", 5.99, True),
-        ("Whole Wheat Bread", 4.49, True),
-        ("Croissants 4-pack", 6.99, True),
-        ("Bagels 6-pack", 5.49, True),
-        ("Baguette", 3.99, True),
-        ("Cinnamon Rolls 4-pack", 7.99, True),
-    ],
-    "Meat & Seafood": [
-        ("Chicken Breast lb", 8.99, True),
-        ("Ground Beef 90/10 lb", 9.99, True),
-        ("Salmon Fillet lb", 14.99, True),
-        ("Pork Chops lb", 7.99, True),
-        ("Shrimp 1lb Bag", 12.99, True),
-        ("Bacon 12oz", 7.49, True),
-        ("Italian Sausage", 6.99, True),
-    ],
-    "Pantry": [
-        ("Extra Virgin Olive Oil", 12.99, False),
-        ("Pasta Penne 1lb", 2.49, False),
-        ("Canned Tomatoes", 2.99, False),
-        ("Chicken Broth 32oz", 3.49, False),
-        ("Rice Jasmine 2lb", 5.99, False),
-        ("Black Beans Can", 1.49, False),
-        ("Peanut Butter", 4.99, False),
-        ("Honey 12oz", 8.99, False),
-    ],
-    "Beverages": [
-        ("Orange Juice 64oz", 6.99, False),
-        ("Coffee Beans 12oz", 11.99, False),
-        ("Green Tea 20-pack", 5.49, False),
-        ("Sparkling Water 12-pack", 7.99, False),
-        ("Almond Milk 64oz", 4.99, False),
-    ],
-    "Frozen": [
-        ("Ice Cream Vanilla", 6.99, False),
-        ("Frozen Pizza", 8.99, False),
-        ("Frozen Vegetables Mix", 3.99, False),
-        ("Frozen Berries 1lb", 5.99, False),
-    ],
-    "Snacks": [
-        ("Potato Chips", 4.49, False),
-        ("Mixed Nuts 1lb", 9.99, False),
-        ("Dark Chocolate Bar", 3.99, False),
-        ("Granola Bars 6-pack", 5.49, False),
-    ],
-}
 
 ORDER_STATUSES = ["CREATED", "PICKING", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"]
 COURIER_STATUSES = ["OFF_SHIFT", "AVAILABLE", "ON_DELIVERY"]
@@ -136,7 +72,7 @@ class DataGenerator:
 
         # Scaled counts
         self.num_stores = max(10, int(50 * scale))
-        self.num_products = 1000  # Always 1000 products
+        self.num_products = len(REALISTIC_PRODUCTS)  # Use all realistic products (993)
         self.num_customers = max(100, int(5000 * scale))
         self.num_couriers = max(20, int(200 * scale))
         self.num_orders = max(500, int(25000 * scale))
@@ -184,35 +120,24 @@ class DataGenerator:
                 store_num += 1
 
     def generate_products(self):
-        """Generate product entities."""
+        """Generate product entities using realistic catalog."""
         print(f"Generating {self.num_products} products...")
 
-        product_num = 1
-        all_products = []
+        # Use realistic products (no random variations)
+        # REALISTIC_PRODUCTS format: (name, category, price, weight_grams, perishable)
+        products_to_use = REALISTIC_PRODUCTS[:self.num_products]
 
-        for category, items in PRODUCT_CATALOG.items():
-            for name, price, perishable in items:
-                all_products.append((category, name, price, perishable))
-
-        # Repeat products with variations if needed
-        while len(all_products) < self.num_products:
-            category = random.choice(list(PRODUCT_CATALOG.keys()))
-            name, price, perish = random.choice(PRODUCT_CATALOG[category])
-            variation = f"{name} - {fake.word().title()}"
-            all_products.append((category, variation, price * random.uniform(0.8, 1.2), perish))
-
-        for category, name, price, perishable in all_products[:self.num_products]:
+        for product_num, (name, category, price, weight_grams, perishable) in enumerate(products_to_use, start=1):
             # Create URL-safe product ID
-            product_slug = name.lower().replace(" ", "-").replace("'", "")[:30]
+            product_slug = name.lower().replace(" ", "-").replace("'", "").replace("/", "-")[:40]
             product_id = f"product:{product_slug}-{product_num}"
             self.product_ids.append(product_id)
 
             self.add_triple(product_id, "product_name", name, "string")
             self.add_triple(product_id, "category", category, "string")
             self.add_triple(product_id, "unit_price", f"{price:.2f}", "float")
+            self.add_triple(product_id, "unit_weight_grams", str(weight_grams), "int")
             self.add_triple(product_id, "perishable", str(perishable).lower(), "boolean")
-
-            product_num += 1
 
     def generate_customers(self):
         """Generate customer entities."""
