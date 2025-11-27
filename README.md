@@ -100,8 +100,11 @@ Create **materialized views** when:
 - You want results persisted and incrementally maintained
 - The view enriches base entities with joins to other entities
 
+**Two Patterns:**
+
+**Pattern A: Materialize the view definition directly**
 ```sql
--- Example: orders_flat_mv (topmost materialized view)
+-- Define transformation and materialize in one step
 CREATE MATERIALIZED VIEW orders_flat_mv IN CLUSTER compute AS
 SELECT
     subject_id AS order_id,
@@ -112,6 +115,50 @@ SELECT
 FROM triples
 WHERE subject_id LIKE 'order:%'
 GROUP BY subject_id;
+```
+
+**Pattern B: Materialize from a regular view (RECOMMENDED)**
+```sql
+-- Step 1: Define the transformation logic once in a regular view
+CREATE VIEW orders_flat AS
+SELECT
+    subject_id AS order_id,
+    MAX(CASE WHEN predicate = 'order_number' THEN object_value END) AS order_number,
+    MAX(CASE WHEN predicate = 'order_status' THEN object_value END) AS order_status,
+    MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'order:%'
+GROUP BY subject_id;
+
+-- Step 2: Materialize the view (no duplication!)
+CREATE MATERIALIZED VIEW orders_flat_mv IN CLUSTER compute AS
+SELECT * FROM orders_flat;
+```
+
+**Why Pattern B is better:**
+- ✅ **No duplication** - Transformation logic defined once in the base view
+- ✅ **Flexibility** - Can create multiple materialized views from the same base view
+- ✅ **Testing** - Can query the regular view directly for development/debugging
+- ✅ **Clarity** - Clear separation between transformation logic and materialization
+
+**Example: Multiple materialized views from one base view**
+```sql
+-- Base view with transformation logic (defined once)
+CREATE VIEW orders_flat AS
+SELECT subject_id AS order_id, ...
+FROM triples WHERE subject_id LIKE 'order:%' GROUP BY subject_id;
+
+-- Materialize for general queries
+CREATE MATERIALIZED VIEW orders_flat_mv IN CLUSTER compute AS
+SELECT * FROM orders_flat;
+
+-- Materialize with filters for specific use cases
+CREATE MATERIALIZED VIEW active_orders_mv IN CLUSTER compute AS
+SELECT * FROM orders_flat
+WHERE order_status IN ('CREATED', 'PICKING', 'OUT_FOR_DELIVERY');
+
+-- Both materialized views share the same transformation logic!
 ```
 
 #### **Indexes (IN CLUSTER serving ON materialized views)**
@@ -254,13 +301,13 @@ WHERE subject_id LIKE 'promo:%'
 GROUP BY subject_id;
 ```
 
-**3b. Create Materialized View (IN CLUSTER compute)**
+**3b. Create Enriched View with Store Details**
 
-Create the topmost view that applications will query:
+Create a view that joins promotions with store information:
 
 ```sql
--- Materialized view with store enrichment
-CREATE MATERIALIZED VIEW promotions_mv IN CLUSTER compute AS
+-- Regular view with store enrichment (defines the logic)
+CREATE VIEW promotions_enriched AS
 SELECT
     p.promo_id,
     p.promo_code,
@@ -282,6 +329,10 @@ SELECT
     p.effective_updated_at
 FROM promotions_flat p
 LEFT JOIN stores_flat s ON s.store_id = p.store_id;
+
+-- Materialize the enriched view (no duplication!)
+CREATE MATERIALIZED VIEW promotions_mv IN CLUSTER compute AS
+SELECT * FROM promotions_enriched;
 ```
 
 **3c. Create Index (IN CLUSTER serving)**
@@ -589,8 +640,11 @@ GROUP BY o.order_id, o.order_number, o.order_status;
 
 3. **Create Views in Materialize**
    - **Regular views**: Flatten triples into entity shapes (intermediate)
-   - **Materialized views IN CLUSTER compute**: Topmost views with joins/enrichment
+   - **Regular views**: Define enrichment logic (joins, computed columns)
+   - **Materialized views IN CLUSTER compute**: `SELECT * FROM regular_view` (no duplication!)
    - **Indexes IN CLUSTER serving**: Make materialized views queryable
+
+   **Tip**: Always define transformation logic in regular views first, then materialize them. This avoids duplication and makes testing easier.
 
 4. **Expose via API**
    - Query materialized views for fast reads
