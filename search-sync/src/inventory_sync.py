@@ -80,8 +80,19 @@ class InventorySyncWorker:
                     "stock_level": {"type": "integer"},
                     "replenishment_eta": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                     "effective_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                    # Note: product details (name, price, category) are fetched separately
-                    # from the products index or joined at query time
+                    # Product details (denormalized from products_flat)
+                    "product_name": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                    "category": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                    "unit_price": {"type": "float"},
+                    "perishable": {"type": "boolean"},
+                    "unit_weight_grams": {"type": "integer"},
+                    # Store details (denormalized from stores_flat)
+                    "store_name": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                    "store_zone": {"type": "keyword"},
+                    "store_address": {"type": "text"},
+                    # Computed fields
+                    "availability_status": {"type": "keyword"},
+                    "low_stock": {"type": "boolean"},
                 }
             }
         }
@@ -102,7 +113,17 @@ class InventorySyncWorker:
                     product_id,
                     stock_level,
                     replenishment_eta,
-                    effective_updated_at
+                    effective_updated_at,
+                    product_name,
+                    category,
+                    unit_price,
+                    perishable,
+                    unit_weight_grams,
+                    store_name,
+                    store_zone,
+                    store_address,
+                    availability_status,
+                    low_stock
                 FROM {self.VIEW_NAME}
             """
 
@@ -123,6 +144,16 @@ class InventorySyncWorker:
                     "stock_level": row["stock_level"],
                     "replenishment_eta": row["replenishment_eta"],
                     "effective_updated_at": row["effective_updated_at"].isoformat() if row["effective_updated_at"] else None,
+                    "product_name": row.get("product_name"),
+                    "category": row.get("category"),
+                    "unit_price": float(row["unit_price"]) if row.get("unit_price") else None,
+                    "perishable": row.get("perishable"),
+                    "unit_weight_grams": row.get("unit_weight_grams"),
+                    "store_name": row.get("store_name"),
+                    "store_zone": row.get("store_zone"),
+                    "store_address": row.get("store_address"),
+                    "availability_status": row.get("availability_status"),
+                    "low_stock": row.get("low_stock"),
                 }
                 documents.append(doc)
 
@@ -200,6 +231,16 @@ class InventorySyncWorker:
                     "stock_level": event.data.get("stock_level"),
                     "replenishment_eta": event.data.get("replenishment_eta"),
                     "effective_updated_at": event.data.get("effective_updated_at"),
+                    "product_name": event.data.get("product_name"),
+                    "category": event.data.get("category"),
+                    "unit_price": event.data.get("unit_price"),
+                    "perishable": event.data.get("perishable"),
+                    "unit_weight_grams": event.data.get("unit_weight_grams"),
+                    "store_name": event.data.get("store_name"),
+                    "store_zone": event.data.get("store_zone"),
+                    "store_address": event.data.get("store_address"),
+                    "availability_status": event.data.get("availability_status"),
+                    "low_stock": event.data.get("low_stock"),
                 }
                 self.pending_upserts.append(doc)
 

@@ -94,20 +94,21 @@ FROM triples
 WHERE subject_id LIKE 'order:%'
 GROUP BY subject_id;
 
--- Base inventory view
-CREATE VIEW IF NOT EXISTS store_inventory_base AS
+-- Products flat view (needed for inventory enrichment)
+CREATE VIEW IF NOT EXISTS products_flat AS
 SELECT
-    subject_id AS inventory_id,
-    MAX(CASE WHEN predicate = 'inventory_store' THEN object_value END) AS store_id,
-    MAX(CASE WHEN predicate = 'inventory_product' THEN object_value END) AS product_id,
-    MAX(CASE WHEN predicate = 'stock_level' THEN object_value END)::INT AS stock_level,
-    MAX(CASE WHEN predicate = 'replenishment_eta' THEN object_value END) AS replenishment_eta,
+    subject_id AS product_id,
+    MAX(CASE WHEN predicate = 'product_name' THEN object_value END) AS product_name,
+    MAX(CASE WHEN predicate = 'category' THEN object_value END) AS category,
+    MAX(CASE WHEN predicate = 'unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
+    MAX(CASE WHEN predicate = 'perishable' THEN object_value END)::BOOLEAN AS perishable,
+    MAX(CASE WHEN predicate = 'unit_weight_grams' THEN object_value END)::INT AS unit_weight_grams,
     MAX(updated_at) AS effective_updated_at
 FROM triples
-WHERE subject_id LIKE 'inventory:%'
+WHERE subject_id LIKE 'product:%'
 GROUP BY subject_id;
 
--- Materialized view with product enrichment
+-- Materialized view with product and store enrichment for OpenSearch
 CREATE MATERIALIZED VIEW IF NOT EXISTS store_inventory_mv IN CLUSTER compute AS
 SELECT
     inv.inventory_id,
@@ -116,11 +117,37 @@ SELECT
     inv.stock_level,
     inv.replenishment_eta,
     inv.effective_updated_at,
+    -- Product details
     p.product_name,
     p.category,
-    p.perishable
-FROM store_inventory_base inv
-LEFT JOIN products_flat p ON p.product_id = inv.product_id;
+    p.unit_price,
+    p.perishable,
+    p.unit_weight_grams,
+    -- Store details
+    s.store_name,
+    s.store_zone,
+    s.store_address,
+    -- Availability flags
+    CASE
+        WHEN inv.stock_level > 10 THEN 'IN_STOCK'
+        WHEN inv.stock_level > 0 THEN 'LOW_STOCK'
+        ELSE 'OUT_OF_STOCK'
+    END AS availability_status,
+    (inv.stock_level <= 10 AND inv.stock_level > 0) AS low_stock
+FROM (
+    SELECT
+        subject_id AS inventory_id,
+        MAX(CASE WHEN predicate = 'inventory_store' THEN object_value END) AS store_id,
+        MAX(CASE WHEN predicate = 'inventory_product' THEN object_value END) AS product_id,
+        MAX(CASE WHEN predicate = 'stock_level' THEN object_value END)::INT AS stock_level,
+        MAX(CASE WHEN predicate = 'replenishment_eta' THEN object_value END) AS replenishment_eta,
+        MAX(updated_at) AS effective_updated_at
+    FROM triples
+    WHERE subject_id LIKE 'inventory:%'
+    GROUP BY subject_id
+) inv
+LEFT JOIN products_flat p ON p.product_id = inv.product_id
+LEFT JOIN stores_flat s ON s.store_id = inv.store_id;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS orders_search_source_mv IN CLUSTER compute AS
 SELECT
