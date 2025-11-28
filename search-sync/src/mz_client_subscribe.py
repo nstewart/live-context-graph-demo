@@ -318,6 +318,7 @@ class MaterializeSubscribeClient:
         pending_events: list[SubscribeEvent] = []
         row_count = 0
         is_snapshot = True
+        column_names = None  # Will be populated from cursor.description
 
         logger.info(f"SUBSCRIBE started for {view_name}, receiving snapshot...")
 
@@ -326,6 +327,13 @@ class MaterializeSubscribeClient:
         while True:
             await self._cursor.execute("FETCH 100 subscribe_cursor")
             rows = await self._cursor.fetchall()
+
+            # Get column names from cursor description on first fetch
+            if column_names is None and self._cursor.description:
+                # cursor.description is a sequence of (name, type_code, ...) tuples
+                # Skip first 3 metadata columns: mz_timestamp, mz_diff, mz_progressed
+                column_names = [desc[0] for desc in self._cursor.description[3:]]
+                logger.info(f"Detected {len(column_names)} data columns for {view_name}: {column_names[:5]}...")
 
             if not rows:
                 # No more rows available, wait briefly before fetching again
@@ -383,7 +391,7 @@ class MaterializeSubscribeClient:
                             pending_events = []
 
                     # Parse row data (structure depends on view schema)
-                    data = self._parse_row_data(row, view_name)
+                    data = self._parse_row_data(row, column_names)
                     event = SubscribeEvent(current_timestamp, diff, data)
 
                     # Log data changes
@@ -403,110 +411,52 @@ class MaterializeSubscribeClient:
 
         logger.warning(f"SUBSCRIBE stream ended for {view_name}")
 
-    def _parse_row_data(self, row: tuple, view_name: str) -> dict:
-        """Parse SUBSCRIBE row data into a dictionary based on view schema.
+    def _parse_row_data(self, row: tuple, column_names: list[str]) -> dict:
+        """Parse SUBSCRIBE row data into a dictionary using column names.
 
         SUBSCRIBE returns rows with metadata columns followed by view columns:
             (mz_timestamp, mz_diff, mz_progressed, col1, col2, ...)
 
         This method skips the first 3 metadata columns and maps the remaining
-        columns to their names based on the known schema for each view.
+        columns to their names from the cursor description.
 
         Args:
             row: Tuple from psycopg cursor iteration with format:
                 (mz_timestamp, mz_diff, mz_progressed, ...view_columns...)
-            view_name: Name of the materialized view being subscribed to
+            column_names: List of column names from cursor.description (excluding metadata)
 
         Returns:
-            Dictionary mapping column names to values. Format depends on view:
-                - orders_search_source_mv: Full order data with customer/store info
-                - Other views: Generic dict with 'data' key containing all columns
+            Dictionary mapping column names to values
 
         Example:
-            Parse orders_search_source_mv row::
+            Parse any view row::
 
                 row = ("1701234567890", 1, False, "order:FM-1001", "FM-1001", ...)
-                data = client._parse_row_data(row, "orders_search_source_mv")
+                column_names = ["order_id", "order_number", "order_status", ...]
+                data = client._parse_row_data(row, column_names)
                 # Returns: {
                 #     "order_id": "order:FM-1001",
                 #     "order_number": "FM-1001",
+                #     "order_status": "CREATED",
                 #     ...
                 # }
 
         Note:
-            This method uses hardcoded column positions based on the view
-            definition. If the view schema changes, this method must be updated.
-
-            For orders_search_source_mv, the expected column order is:
-            order_id, order_number, order_status, store_id, customer_id,
-            delivery_window_start, delivery_window_end, order_total_amount,
-            customer_name, customer_email, customer_address, store_name,
-            store_zone, store_address, assigned_courier_id, delivery_task_status,
-            delivery_eta, effective_updated_at
+            This method automatically adapts to any view schema by using the
+            column names from the cursor description. No hardcoding needed!
         """
-        if view_name == "orders_search_source_mv":
-            # Skip first 3 columns (mz_timestamp, mz_diff, mz_progressed)
-            # Column order: order_id(3), order_number(4), ..., delivery_eta(19),
-            # line_items(20), line_item_count(21), has_perishable_items(22), effective_updated_at(23)
-
-            # Parse line_items from JSONB to list of dicts
-            line_items_raw = row[20] if len(row) > 20 else None
-            line_items = []
-            if line_items_raw:
-                # psycopg returns JSONB as list already
-                if isinstance(line_items_raw, list):
-                    line_items = line_items_raw
-                elif isinstance(line_items_raw, str):
-                    import json
-                    line_items = json.loads(line_items_raw)
-
-            return {
-                "order_id": row[3] if len(row) > 3 else None,
-                "order_number": row[4] if len(row) > 4 else None,
-                "order_status": row[5] if len(row) > 5 else None,
-                "store_id": row[6] if len(row) > 6 else None,
-                "customer_id": row[7] if len(row) > 7 else None,
-                "delivery_window_start": row[8] if len(row) > 8 else None,
-                "delivery_window_end": row[9] if len(row) > 9 else None,
-                "order_total_amount": float(row[10]) if len(row) > 10 and row[10] else None,
-                "customer_name": row[11] if len(row) > 11 else None,
-                "customer_email": row[12] if len(row) > 12 else None,
-                "customer_address": row[13] if len(row) > 13 else None,
-                "store_name": row[14] if len(row) > 14 else None,
-                "store_zone": row[15] if len(row) > 15 else None,
-                "store_address": row[16] if len(row) > 16 else None,
-                "assigned_courier_id": row[17] if len(row) > 17 else None,
-                "delivery_task_status": row[18] if len(row) > 18 else None,
-                "delivery_eta": row[19] if len(row) > 19 else None,
-                "line_items": line_items,
-                "line_item_count": int(row[21]) if len(row) > 21 and row[21] is not None else 0,
-                "has_perishable_items": row[22] if len(row) > 22 else None,
-                "effective_updated_at": row[23] if len(row) > 23 else None,
-            }
-        elif view_name == "store_inventory_mv":
-            # Skip first 3 columns (mz_timestamp, mz_progressed, mz_diff)
-            # Column order: inventory_id(3), store_id(4), product_id(5), stock_level(6),
-            # replenishment_eta(7), effective_updated_at(8), product_name(9), category(10),
-            # unit_price(11), perishable(12), unit_weight_grams(13), store_name(14),
-            # store_zone(15), store_address(16), availability_status(17), low_stock(18)
-            return {
-                "inventory_id": row[3] if len(row) > 3 else None,
-                "store_id": row[4] if len(row) > 4 else None,
-                "product_id": row[5] if len(row) > 5 else None,
-                "stock_level": int(row[6]) if len(row) > 6 and row[6] is not None else 0,
-                "replenishment_eta": row[7] if len(row) > 7 else None,
-                "effective_updated_at": row[8] if len(row) > 8 else None,
-                "product_name": row[9] if len(row) > 9 else None,
-                "category": row[10] if len(row) > 10 else None,
-                "unit_price": float(row[11]) if len(row) > 11 and row[11] else None,
-                "perishable": row[12] if len(row) > 12 else None,
-                "unit_weight_grams": int(row[13]) if len(row) > 13 and row[13] is not None else None,
-                "store_name": row[14] if len(row) > 14 else None,
-                "store_zone": row[15] if len(row) > 15 else None,
-                "store_address": row[16] if len(row) > 16 else None,
-                "availability_status": row[17] if len(row) > 17 else None,
-                "low_stock": row[18] if len(row) > 18 else None,
-            }
-        else:
-            # Generic handling - return all columns after metadata
+        # Generic parsing: map column names to values dynamically
+        if column_names is None:
+            # Fallback if column names not yet available
             return {"data": row[3:] if len(row) > 3 else []}
+
+        # Build dict by mapping column names to row values (skip first 3 metadata columns)
+        result = {}
+        for i, col_name in enumerate(column_names):
+            row_index = i + 3  # Skip mz_timestamp, mz_diff, mz_progressed
+            if row_index < len(row):
+                result[col_name] = row[row_index]
+            else:
+                result[col_name] = None
+
+        return result

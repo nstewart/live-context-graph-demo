@@ -459,11 +459,15 @@ ON orders_with_promotions_mv (order_id);
 
 #### Step 4: Sync Enriched Orders to OpenSearch
 
-Update the existing orders sync worker to use the new enriched view, adding promotion data to the orders index.
+Now that the `orders_with_promotions_mv` view exists in Materialize, update the orders sync worker to use it instead of the default `orders_search_source_mv`. This requires three code changes in `search-sync/src/orders_sync.py`:
+
+1. Change the view name to `orders_with_promotions_mv`
+2. Add promotion fields to the OpenSearch index mapping
+3. Extract promotion fields in the transform method
 
 **4a. Update the Orders Sync Worker**
 
-Modify `search-sync/src/orders_sync.py` to subscribe to the new enriched view:
+Modify `search-sync/src/orders_sync.py` (line ~125) to subscribe to the new enriched view:
 
 ```python
 class OrdersSyncWorker(BaseSubscribeWorker):
@@ -471,21 +475,24 @@ class OrdersSyncWorker(BaseSubscribeWorker):
 
     def get_view_name(self) -> str:
         """Return Materialize view name."""
-        # Change from orders_search_source_mv to the new enriched view
-        return "orders_with_promotions_mv"  # Updated!
+        return "orders_with_promotions_mv"  # Changed from orders_search_source_mv
 
     # ... rest of the worker implementation
 ```
 
 **4b. Add Promotion Fields to the Index Mapping**
 
-Update the ORDERS_INDEX_MAPPING in `search-sync/src/orders_sync.py` to include promotion fields:
+Update the ORDERS_INDEX_MAPPING in `search-sync/src/orders_sync.py` (after line 97, before `"search_text"`) to include promotion fields:
 
 ```python
 ORDERS_INDEX_MAPPING = {
     "mappings": {
         "properties": {
             # ... existing fields (order_id, order_number, etc.)
+            "line_item_count": {"type": "integer"},
+            "has_perishable_items": {"type": "boolean"},
+
+            # ADD THESE PROMOTION FIELDS:
 
             # Add promotion fields
             "promo_id": {"type": "keyword"},
@@ -505,81 +512,32 @@ ORDERS_INDEX_MAPPING = {
 
 **4c. Update the Transform Method**
 
-Modify `transform_event_to_doc()` to include the new promotion fields:
+Modify `transform_event_to_doc()` in `search-sync/src/orders_sync.py` (after line 218, before `"effective_updated_at"`) to include the new promotion fields:
 
 ```python
 def transform_event_to_doc(self, data: dict) -> Optional[dict]:
     """Transform Materialize event to OpenSearch document."""
-    doc_id = self.get_doc_id(data)
-    if not doc_id:
-        return None
+    # ... existing code ...
 
     return {
-        # Existing order fields
-        "order_id": doc_id,
-        "order_number": data.get("order_number"),
-        "order_status": data.get("order_status"),
-        "order_total_amount": float(data.get("order_total_amount", 0)),
-        "customer_name": data.get("customer_name"),
-        "store_name": data.get("store_name"),
+        # ... existing order fields ...
+        "line_items": data.get("line_items", []),
+        "line_item_count": data.get("line_item_count", 0),
+        "has_perishable_items": data.get("has_perishable_items", False),
 
-        # NEW: Promotion fields
+        # ADD THESE PROMOTION FIELDS:
         "promo_id": data.get("promo_id"),
         "promo_code": data.get("promo_code"),
-        "discount_percent": float(data.get("discount_percent", 0)) if data.get("discount_percent") else None,
-        "order_total_amount_with_discounts": float(data.get("order_total_amount_with_discounts", 0)),
+        "discount_percent": float(data["discount_percent"]) if data.get("discount_percent") else None,
+        "order_total_amount_with_discounts": float(data["order_total_amount_with_discounts"]) if data.get("order_total_amount_with_discounts") else None,
 
-        # ... rest of existing fields
+        "effective_updated_at": self._format_datetime(data.get("effective_updated_at")),
     }
 ```
 
-**4d. Add Column Parsing for the New View**
+**4d. Restart the Sync Worker**
 
-⚠️ **CRITICAL**: Add parsing logic for `orders_with_promotions_mv` in `search-sync/src/mz_client_subscribe.py`.
-
-The `_parse_row_data()` method has hardcoded column mappings for each view. Add a new `elif` case for the enriched view:
-
-```python
-def _parse_row_data(self, row: tuple, view_name: str) -> dict:
-    """Parse SUBSCRIBE row data into a dictionary based on view schema."""
-    if view_name == "orders_search_source_mv":
-        # ... existing parsing
-    elif view_name == "orders_with_promotions_mv":
-        # NEW: Parse enriched orders view with promotion fields
-        return {
-            "order_id": row[3] if len(row) > 3 else None,
-            "order_number": row[4] if len(row) > 4 else None,
-            "order_status": row[5] if len(row) > 5 else None,
-            "store_id": row[6] if len(row) > 6 else None,
-            "customer_id": row[7] if len(row) > 7 else None,
-            "delivery_window_start": row[8] if len(row) > 8 else None,
-            "delivery_window_end": row[9] if len(row) > 9 else None,
-            "order_total_amount": float(row[10]) if len(row) > 10 and row[10] else None,
-            "customer_name": row[11] if len(row) > 11 else None,
-            "customer_email": row[12] if len(row) > 12 else None,
-            "customer_address": row[13] if len(row) > 13 else None,
-            "store_name": row[14] if len(row) > 14 else None,
-            "store_zone": row[15] if len(row) > 15 else None,
-            "store_address": row[16] if len(row) > 16 else None,
-            "assigned_courier_id": row[17] if len(row) > 17 else None,
-            "delivery_task_status": row[18] if len(row) > 18 else None,
-            "delivery_eta": row[19] if len(row) > 19 else None,
-            # Promotion fields (NEW!)
-            "promo_id": row[20] if len(row) > 20 else None,
-            "promo_code": row[21] if len(row) > 21 else None,
-            "discount_percent": float(row[22]) if len(row) > 22 and row[22] else None,
-            "order_total_amount_with_discounts": float(row[23]) if len(row) > 23 and row[23] else None,
-            "effective_updated_at": row[24] if len(row) > 24 else None,
-        }
-    elif view_name == "store_inventory_mv":
-        # ... existing parsing
-```
-
-> **Why is this needed?** Materialize SUBSCRIBE returns raw row tuples. Without explicit column mapping, the worker falls back to generic parsing that returns `{"data": [...]}` instead of named fields, causing `get_doc_id()` to fail with "Skipping event without document ID".
-
-**4e. Restart the Sync Worker**
-
-Once all code changes are deployed (steps 4a-4d), restart the search-sync service:
+After making the above code changes (4a-4c), restart the search-sync service:
 
 ```bash
 docker-compose restart search-sync
