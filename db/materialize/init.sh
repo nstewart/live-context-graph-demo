@@ -379,6 +379,237 @@ GROUP BY
     o.order_total_amount,
     o.effective_updated_at;" || true
 
+echo "Creating dynamic pricing view..."
+
+# Dynamic pricing view - regular view with pricing logic
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS inventory_items_with_dynamic_pricing AS
+WITH
+  -- Get order lines from delivered orders with timestamps
+  delivered_order_lines AS (
+    SELECT
+      ol.line_id,
+      ol.order_id,
+      ol.product_id,
+      ol.category,
+      ol.unit_price,
+      ol.quantity,
+      ol.perishable_flag,
+      o.order_status,
+      o.delivery_window_start,
+      ol.effective_updated_at
+    FROM order_lines_flat_mv ol
+    JOIN orders_flat_mv o ON o.order_id = ol.order_id
+    WHERE o.order_status = 'DELIVERED'
+  ),
+
+  -- Calculate average price from last 10 sales per product
+  recent_prices AS (
+    SELECT
+      product_id,
+      AVG(unit_price) AS avg_recent_price,
+      COUNT(*) AS recent_sale_count
+    FROM (
+      SELECT
+        product_id,
+        unit_price,
+        effective_updated_at,
+        ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY effective_updated_at DESC) AS rn
+      FROM delivered_order_lines
+    ) ranked_sales
+    WHERE rn <= 10
+    GROUP BY product_id
+  ),
+
+  -- Rank products by popularity (sales frequency) within category
+  popularity_score AS (
+    SELECT
+      product_id,
+      category,
+      COUNT(*) AS sale_count,
+      RANK() OVER (PARTITION BY category ORDER BY COUNT(*) DESC) AS popularity_rank
+    FROM delivered_order_lines
+    GROUP BY product_id, category
+  ),
+
+  -- Calculate total stock across all stores per product and rank by scarcity
+  inventory_status AS (
+    SELECT
+      product_id,
+      SUM(stock_level) AS total_stock,
+      RANK() OVER (ORDER BY SUM(stock_level) ASC) AS scarcity_rank
+    FROM store_inventory_mv
+    GROUP BY product_id
+  ),
+
+  -- Identify high demand products (above average sales)
+  high_demand_products AS (
+    SELECT
+      product_id,
+      sale_count,
+      CASE
+        WHEN sale_count > (SELECT AVG(sale_count) FROM popularity_score) THEN TRUE
+        ELSE FALSE
+      END AS is_high_demand
+    FROM popularity_score
+  ),
+
+  -- Combine all product-level pricing factors
+  pricing_factors AS (
+    SELECT
+      ps.product_id,
+      ps.category,
+      ps.sale_count,
+      ps.popularity_rank,
+
+      -- Popularity adjustment: Top 3 get 20% premium, 4-10 get 10%, rest get 10% discount
+      CASE
+        WHEN ps.popularity_rank <= 3 THEN 1.20
+        WHEN ps.popularity_rank BETWEEN 4 AND 10 THEN 1.10
+        ELSE 0.90
+      END AS popularity_adjustment,
+
+      -- Stock scarcity adjustment: Low stock (high scarcity rank) gets premium
+      CASE
+        WHEN inv.scarcity_rank <= 3 THEN 1.15
+        WHEN inv.scarcity_rank BETWEEN 4 AND 10 THEN 1.08
+        WHEN inv.scarcity_rank BETWEEN 11 AND 20 THEN 1.00
+        ELSE 0.95
+      END AS scarcity_adjustment,
+
+      -- Demand multiplier: Compare current base price to recent avg
+      CASE
+        WHEN rp.avg_recent_price IS NOT NULL THEN
+          1.0 + ((rp.avg_recent_price - ol_sample.sample_base_price) / NULLIF(ol_sample.sample_base_price, 0)) * 0.5
+        ELSE 1.0
+      END AS demand_multiplier,
+
+      -- High demand flag for additional premium
+      CASE WHEN hd.is_high_demand THEN 1.05 ELSE 1.0 END AS demand_premium,
+
+      inv.total_stock,
+      rp.avg_recent_price,
+      rp.recent_sale_count
+
+    FROM popularity_score ps
+    LEFT JOIN inventory_status inv ON inv.product_id = ps.product_id
+    LEFT JOIN recent_prices rp ON rp.product_id = ps.product_id
+    LEFT JOIN high_demand_products hd ON hd.product_id = ps.product_id
+    LEFT JOIN (
+      -- Sample to get most recent base price per product
+      SELECT
+        product_id,
+        unit_price AS sample_base_price
+      FROM (
+        SELECT
+          product_id,
+          unit_price,
+          ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY effective_updated_at DESC) AS rn
+        FROM order_lines_flat_mv
+      ) ranked
+      WHERE rn = 1
+    ) ol_sample ON ol_sample.product_id = ps.product_id
+  )
+
+-- Final SELECT: Apply all adjustments to each inventory item
+SELECT
+  inv.inventory_id,
+  inv.store_id,
+  inv.store_name,
+  inv.store_zone,
+  inv.product_id,
+  inv.product_name,
+  inv.category,
+  inv.stock_level,
+  inv.perishable,
+  inv.unit_price AS base_price,
+
+  -- Store-specific adjustments
+  CASE
+    WHEN inv.store_zone = 'MAN' THEN 1.15
+    WHEN inv.store_zone = 'BK' THEN 1.05
+    WHEN inv.store_zone = 'QNS' THEN 1.00
+    WHEN inv.store_zone = 'BX' THEN 0.98
+    WHEN inv.store_zone = 'SI' THEN 0.95
+    ELSE 1.00
+  END AS zone_adjustment,
+
+  -- Perishable discount to move inventory faster
+  CASE
+    WHEN inv.perishable = TRUE THEN 0.95
+    ELSE 1.0
+  END AS perishable_adjustment,
+
+  -- Low stock at this specific store gets additional premium
+  CASE
+    WHEN inv.stock_level <= 5 THEN 1.10
+    WHEN inv.stock_level <= 15 THEN 1.03
+    ELSE 1.0
+  END AS local_stock_adjustment,
+
+  -- Product-level factors from CTEs
+  pf.popularity_adjustment,
+  pf.scarcity_adjustment,
+  pf.demand_multiplier,
+  pf.demand_premium,
+  pf.sale_count AS product_sale_count,
+  pf.total_stock AS product_total_stock,
+
+  -- Computed dynamic price with all factors
+  ROUND(
+    inv.unit_price *
+    CASE WHEN inv.store_zone = 'MAN' THEN 1.15
+         WHEN inv.store_zone = 'BK' THEN 1.05
+         WHEN inv.store_zone = 'QNS' THEN 1.00
+         WHEN inv.store_zone = 'BX' THEN 0.98
+         WHEN inv.store_zone = 'SI' THEN 0.95
+         ELSE 1.00 END *
+    CASE WHEN inv.perishable = TRUE THEN 0.95 ELSE 1.0 END *
+    CASE WHEN inv.stock_level <= 5 THEN 1.10
+         WHEN inv.stock_level <= 15 THEN 1.03
+         ELSE 1.0 END *
+    COALESCE(pf.popularity_adjustment, 1.0) *
+    COALESCE(pf.scarcity_adjustment, 1.0) *
+    COALESCE(pf.demand_multiplier, 1.0) *
+    COALESCE(pf.demand_premium, 1.0),
+    2
+  ) AS live_price,
+
+  -- Price difference for easy comparison
+  ROUND(
+    (inv.unit_price *
+      CASE WHEN inv.store_zone = 'MAN' THEN 1.15
+           WHEN inv.store_zone = 'BK' THEN 1.05
+           WHEN inv.store_zone = 'QNS' THEN 1.00
+           WHEN inv.store_zone = 'BX' THEN 0.98
+           WHEN inv.store_zone = 'SI' THEN 0.95
+           ELSE 1.00 END *
+      CASE WHEN inv.perishable = TRUE THEN 0.95 ELSE 1.0 END *
+      CASE WHEN inv.stock_level <= 5 THEN 1.10
+           WHEN inv.stock_level <= 15 THEN 1.03
+           ELSE 1.0 END *
+      COALESCE(pf.popularity_adjustment, 1.0) *
+      COALESCE(pf.scarcity_adjustment, 1.0) *
+      COALESCE(pf.demand_multiplier, 1.0) *
+      COALESCE(pf.demand_premium, 1.0)
+    ) - inv.unit_price,
+    2
+  ) AS price_change,
+
+  inv.effective_updated_at
+
+FROM store_inventory_mv inv
+LEFT JOIN pricing_factors pf ON pf.product_id = inv.product_id
+WHERE inv.availability_status != 'OUT_OF_STOCK';" || true
+
+echo "Creating dynamic pricing materialized view and indexes..."
+
+# Materialize the dynamic pricing view
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_items_with_dynamic_pricing_mv
+IN CLUSTER compute AS
+SELECT * FROM inventory_items_with_dynamic_pricing;" || true
+
 echo "Creating indexes IN CLUSTER serving on materialized views..."
 
 # Create indexes in serving cluster on materialized views
@@ -396,6 +627,12 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS o
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_sequence_idx IN CLUSTER serving ON order_lines_flat_mv (order_id, line_sequence);" || true
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_idx IN CLUSTER serving ON orders_with_lines_mv (order_id);" || true
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_status_idx IN CLUSTER serving ON orders_with_lines_mv (order_status, effective_updated_at DESC);" || true
+
+# Dynamic pricing indexes
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (inventory_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_product_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (product_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_store_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_id);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_zone_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_zone);" || true
 
 echo "Verifying three-tier setup..."
 echo ""
