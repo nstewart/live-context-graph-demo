@@ -25,6 +25,7 @@ async def create_order(
     - This tool automatically validates that items are available in the store's inventory
     - Only items that are in stock will be added to the order
     - Items not available will be reported but won't prevent order creation
+    - Unit prices are AUTOMATICALLY set to the current live_price from inventory (dynamic pricing)
 
     Use this tool after:
     1. Customer has been created (or exists)
@@ -33,8 +34,9 @@ async def create_order(
     Args:
         customer_id: The customer placing the order (e.g., "customer:abc123")
         store_id: The store fulfilling the order (default: store:BK-01)
-        items: List of items with product_id, quantity, and unit_price
-               Example: [{"product_id": "product:PROD-001", "quantity": 2, "unit_price": 4.99}]
+        items: List of items with product_id and quantity
+               Example: [{"product_id": "product:PROD-001", "quantity": 2}]
+               Note: unit_price is automatically determined from inventory's live_price
         delivery_window_hours: Hours from now for delivery window (default: 2)
 
     Returns:
@@ -45,8 +47,8 @@ async def create_order(
             customer_id="customer:abc123",
             store_id="store:BK-01",
             items=[
-                {"product_id": "product:PROD-001", "quantity": 2, "unit_price": 4.99},
-                {"product_id": "product:PROD-002", "quantity": 1, "unit_price": 3.49}
+                {"product_id": "product:PROD-001", "quantity": 2},
+                {"product_id": "product:PROD-002", "quantity": 1}
             ]
         )
     """
@@ -81,7 +83,7 @@ async def create_order(
             inventory_response.raise_for_status()
             inventory_data = inventory_response.json()
 
-            # Build map of available products with stock levels
+            # Build map of available products with stock levels and live pricing
             available_inventory = {}
             for hit in inventory_data.get("hits", {}).get("hits", []):
                 source = hit["_source"]
@@ -91,6 +93,9 @@ async def create_order(
                     available_inventory[product_id] = {
                         "stock_level": stock_level,
                         "inventory_id": source.get("inventory_id"),
+                        "live_price": source.get("live_price"),
+                        "base_price": source.get("base_price"),
+                        "is_perishable": source.get("perishable", False),
                     }
 
             # Filter items to only those available in inventory
@@ -113,13 +118,21 @@ async def create_order(
                         "requested": requested_qty,
                         "available": available_inventory[product_id]["stock_level"],
                     })
-                    # Add item with available quantity instead
+                    # Add item with available quantity and live price from inventory
                     valid_items.append({
-                        **item,
+                        "product_id": product_id,
                         "quantity": available_inventory[product_id]["stock_level"],
+                        "unit_price": available_inventory[product_id]["live_price"],
+                        "is_perishable": available_inventory[product_id]["is_perishable"],
                     })
                 else:
-                    valid_items.append(item)
+                    # Use live price from inventory, not the price passed by the agent
+                    valid_items.append({
+                        "product_id": product_id,
+                        "quantity": requested_qty,
+                        "unit_price": available_inventory[product_id]["live_price"],
+                        "is_perishable": available_inventory[product_id]["is_perishable"],
+                    })
 
             # If no valid items, return error
             if not valid_items:

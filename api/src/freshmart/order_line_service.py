@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.client import get_mz_session_factory
 from src.freshmart.models import OrderLineCreate, OrderLineFlat, OrderLineUpdate
 from src.triples.models import TripleCreate
 from src.triples.service import TripleService
@@ -31,6 +32,59 @@ class OrderLineService:
         """
         order_number = order_id.split(":")[1]
         return f"orderline:{order_number}-{sequence:03d}"
+
+    async def _fetch_live_prices(
+        self, store_id: str, product_ids: list[str]
+    ) -> dict[str, Decimal]:
+        """Fetch live prices from Materialize inventory_items_with_dynamic_pricing view.
+
+        Args:
+            store_id: Store ID to query inventory for
+            product_ids: List of product IDs to fetch prices for
+
+        Returns:
+            Dictionary mapping product_id to live_price
+        """
+        live_prices = {}
+
+        if not product_ids:
+            return live_prices
+
+        try:
+            # Query Materialize for live prices (not PostgreSQL)
+            mz_factory = get_mz_session_factory()
+            async with mz_factory() as mz_session:
+                # Use serving cluster for low-latency indexed queries
+                await mz_session.execute(text("SET CLUSTER = serving"))
+
+                # Build query with IN clause (Materialize doesn't support ANY with parameters)
+                # Build placeholders for IN clause
+                placeholders = ', '.join(f':product_id_{i}' for i in range(len(product_ids)))
+                query = f"""
+                    SELECT product_id, live_price
+                    FROM inventory_items_with_dynamic_pricing
+                    WHERE store_id = :store_id
+                    AND product_id IN ({placeholders})
+                """
+
+                # Build parameters dict
+                params = {"store_id": store_id}
+                for i, product_id in enumerate(product_ids):
+                    params[f"product_id_{i}"] = product_id
+
+                result = await mz_session.execute(text(query), params)
+                rows = result.fetchall()
+
+                # Build dictionary of live prices
+                for row in rows:
+                    if row.product_id and row.live_price is not None:
+                        live_prices[row.product_id] = Decimal(str(row.live_price))
+
+        except Exception as e:
+            # Log error but don't fail - will use provided unit_price as fallback
+            print(f"Warning: Failed to fetch live prices from Materialize: {e}")
+
+        return live_prices
 
     def _create_line_item_triples(
         self, order_id: str, sequence: int, line_item: OrderLineCreate
@@ -116,6 +170,28 @@ class OrderLineService:
 
         # Sort by sequence for consistent ordering
         sorted_items = sorted(line_items, key=lambda x: x.line_sequence)
+
+        # Fetch store_id from order
+        order_query = """
+            SELECT MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id
+            FROM triples
+            WHERE subject_id = :order_id
+        """
+        result = await self.session.execute(text(order_query), {"order_id": order_id})
+        row = result.fetchone()
+        store_id = row.store_id if row else None
+
+        if not store_id:
+            raise ValueError(f"Could not find store_id for order {order_id}")
+
+        # Fetch live prices from inventory
+        product_ids = [item.product_id for item in sorted_items]
+        live_prices = await self._fetch_live_prices(store_id, product_ids)
+
+        # Update line items with live prices from inventory
+        for item in sorted_items:
+            if item.product_id in live_prices:
+                item.unit_price = live_prices[item.product_id]
 
         # Generate all triples
         all_triples = []
