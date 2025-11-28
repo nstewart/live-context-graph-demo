@@ -363,15 +363,31 @@ If orders reference promotions, create a new enriched view without disrupting th
 ```sql
 -- Create v2 of orders view with promotion enrichment (regular view, not materialized)
 -- This allows testing without impacting production
+-- IMPORTANT: Includes ALL fields from original orders_search_source_mv PLUS promotion fields
 CREATE VIEW orders_with_promotions AS
 SELECT
+    -- Order basics
     o.order_id,
     o.order_number,
     o.order_status,
+    o.store_id,
+    o.customer_id,
+    o.delivery_window_start,
+    o.delivery_window_end,
     o.order_total_amount,
+    -- Customer details (denormalized)
     c.customer_name,
+    c.customer_email,
+    c.customer_address,
+    -- Store details (denormalized)
     s.store_name,
-    -- Promotion enrichment
+    s.store_zone,
+    s.store_address,
+    -- Delivery task details
+    dt.assigned_courier_id,
+    dt.task_status AS delivery_task_status,
+    dt.eta AS delivery_eta,
+    -- Promotion enrichment (NEW!)
     promo.promo_id,
     promo.promo_code,
     promo.discount_percent,
@@ -382,10 +398,18 @@ SELECT
         ELSE
             o.order_total_amount
     END AS order_total_amount_with_discounts,
-    GREATEST(o.effective_updated_at, COALESCE(promo.effective_updated_at, o.effective_updated_at)) AS effective_updated_at
+    -- Effective timestamp considering all joined entities
+    GREATEST(
+        o.effective_updated_at,
+        c.effective_updated_at,
+        s.effective_updated_at,
+        dt.effective_updated_at,
+        COALESCE(promo.effective_updated_at, o.effective_updated_at)
+    ) AS effective_updated_at
 FROM orders_flat_mv o
 LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
+LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id
 LEFT JOIN (
     SELECT
         t.subject_id AS order_id,
@@ -509,9 +533,53 @@ def transform_event_to_doc(self, data: dict) -> Optional[dict]:
     }
 ```
 
-**4d. Restart the Sync Worker**
+**4d. Add Column Parsing for the New View**
 
-Once the code changes are deployed, restart the search-sync service:
+⚠️ **CRITICAL**: Add parsing logic for `orders_with_promotions_mv` in `search-sync/src/mz_client_subscribe.py`.
+
+The `_parse_row_data()` method has hardcoded column mappings for each view. Add a new `elif` case for the enriched view:
+
+```python
+def _parse_row_data(self, row: tuple, view_name: str) -> dict:
+    """Parse SUBSCRIBE row data into a dictionary based on view schema."""
+    if view_name == "orders_search_source_mv":
+        # ... existing parsing
+    elif view_name == "orders_with_promotions_mv":
+        # NEW: Parse enriched orders view with promotion fields
+        return {
+            "order_id": row[3] if len(row) > 3 else None,
+            "order_number": row[4] if len(row) > 4 else None,
+            "order_status": row[5] if len(row) > 5 else None,
+            "store_id": row[6] if len(row) > 6 else None,
+            "customer_id": row[7] if len(row) > 7 else None,
+            "delivery_window_start": row[8] if len(row) > 8 else None,
+            "delivery_window_end": row[9] if len(row) > 9 else None,
+            "order_total_amount": float(row[10]) if len(row) > 10 and row[10] else None,
+            "customer_name": row[11] if len(row) > 11 else None,
+            "customer_email": row[12] if len(row) > 12 else None,
+            "customer_address": row[13] if len(row) > 13 else None,
+            "store_name": row[14] if len(row) > 14 else None,
+            "store_zone": row[15] if len(row) > 15 else None,
+            "store_address": row[16] if len(row) > 16 else None,
+            "assigned_courier_id": row[17] if len(row) > 17 else None,
+            "delivery_task_status": row[18] if len(row) > 18 else None,
+            "delivery_eta": row[19] if len(row) > 19 else None,
+            # Promotion fields (NEW!)
+            "promo_id": row[20] if len(row) > 20 else None,
+            "promo_code": row[21] if len(row) > 21 else None,
+            "discount_percent": float(row[22]) if len(row) > 22 and row[22] else None,
+            "order_total_amount_with_discounts": float(row[23]) if len(row) > 23 and row[23] else None,
+            "effective_updated_at": row[24] if len(row) > 24 else None,
+        }
+    elif view_name == "store_inventory_mv":
+        # ... existing parsing
+```
+
+> **Why is this needed?** Materialize SUBSCRIBE returns raw row tuples. Without explicit column mapping, the worker falls back to generic parsing that returns `{"data": [...]}` instead of named fields, causing `get_doc_id()` to fail with "Skipping event without document ID".
+
+**4e. Restart the Sync Worker**
+
+Once all code changes are deployed (steps 4a-4d), restart the search-sync service:
 
 ```bash
 docker-compose restart search-sync
