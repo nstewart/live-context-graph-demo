@@ -1,6 +1,6 @@
-"""Inventory sync worker - syncs store_inventory_mv to OpenSearch using SUBSCRIBE streaming.
+"""Inventory sync worker - syncs inventory_items_with_dynamic_pricing_mv to OpenSearch using SUBSCRIBE streaming.
 
-This worker extends BaseSubscribeWorker to sync inventory data from Materialize
+This worker extends BaseSubscribeWorker to sync inventory data with dynamic pricing from Materialize
 to OpenSearch with real-time streaming and UPDATE consolidation.
 
 Architecture:
@@ -59,6 +59,13 @@ INVENTORY_INDEX_MAPPING = {
             "unit_price": {"type": "float"},
             "perishable": {"type": "boolean"},
             "unit_weight_grams": {"type": "integer"},
+            # Dynamic pricing fields
+            "base_price": {"type": "float"},
+            "live_price": {"type": "float"},
+            "price_change": {"type": "float"},
+            "zone_adjustment": {"type": "float"},
+            "perishable_adjustment": {"type": "float"},
+            "local_stock_adjustment": {"type": "float"},
             "store_name": {
                 "type": "text",
                 "copy_to": "search_text",
@@ -121,19 +128,19 @@ class InventorySyncWorker(BaseSubscribeWorker):
     denormalized product and store data.
 
     Configuration:
-        - View: store_inventory_mv
+        - View: inventory_items_with_dynamic_pricing_mv
         - Index: inventory
         - Consolidation: Enabled (DELETE + INSERT = UPDATE)
 
     The worker syncs enriched inventory data with denormalized product and
-    store information for efficient searching by product name, category,
-    and location. When product prices or store details change, inventory
+    store information, plus dynamic pricing calculations based on zone,
+    stock level, perishability, and demand. When prices or stock levels change,
     records are updated via consolidated upserts rather than delete+insert.
     """
 
     def get_view_name(self) -> str:
         """Return Materialize view name."""
-        return "store_inventory_mv"
+        return "inventory_items_with_dynamic_pricing_mv"
 
     def get_index_name(self) -> str:
         """Return OpenSearch index name."""
@@ -226,6 +233,13 @@ class InventorySyncWorker(BaseSubscribeWorker):
                 "unit_price": float(data["unit_price"]) if data.get("unit_price") else None,
                 "perishable": data.get("perishable"),
                 "unit_weight_grams": data.get("unit_weight_grams"),
+                # Dynamic pricing fields
+                "base_price": float(data["base_price"]) if data.get("base_price") else None,
+                "live_price": float(data["live_price"]) if data.get("live_price") else None,
+                "price_change": float(data["price_change"]) if data.get("price_change") else None,
+                "zone_adjustment": float(data["zone_adjustment"]) if data.get("zone_adjustment") else None,
+                "perishable_adjustment": float(data["perishable_adjustment"]) if data.get("perishable_adjustment") else None,
+                "local_stock_adjustment": float(data["local_stock_adjustment"]) if data.get("local_stock_adjustment") else None,
                 # Store details (denormalized from stores_flat)
                 "store_name": data.get("store_name"),
                 "store_zone": data.get("store_zone"),
