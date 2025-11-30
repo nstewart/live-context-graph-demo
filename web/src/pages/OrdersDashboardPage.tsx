@@ -574,13 +574,7 @@ export default function OrdersDashboardPage() {
       data: OrderFormData;
       lineItems: CartLineItem[];
     }) => {
-      // Get existing triples for this order
-      const subjectInfo = await triplesApi
-        .getSubject(order.order_id)
-        .then((r) => r.data);
-
-      // Update each field by finding the triple and updating it, or creating new
-      const updates: Promise<unknown>[] = [];
+      // Build triples for batch update
       const fieldsToUpdate: {
         predicate: string;
         value: string;
@@ -612,27 +606,19 @@ export default function OrdersDashboardPage() {
         });
       }
 
-      for (const field of fieldsToUpdate) {
-        const existingTriple = subjectInfo.triples.find(
-          (t) => t.predicate === field.predicate
-        );
-        if (existingTriple) {
-          updates.push(
-            triplesApi.update(existingTriple.id, { object_value: field.value })
-          );
-        } else {
-          updates.push(
-            triplesApi.create({
-              subject_id: order.order_id,
-              predicate: field.predicate,
-              object_value: field.value,
-              object_type: field.type,
-            })
-          );
-        }
-      }
+      // Upsert triples in a single atomic transaction
+      // The upsert endpoint deletes old values and inserts new ones - no duplicates
+      const triplesToUpsert: TripleCreate[] = fieldsToUpdate.map(field => ({
+        subject_id: order.order_id,
+        predicate: field.predicate,
+        object_value: field.value,
+        object_type: field.type,
+      }));
 
-      await Promise.all(updates);
+      // Single atomic transaction: deletes old predicates and inserts new values
+      if (triplesToUpsert.length > 0) {
+        await triplesApi.upsertBatch(triplesToUpsert);
+      }
 
       // Handle line items: compare with existing line items
       const existingLineItems = await freshmartApi

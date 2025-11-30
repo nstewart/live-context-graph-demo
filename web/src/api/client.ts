@@ -200,6 +200,7 @@ export const triplesApi = {
     apiClient.get<Triple[]>('/triples', { params }),
   create: (data: TripleCreate) => apiClient.post<Triple>('/triples', data),
   createBatch: (triples: TripleCreate[]) => apiClient.post<Triple[]>('/triples/batch', triples),
+  upsertBatch: (triples: TripleCreate[]) => apiClient.put<Triple[]>('/triples/batch', triples),
   update: (tripleId: number, data: { object_value: string }) =>
     apiClient.patch<Triple>(`/triples/${tripleId}`, data),
   delete: (tripleId: number) => apiClient.delete(`/triples/${tripleId}`),

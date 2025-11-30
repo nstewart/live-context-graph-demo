@@ -197,6 +197,82 @@ class TripleService:
 
         return created
 
+    async def upsert_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
+        """Upsert multiple triples in a batch - deletes old values and inserts new ones atomically.
+
+        For each (subject_id, predicate) pair, this will:
+        1. Delete any existing triples with that subject_id and predicate
+        2. Insert the new triple with the new object_value
+
+        All operations happen in a single SQL transaction.
+        """
+        # Log transaction start
+        subjects = {}
+        for triple in triples:
+            if triple.subject_id not in subjects:
+                subjects[triple.subject_id] = []
+            subjects[triple.subject_id].append(triple.predicate)
+
+        logger.info(
+            f"🔵 PG_TXN_START: Upserting {len(triples)} triples across {len(subjects)} subjects"
+        )
+        for subject_id, predicates in subjects.items():
+            logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:3])}{'...' if len(predicates) > 3 else ''})")
+
+        # Validate if needed
+        if self.validate:
+            for triple in triples:
+                validation_result = await self.validator.validate(triple)
+                if not validation_result.is_valid:
+                    raise TripleValidationError(validation_result)
+
+        # Perform upsert for each triple (delete old + insert new) in single transaction
+        upserted = []
+        for triple in triples:
+            # Delete existing triples with this subject_id and predicate
+            await self.session.execute(
+                text("""
+                    DELETE FROM triples
+                    WHERE subject_id = :subject_id AND predicate = :predicate
+                """),
+                {
+                    "subject_id": triple.subject_id,
+                    "predicate": triple.predicate,
+                },
+            )
+
+            # Insert new triple
+            result = await self.session.execute(
+                text("""
+                    INSERT INTO triples (subject_id, predicate, object_value, object_type)
+                    VALUES (:subject_id, :predicate, :object_value, :object_type)
+                    RETURNING id, subject_id, predicate, object_value, object_type,
+                              created_at, updated_at
+                """),
+                {
+                    "subject_id": triple.subject_id,
+                    "predicate": triple.predicate,
+                    "object_value": triple.object_value,
+                    "object_type": triple.object_type.value,
+                },
+            )
+            row = result.fetchone()
+            upserted.append(Triple(
+                id=row.id,
+                subject_id=row.subject_id,
+                predicate=row.predicate,
+                object_value=row.object_value,
+                object_type=row.object_type,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            ))
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully upserted {len(upserted)} triples"
+        )
+
+        return upserted
+
     async def update_triple(self, triple_id: int, data: TripleUpdate) -> Optional[Triple]:
         """Update a triple's object value."""
         # Get existing triple
