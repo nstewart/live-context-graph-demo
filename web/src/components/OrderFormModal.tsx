@@ -60,6 +60,7 @@ export function OrderFormModal({
   const [lineItems, setLineItems] = useState<CartLineItem[]>([]);
   const [showStoreChangeConfirm, setShowStoreChangeConfirm] = useState(false);
   const [pendingStoreId, setPendingStoreId] = useState<string>("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Zero queries for stores and customers
   const z = useZero<Schema>();
@@ -116,6 +117,7 @@ export function OrderFormModal({
     if (!isOpen) {
       setLineItems([]);
       setFormData(initialFormData);
+      setHasUnsavedChanges(false);
     }
   }, [isOpen]);
 
@@ -135,6 +137,9 @@ export function OrderFormModal({
       order_total_amount: total > 0 ? total.toFixed(2) : formData.order_total_amount,
     };
 
+    // Reset unsaved changes flag before saving
+    // This is the ONLY place where data is saved to the database
+    setHasUnsavedChanges(false);
     onSave(dataWithTotal, !!order, lineItems);
   };
 
@@ -162,6 +167,9 @@ export function OrderFormModal({
   };
 
   const handleProductSelect = (product: ProductWithStock) => {
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
+
     setLineItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) => item.product_id === product.product_id
@@ -222,6 +230,9 @@ export function OrderFormModal({
       return;
     }
 
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
+
     setLineItems((prev) => {
       const item = prev.find((i) => i.product_id === productId);
       if (!item) return prev;
@@ -241,6 +252,8 @@ export function OrderFormModal({
   };
 
   const handleRemoveItem = (productId: string) => {
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
     setLineItems((prev) => prev.filter((item) => item.product_id !== productId));
   };
 
@@ -412,6 +425,12 @@ export function OrderFormModal({
                 />
               </div>
             </div>
+            {hasUnsavedChanges && order && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>You have unsaved changes. Click "Update" to save them to the database.</span>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-4">
               <button
                 type="button"

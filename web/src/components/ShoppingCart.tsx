@@ -38,6 +38,8 @@ export function ShoppingCart({
     try {
       setErrorItem(null)
       setUpdatingItem(productId)
+      // IMPORTANT: This only updates local state in the parent component
+      // No database save occurs until the form's "Update" button is clicked
       onUpdateQuantity(productId, newQuantity)
     } catch (error) {
       setErrorItem({
