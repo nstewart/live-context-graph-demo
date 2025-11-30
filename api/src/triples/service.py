@@ -1,5 +1,6 @@
 """Triple service for CRUD operations."""
 
+import logging
 from typing import Optional
 
 from sqlalchemy import text
@@ -15,6 +16,8 @@ from src.triples.models import (
     ValidationResult,
 )
 from src.triples.validator import TripleValidator
+
+logger = logging.getLogger(__name__)
 
 
 class TripleValidationError(Exception):
@@ -171,10 +174,216 @@ class TripleService:
 
     async def create_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
         """Create multiple triples in a batch."""
-        created = []
+        # Log transaction start with summary of what's being written
+        subjects = {}  # subject_id -> list of predicates
         for triple in triples:
-            created.append(await self.create_triple(triple))
+            if triple.subject_id not in subjects:
+                subjects[triple.subject_id] = []
+            subjects[triple.subject_id].append(triple.predicate)
+
+        # Determine which OpenSearch indices will be affected
+        indices_affected = {}
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":")[0]
+            index = index_map.get(prefix, prefix)
+            if index not in indices_affected:
+                indices_affected[index] = set()
+            indices_affected[index].add(subject_id)
+
+        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+
+        MAX_PREDICATES_TO_LOG = 3
+        logger.info(
+            f"🔵 PG_TXN_START: Writing {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
+        )
+        for subject_id, predicates in subjects.items():
+            logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")
+
+        # Validate all triples if needed
+        if self.validate:
+            for triple in triples:
+                validation_result = await self.validator.validate(triple)
+                if not validation_result.is_valid:
+                    raise TripleValidationError(validation_result)
+
+        # Bulk insert using VALUES clause to avoid N+1 query pattern
+        if not triples:
+            return []
+
+        # Build bulk insert query
+        values_clauses = []
+        params = {}
+        for i, triple in enumerate(triples):
+            values_clauses.append(
+                f"(:subject_id_{i}, :predicate_{i}, :object_value_{i}, :object_type_{i})"
+            )
+            params[f"subject_id_{i}"] = triple.subject_id
+            params[f"predicate_{i}"] = triple.predicate
+            params[f"object_value_{i}"] = triple.object_value
+            params[f"object_type_{i}"] = triple.object_type.value
+
+        query = f"""
+            INSERT INTO triples (subject_id, predicate, object_value, object_type)
+            VALUES {', '.join(values_clauses)}
+            ON CONFLICT (subject_id, predicate, object_value) DO UPDATE
+            SET updated_at = NOW()
+            RETURNING id, subject_id, predicate, object_value, object_type,
+                      created_at, updated_at
+        """
+
+        result = await self.session.execute(text(query), params)
+        rows = result.fetchall()
+        created = [
+            Triple(
+                id=row.id,
+                subject_id=row.subject_id,
+                predicate=row.predicate,
+                object_value=row.object_value,
+                object_type=row.object_type,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully wrote {len(created)} triples"
+        )
+
         return created
+
+    async def upsert_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
+        """Upsert multiple triples in a batch - deletes old values and inserts new ones atomically.
+
+        For each (subject_id, predicate) pair, this will:
+        1. Delete any existing triples with that subject_id and predicate
+        2. Insert the new triple with the new object_value
+
+        All operations happen in a single SQL transaction.
+        """
+        # Validate subject_id format
+        for triple in triples:
+            if ":" not in triple.subject_id:
+                raise ValueError(f"Invalid subject_id format: '{triple.subject_id}'. Expected format: 'prefix:id'")
+            prefix = triple.subject_id.split(":", 1)[0]
+            if not prefix:
+                raise ValueError(f"Invalid subject_id format: '{triple.subject_id}'. Prefix cannot be empty")
+
+        # Log transaction start
+        subjects = {}
+        for triple in triples:
+            if triple.subject_id not in subjects:
+                subjects[triple.subject_id] = []
+            subjects[triple.subject_id].append(triple.predicate)
+
+        # Determine which OpenSearch indices will be affected
+        indices_affected = {}
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":", 1)[0]
+            index = index_map.get(prefix, prefix)
+            if index not in indices_affected:
+                indices_affected[index] = set()
+            indices_affected[index].add(subject_id)
+
+        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+
+        MAX_PREDICATES_TO_LOG = 3
+        logger.info(
+            f"🔵 PG_TXN_START: Upserting {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
+        )
+        for subject_id, predicates in subjects.items():
+            logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")
+
+        # Validate if needed
+        if self.validate:
+            for triple in triples:
+                validation_result = await self.validator.validate(triple)
+                if not validation_result.is_valid:
+                    raise TripleValidationError(validation_result)
+
+        if not triples:
+            return []
+
+        # Batch delete - collect unique (subject_id, predicate) pairs
+        delete_pairs = {}
+        for triple in triples:
+            key = (triple.subject_id, triple.predicate)
+            delete_pairs[key] = True
+
+        # Build bulk delete query
+        delete_conditions = []
+        delete_params = {}
+        for i, (subject_id, predicate) in enumerate(delete_pairs.keys()):
+            delete_conditions.append(
+                f"(subject_id = :del_subject_{i} AND predicate = :del_predicate_{i})"
+            )
+            delete_params[f"del_subject_{i}"] = subject_id
+            delete_params[f"del_predicate_{i}"] = predicate
+
+        if delete_conditions:
+            delete_query = f"""
+                DELETE FROM triples
+                WHERE {' OR '.join(delete_conditions)}
+            """
+            await self.session.execute(text(delete_query), delete_params)
+
+        # Bulk insert
+        values_clauses = []
+        insert_params = {}
+        for i, triple in enumerate(triples):
+            values_clauses.append(
+                f"(:subject_id_{i}, :predicate_{i}, :object_value_{i}, :object_type_{i})"
+            )
+            insert_params[f"subject_id_{i}"] = triple.subject_id
+            insert_params[f"predicate_{i}"] = triple.predicate
+            insert_params[f"object_value_{i}"] = triple.object_value
+            insert_params[f"object_type_{i}"] = triple.object_type.value
+
+        insert_query = f"""
+            INSERT INTO triples (subject_id, predicate, object_value, object_type)
+            VALUES {', '.join(values_clauses)}
+            RETURNING id, subject_id, predicate, object_value, object_type,
+                      created_at, updated_at
+        """
+
+        result = await self.session.execute(text(insert_query), insert_params)
+        rows = result.fetchall()
+        upserted = [
+            Triple(
+                id=row.id,
+                subject_id=row.subject_id,
+                predicate=row.predicate,
+                object_value=row.object_value,
+                object_type=row.object_type,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully upserted {len(upserted)} triples"
+        )
+
+        return upserted
 
     async def update_triple(self, triple_id: int, data: TripleUpdate) -> Optional[Triple]:
         """Update a triple's object value."""
@@ -182,6 +391,15 @@ class TripleService:
         existing = await self.get_triple(triple_id)
         if not existing:
             return None
+
+        # Log transaction start for single update
+        logger.info(
+            f"🔵 PG_TXN_START: Writing 1 triple (update)"
+        )
+        logger.info(
+            f"  📝 {existing.subject_id}: updating {existing.predicate} "
+            f"from '{existing.object_value}' to '{data.object_value}'"
+        )
 
         # Validate if needed
         if self.validate:
@@ -210,7 +428,8 @@ class TripleService:
         row = result.fetchone()
         if not row:
             return None
-        return Triple(
+
+        triple = Triple(
             id=row.id,
             subject_id=row.subject_id,
             predicate=row.predicate,
@@ -219,6 +438,26 @@ class TripleService:
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+        # Determine likely index from subject prefix (order -> orders, inventory -> inventory, etc.)
+        prefix = triple.subject_id.split(":")[0]
+        # Map common prefixes to their likely OpenSearch index
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        likely_index = index_map.get(prefix, prefix)
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully updated 1 triple → will update {likely_index} index for {triple.subject_id}"
+        )
+
+        return triple
 
     async def delete_triple(self, triple_id: int) -> bool:
         """Delete a triple."""

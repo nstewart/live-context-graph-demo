@@ -118,6 +118,34 @@ async def create_triples_batch(
         )
 
 
+@router.put("/batch", response_model=list[Triple])
+async def upsert_triples_batch(
+    triples: list[TripleCreate],
+    validate: bool = Query(default=True, description="Validate against ontology"),
+    service: TripleService = Depends(get_triple_service),
+):
+    """
+    Upsert multiple triples in a batch (atomic transaction).
+
+    For each (subject_id, predicate) pair, this will:
+    1. Delete any existing triples with that subject_id and predicate
+    2. Insert the new triple with the new object_value
+
+    All operations happen in a single SQL transaction - no duplicates, no race conditions.
+    """
+    service.validate = validate
+    try:
+        return await service.upsert_triples_batch(triples)
+    except TripleValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Triple validation failed",
+                "errors": [err.model_dump() for err in e.validation_result.errors],
+            },
+        )
+
+
 @router.patch("/{triple_id}", response_model=Triple)
 async def update_triple(
     triple_id: int,

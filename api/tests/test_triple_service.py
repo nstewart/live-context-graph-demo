@@ -367,6 +367,192 @@ class TestCreateTriplesBatch:
         assert len(result) == 2
 
 
+class TestUpsertTriplesBatch:
+    """Tests for TripleService.upsert_triples_batch."""
+
+    @pytest.mark.asyncio
+    async def test_validates_subject_id_format(self, service, mock_session):
+        """Validates subject_id contains colon separator."""
+        triples = [
+            TripleCreate(
+                subject_id="invalid_no_colon",
+                predicate="test_prop",
+                object_value="value",
+                object_type=ObjectType.STRING,
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Invalid subject_id format"):
+            await service.upsert_triples_batch(triples)
+
+    @pytest.mark.asyncio
+    async def test_validates_subject_id_has_prefix(self, service, mock_session):
+        """Validates subject_id has non-empty prefix."""
+        triples = [
+            TripleCreate(
+                subject_id=":123",
+                predicate="test_prop",
+                object_value="value",
+                object_type=ObjectType.STRING,
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Prefix cannot be empty"):
+            await service.upsert_triples_batch(triples)
+
+    @pytest.mark.asyncio
+    async def test_upserts_multiple_triples_atomically(self, service, mock_session):
+        """Upserts multiple triples in single transaction."""
+        now = datetime.now()
+
+        # Mock delete and insert operations
+        delete_result = MagicMock()
+        delete_result.rowcount = 2
+
+        insert_rows = [
+            MagicMock(
+                id=1,
+                subject_id="order:1",
+                predicate="status",
+                object_value="shipped",
+                object_type="string",
+                created_at=now,
+                updated_at=now,
+            ),
+            MagicMock(
+                id=2,
+                subject_id="order:2",
+                predicate="status",
+                object_value="pending",
+                object_type="string",
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+        insert_result = MagicMock()
+        insert_result.fetchall.return_value = insert_rows
+
+        # First call is delete, second is insert
+        mock_session.execute = AsyncMock(side_effect=[delete_result, insert_result])
+
+        triples = [
+            TripleCreate(
+                subject_id="order:1",
+                predicate="status",
+                object_value="shipped",
+                object_type=ObjectType.STRING,
+            ),
+            TripleCreate(
+                subject_id="order:2",
+                predicate="status",
+                object_value="pending",
+                object_type=ObjectType.STRING,
+            ),
+        ]
+
+        result = await service.upsert_triples_batch(triples)
+
+        assert len(result) == 2
+        assert result[0].subject_id == "order:1"
+        assert result[0].object_value == "shipped"
+        assert result[1].subject_id == "order:2"
+        assert result[1].object_value == "pending"
+
+        # Verify both delete and insert were called
+        assert mock_session.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_upsert_with_validation_enabled(self, validating_service, mock_session):
+        """Validates triples before upserting when validation enabled."""
+        from src.triples.models import ValidationErrorDetail
+
+        # Mock validator to return invalid result
+        mock_validation_result = ValidationResult(
+            is_valid=False,
+            errors=[ValidationErrorDetail(error_type="test_error", message="Test error")]
+        )
+        mock_validator = AsyncMock()
+        mock_validator.validate.return_value = mock_validation_result
+        validating_service._validator = mock_validator
+
+        triples = [
+            TripleCreate(
+                subject_id="order:1",
+                predicate="invalid_prop",
+                object_value="value",
+                object_type=ObjectType.STRING,
+            )
+        ]
+
+        with pytest.raises(TripleValidationError):
+            await validating_service.upsert_triples_batch(triples)
+
+    @pytest.mark.asyncio
+    async def test_upsert_handles_empty_list(self, service, mock_session):
+        """Handles empty triple list gracefully."""
+        result = await service.upsert_triples_batch([])
+
+        assert result == []
+        # Should not make any database calls
+        mock_session.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upsert_deduplicates_delete_pairs(self, service, mock_session):
+        """Deduplicates (subject_id, predicate) pairs for deletion."""
+        now = datetime.now()
+
+        delete_result = MagicMock()
+        delete_result.rowcount = 1
+
+        insert_rows = [
+            MagicMock(
+                id=1,
+                subject_id="order:1",
+                predicate="status",
+                object_value="shipped",
+                object_type="string",
+                created_at=now,
+                updated_at=now,
+            ),
+            MagicMock(
+                id=2,
+                subject_id="order:1",
+                predicate="status",
+                object_value="delivered",
+                object_type="string",
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+        insert_result = MagicMock()
+        insert_result.fetchall.return_value = insert_rows
+
+        mock_session.execute = AsyncMock(side_effect=[delete_result, insert_result])
+
+        # Two triples with same subject_id and predicate
+        triples = [
+            TripleCreate(
+                subject_id="order:1",
+                predicate="status",
+                object_value="shipped",
+                object_type=ObjectType.STRING,
+            ),
+            TripleCreate(
+                subject_id="order:1",
+                predicate="status",
+                object_value="delivered",
+                object_type=ObjectType.STRING,
+            ),
+        ]
+
+        result = await service.upsert_triples_batch(triples)
+
+        # Should still insert both
+        assert len(result) == 2
+        # But delete should only be called once per unique (subject, predicate) pair
+        assert mock_session.execute.call_count == 2
+
+
 class TestTripleValidationError:
     """Tests for TripleValidationError exception."""
 

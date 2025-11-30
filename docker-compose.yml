@@ -82,7 +82,7 @@ services:
           ZERO_CHANGE_DB: "postgres://${PG_USER:-postgres}:${PG_PASSWORD:-postgres}@db:5432/zero_change"
           ZERO_NUM_SYNC_WORKERS: 1
           ZERO_ADMIN_PASSWORD: "admin"
-          ZERO_LOG_LEVEL: "debug"
+          ZERO_LOG_LEVEL: "info"
       volumes:
           - zero_data:/data
       ports:
@@ -94,6 +94,8 @@ services:
       depends_on:
         mz:
           condition: service_healthy
+        materialize-init:
+          condition: service_completed_successfully
       environment:
           MATERIALIZE_HOST_ADDRESS: ${MZ_HOST:-mz}:6876
           MATERIALIZE_AUTH_OPTIONS_USER: ${MZ_USER:-materialize}
@@ -101,6 +103,13 @@ services:
           MATERIALIZE_DATABASE: ${MZ_DATABASE:-materialize}
           MATERIALIZE_COLLECTIONS: "orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing"
           PORT: 8080
+          LOG_LEVEL: ${LOG_LEVEL:-INFO}
+          NODE_ENV: production
+      logging:
+          driver: "json-file"
+          options:
+              max-size: "10m"
+              max-file: "3"
       ports:
           - "8082:8080"
       extra_hosts:

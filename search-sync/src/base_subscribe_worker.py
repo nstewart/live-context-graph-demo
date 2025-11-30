@@ -440,11 +440,6 @@ class BaseSubscribeWorker(ABC):
 
         self.events_received += len(events)
 
-        logger.info(
-            f"Processing {len(events)} events from {self.get_view_name()} "
-            f"(total received: {self.events_received})"
-        )
-
         # Route to appropriate handler
         if self.should_consolidate_events():
             await self._handle_events_with_consolidation(events)
@@ -477,17 +472,33 @@ class BaseSubscribeWorker(ABC):
         Args:
             events: List of SubscribeEvent to process
         """
+        insert_ids = []
+        delete_ids = []
+
         for event in events:
             if event.is_insert():
                 # Insert - transform and queue for upsert
                 doc = self.transform_event_to_doc(event.data)
                 if doc:
                     self.pending_upserts.append(doc)
+                    doc_id = self.get_doc_id(event.data)
+                    if doc_id:
+                        insert_ids.append(doc_id)
             elif event.is_delete():
                 # Delete - extract ID and queue for deletion
                 doc_id = self.get_doc_id(event.data)
                 if doc_id:
                     self.pending_deletes.append(doc_id)
+                    delete_ids.append(doc_id)
+
+        # Log operations grouped by type for easy filtering
+        timestamp = events[0].timestamp if events else "unknown"
+        index_name = self.get_index_name()
+
+        if insert_ids:
+            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(insert_ids)} docs {insert_ids}")
+        if delete_ids:
+            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _handle_events_with_consolidation(self, events: list[SubscribeEvent]):
         """Complex event processing: consolidate DELETE + INSERT = UPDATE.
@@ -519,25 +530,40 @@ class BaseSubscribeWorker(ABC):
                 latest_data = event.data if event.is_insert() else prev_data
                 consolidated[doc_id] = (net_diff, latest_data)
 
-        # Process consolidated events
+        # Process consolidated events and track document IDs by operation type
+        upsert_ids = []
+        delete_ids = []
+        update_ids = []
+
         for doc_id, (net_diff, data) in consolidated.items():
             if net_diff > 0:
                 # Net insert
                 doc = self.transform_event_to_doc(data)
                 if doc:
                     self.pending_upserts.append(doc)
-                    logger.debug(f"Queued insert: {doc_id}")
+                    upsert_ids.append(doc_id)
             elif net_diff < 0:
                 # Net delete
                 self.pending_deletes.append(doc_id)
-                logger.debug(f"Queued delete: {doc_id}")
+                delete_ids.append(doc_id)
             else:
                 # net_diff == 0: UPDATE (delete + insert cancelled out)
                 # Treat as upsert with latest data
                 doc = self.transform_event_to_doc(data)
                 if doc:
                     self.pending_upserts.append(doc)
-                    logger.debug(f"Queued update: {doc_id}")
+                    update_ids.append(doc_id)
+
+        # Log operations grouped by type for easy filtering
+        timestamp = events[0].timestamp if events else "unknown"
+        index_name = self.get_index_name()
+
+        if upsert_ids:
+            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(upsert_ids)} docs {upsert_ids}")
+        if update_ids:
+            logger.info(f"  🔄 Updates @ mz_ts={timestamp} → {index_name}: {len(update_ids)} docs {update_ids}")
+        if delete_ids:
+            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _flush_batch(self):
         """Flush pending upserts and deletes to OpenSearch with retry logic.
@@ -551,11 +577,6 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
         upsert_count = len(self.pending_upserts)
         delete_count = len(self.pending_deletes)
-
-        logger.info(
-            f"Flushing batch to OpenSearch: "
-            f"{upsert_count} upserts, {delete_count} deletes"
-        )
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts

@@ -499,21 +499,61 @@ export default function OrdersDashboardPage() {
         });
       }
 
-      // Create order first
-      await triplesApi.createBatch(triples);
-
-      // Then create line items if any
+      // Add line items to the same batch (transactional with order creation)
       if (lineItems.length > 0) {
-        const lineItemsToCreate = lineItems.map((item, index) => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          line_sequence: index + 1,
-          perishable_flag: item.perishable_flag,
-        }));
+        lineItems.forEach((item, index) => {
+          const lineItemId = `orderline:${data.order_number}-${String(index + 1).padStart(3, '0')}`;
+          const lineAmount = item.quantity * item.unit_price;
 
-        await freshmartApi.createOrderLinesBatch(orderId, lineItemsToCreate);
+          triples.push(
+            {
+              subject_id: lineItemId,
+              predicate: "line_of_order",
+              object_value: orderId,
+              object_type: "entity_ref",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "line_product",
+              object_value: item.product_id,
+              object_type: "entity_ref",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "quantity",
+              object_value: String(item.quantity),
+              object_type: "int",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "order_line_unit_price",
+              object_value: String(item.unit_price),
+              object_type: "float",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "line_amount",
+              object_value: String(lineAmount.toFixed(2)),
+              object_type: "float",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "line_sequence",
+              object_value: String(index + 1),
+              object_type: "int",
+            },
+            {
+              subject_id: lineItemId,
+              predicate: "perishable_flag",
+              object_value: String(item.perishable_flag).toLowerCase(),
+              object_type: "bool",
+            }
+          );
+        });
       }
+
+      // Create order and all line items in a single transactional batch
+      await triplesApi.createBatch(triples);
 
       return { orderId };
     },
@@ -534,13 +574,7 @@ export default function OrdersDashboardPage() {
       data: OrderFormData;
       lineItems: CartLineItem[];
     }) => {
-      // Get existing triples for this order
-      const subjectInfo = await triplesApi
-        .getSubject(order.order_id)
-        .then((r) => r.data);
-
-      // Update each field by finding the triple and updating it, or creating new
-      const updates: Promise<unknown>[] = [];
+      // Build triples for batch update
       const fieldsToUpdate: {
         predicate: string;
         value: string;
@@ -572,27 +606,19 @@ export default function OrdersDashboardPage() {
         });
       }
 
-      for (const field of fieldsToUpdate) {
-        const existingTriple = subjectInfo.triples.find(
-          (t) => t.predicate === field.predicate
-        );
-        if (existingTriple) {
-          updates.push(
-            triplesApi.update(existingTriple.id, { object_value: field.value })
-          );
-        } else {
-          updates.push(
-            triplesApi.create({
-              subject_id: order.order_id,
-              predicate: field.predicate,
-              object_value: field.value,
-              object_type: field.type,
-            })
-          );
-        }
-      }
+      // Upsert triples in a single atomic transaction
+      // The upsert endpoint deletes old values and inserts new ones - no duplicates
+      const triplesToUpsert: TripleCreate[] = fieldsToUpdate.map(field => ({
+        subject_id: order.order_id,
+        predicate: field.predicate,
+        object_value: field.value,
+        object_type: field.type,
+      }));
 
-      await Promise.all(updates);
+      // Single atomic transaction: deletes old predicates and inserts new values
+      if (triplesToUpsert.length > 0) {
+        await triplesApi.upsertBatch(triplesToUpsert);
+      }
 
       // Handle line items: compare with existing line items
       const existingLineItems = await freshmartApi
