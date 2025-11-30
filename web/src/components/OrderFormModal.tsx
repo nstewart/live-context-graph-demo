@@ -61,6 +61,7 @@ export function OrderFormModal({
   const [showStoreChangeConfirm, setShowStoreChangeConfirm] = useState(false);
   const [pendingStoreId, setPendingStoreId] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   // Zero queries for stores and customers
   const z = useZero<Schema>();
@@ -119,7 +120,7 @@ export function OrderFormModal({
       setFormData(initialFormData);
       setHasUnsavedChanges(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialFormData]);
 
   if (!isOpen) return null;
 
@@ -151,12 +152,14 @@ export function OrderFormModal({
     } else {
       setFormData({ ...formData, store_id: newStoreId });
       setLineItems([]); // Clear cart when store changes
+      setHasUnsavedChanges(false); // Reset unsaved changes flag when cart is cleared
     }
   };
 
   const confirmStoreChange = () => {
     setFormData({ ...formData, store_id: pendingStoreId });
     setLineItems([]);
+    setHasUnsavedChanges(false); // Reset unsaved changes flag when cart is cleared
     setShowStoreChangeConfirm(false);
     setPendingStoreId("");
   };
@@ -164,6 +167,24 @@ export function OrderFormModal({
   const cancelStoreChange = () => {
     setShowStoreChangeConfirm(false);
     setPendingStoreId("");
+  };
+
+  const handleClose = () => {
+    if (hasUnsavedChanges && order) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const confirmClose = () => {
+    setShowCloseConfirm(false);
+    setHasUnsavedChanges(false);
+    onClose();
+  };
+
+  const cancelClose = () => {
+    setShowCloseConfirm(false);
   };
 
   const handleProductSelect = (product: ProductWithStock) => {
@@ -268,7 +289,7 @@ export function OrderFormModal({
               {order ? "Edit Order" : "Create Order"}
             </h2>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-500 hover:text-gray-700"
             >
               <X className="h-5 w-5" />
@@ -426,15 +447,19 @@ export function OrderFormModal({
               </div>
             </div>
             {hasUnsavedChanges && order && (
-              <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              <div
+                className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800"
+                role="alert"
+                aria-live="polite"
+              >
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-label="Warning" />
                 <span>You have unsaved changes. Click "Update" to save them to the database.</span>
               </div>
             )}
             <div className="flex justify-end gap-2 pt-4">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
               >
                 Cancel
@@ -479,6 +504,40 @@ export function OrderFormModal({
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
               >
                 Change Store
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close Confirmation Dialog */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Discard Changes?</h3>
+                <p className="text-gray-600 text-sm">
+                  You have unsaved changes. Are you sure you want to close
+                  without saving?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={cancelClose}
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmClose}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+              >
+                Discard Changes
               </button>
             </div>
           </div>
