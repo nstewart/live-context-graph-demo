@@ -38,6 +38,8 @@ export function ShoppingCart({
     try {
       setErrorItem(null)
       setUpdatingItem(productId)
+      // IMPORTANT: This only updates local state in the parent component
+      // No database save occurs until the form's "Update" button is clicked
       onUpdateQuantity(productId, newQuantity)
     } catch (error) {
       setErrorItem({
@@ -148,6 +150,7 @@ export function ShoppingCart({
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-center gap-2">
                     <button
+                      type="button"
                       onClick={() => handleDecrement(item.product_id, item.quantity)}
                       disabled={updatingItem === item.product_id}
                       className="p-1 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -157,6 +160,7 @@ export function ShoppingCart({
                     </button>
                     <span className="w-12 text-center font-medium">{item.quantity}</span>
                     <button
+                      type="button"
                       onClick={() => handleIncrement(item.product_id, item.quantity)}
                       disabled={updatingItem === item.product_id}
                       className="p-1 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -177,6 +181,7 @@ export function ShoppingCart({
                 </td>
                 <td className="px-4 py-3 text-center">
                   <button
+                    type="button"
                     onClick={() => handleRemove(item.product_id)}
                     disabled={updatingItem === item.product_id}
                     className="p-1 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
@@ -211,6 +216,7 @@ export function ShoppingCart({
                 {item.category && <div className="text-xs text-gray-500">{item.category}</div>}
               </div>
               <button
+                type="button"
                 onClick={() => handleRemove(item.product_id)}
                 disabled={updatingItem === item.product_id}
                 className="p-1 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
@@ -223,6 +229,7 @@ export function ShoppingCart({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={() => handleDecrement(item.product_id, item.quantity)}
                   disabled={updatingItem === item.product_id}
                   className="p-2 rounded-lg border hover:bg-gray-50 disabled:opacity-50"
@@ -234,6 +241,7 @@ export function ShoppingCart({
                   <div className="text-xs text-gray-500">{item.available_stock} avail</div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => handleIncrement(item.product_id, item.quantity)}
                   disabled={updatingItem === item.product_id}
                   className="p-2 rounded-lg border hover:bg-gray-50 disabled:opacity-50"

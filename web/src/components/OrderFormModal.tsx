@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema, OrderLineItem } from "../schema";
 import { X, AlertTriangle } from "lucide-react";
@@ -24,16 +24,6 @@ export interface OrderFormData {
   delivery_window_end: string;
 }
 
-const initialFormData: OrderFormData = {
-  order_number: "",
-  customer_id: "",
-  store_id: "",
-  order_status: "CREATED",
-  order_total_amount: "",
-  delivery_window_start: "",
-  delivery_window_end: "",
-};
-
 // Extended order type with line items from Zero
 export interface OrderWithLines extends OrderFlat {
   line_items?: OrderLineItem[] | null;
@@ -56,10 +46,23 @@ export function OrderFormModal({
   onSave,
   isLoading,
 }: OrderFormModalProps) {
+  // Memoize initialFormData to fix useEffect dependency warning
+  const initialFormData: OrderFormData = useMemo(() => ({
+    order_number: "",
+    customer_id: "",
+    store_id: "",
+    order_status: "CREATED",
+    order_total_amount: "",
+    delivery_window_start: "",
+    delivery_window_end: "",
+  }), []);
+
   const [formData, setFormData] = useState<OrderFormData>(initialFormData);
   const [lineItems, setLineItems] = useState<CartLineItem[]>([]);
   const [showStoreChangeConfirm, setShowStoreChangeConfirm] = useState(false);
   const [pendingStoreId, setPendingStoreId] = useState<string>("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   // Zero queries for stores and customers
   const z = useZero<Schema>();
@@ -116,8 +119,9 @@ export function OrderFormModal({
     if (!isOpen) {
       setLineItems([]);
       setFormData(initialFormData);
+      setHasUnsavedChanges(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialFormData]);
 
   if (!isOpen) return null;
 
@@ -135,6 +139,9 @@ export function OrderFormModal({
       order_total_amount: total > 0 ? total.toFixed(2) : formData.order_total_amount,
     };
 
+    // Reset unsaved changes flag before saving
+    // This is the ONLY place where data is saved to the database
+    setHasUnsavedChanges(false);
     onSave(dataWithTotal, !!order, lineItems);
   };
 
@@ -146,12 +153,14 @@ export function OrderFormModal({
     } else {
       setFormData({ ...formData, store_id: newStoreId });
       setLineItems([]); // Clear cart when store changes
+      setHasUnsavedChanges(false); // Reset unsaved changes flag when cart is cleared
     }
   };
 
   const confirmStoreChange = () => {
     setFormData({ ...formData, store_id: pendingStoreId });
     setLineItems([]);
+    setHasUnsavedChanges(false); // Reset unsaved changes flag when cart is cleared
     setShowStoreChangeConfirm(false);
     setPendingStoreId("");
   };
@@ -161,7 +170,28 @@ export function OrderFormModal({
     setPendingStoreId("");
   };
 
+  const handleClose = () => {
+    if (hasUnsavedChanges && order) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const confirmClose = () => {
+    setShowCloseConfirm(false);
+    setHasUnsavedChanges(false);
+    onClose();
+  };
+
+  const cancelClose = () => {
+    setShowCloseConfirm(false);
+  };
+
   const handleProductSelect = (product: ProductWithStock) => {
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
+
     setLineItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) => item.product_id === product.product_id
@@ -222,6 +252,9 @@ export function OrderFormModal({
       return;
     }
 
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
+
     setLineItems((prev) => {
       const item = prev.find((i) => i.product_id === productId);
       if (!item) return prev;
@@ -241,6 +274,8 @@ export function OrderFormModal({
   };
 
   const handleRemoveItem = (productId: string) => {
+    // Mark that there are unsaved changes (only updates local state, doesn't save to DB)
+    setHasUnsavedChanges(true);
     setLineItems((prev) => prev.filter((item) => item.product_id !== productId));
   };
 
@@ -255,7 +290,7 @@ export function OrderFormModal({
               {order ? "Edit Order" : "Create Order"}
             </h2>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-500 hover:text-gray-700"
             >
               <X className="h-5 w-5" />
@@ -272,9 +307,10 @@ export function OrderFormModal({
                   required
                   disabled={!!order}
                   value={formData.order_number}
-                  onChange={(e) =>
-                    setFormData({ ...formData, order_number: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, order_number: e.target.value });
+                    if (order) setHasUnsavedChanges(true);
+                  }}
                   placeholder="FM-1001"
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
                 />
@@ -286,9 +322,10 @@ export function OrderFormModal({
                 <select
                   required
                   value={formData.order_status}
-                  onChange={(e) =>
-                    setFormData({ ...formData, order_status: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, order_status: e.target.value });
+                    if (order) setHasUnsavedChanges(true);
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                 >
                   {statusOrder.map((status) => (
@@ -307,9 +344,10 @@ export function OrderFormModal({
                 <select
                   required
                   value={formData.customer_id}
-                  onChange={(e) =>
-                    setFormData({ ...formData, customer_id: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, customer_id: e.target.value });
+                    if (order) setHasUnsavedChanges(true);
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Select a customer...</option>
@@ -386,12 +424,13 @@ export function OrderFormModal({
                 <input
                   type="datetime-local"
                   value={formData.delivery_window_start}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setFormData({
                       ...formData,
                       delivery_window_start: e.target.value,
-                    })
-                  }
+                    });
+                    if (order) setHasUnsavedChanges(true);
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                 />
               </div>
@@ -402,20 +441,31 @@ export function OrderFormModal({
                 <input
                   type="datetime-local"
                   value={formData.delivery_window_end}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setFormData({
                       ...formData,
                       delivery_window_end: e.target.value,
-                    })
-                  }
+                    });
+                    if (order) setHasUnsavedChanges(true);
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                 />
               </div>
             </div>
+            {hasUnsavedChanges && order && (
+              <div
+                className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800"
+                role="alert"
+                aria-live="polite"
+              >
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-label="Warning" />
+                <span>You have unsaved changes. Click "Update" to save them to the database.</span>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-4">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
               >
                 Cancel
@@ -460,6 +510,40 @@ export function OrderFormModal({
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
               >
                 Change Store
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close Confirmation Dialog */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Discard Changes?</h3>
+                <p className="text-gray-600 text-sm">
+                  You have unsaved changes. Are you sure you want to close
+                  without saving?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={cancelClose}
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmClose}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+              >
+                Discard Changes
               </button>
             </div>
           </div>
