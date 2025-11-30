@@ -1,5 +1,6 @@
 """Triple service for CRUD operations."""
 
+import logging
 from typing import Optional
 
 from sqlalchemy import text
@@ -15,6 +16,8 @@ from src.triples.models import (
     ValidationResult,
 )
 from src.triples.validator import TripleValidator
+
+logger = logging.getLogger(__name__)
 
 
 class TripleValidationError(Exception):
@@ -171,9 +174,27 @@ class TripleService:
 
     async def create_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
         """Create multiple triples in a batch."""
+        # Log transaction start with summary of what's being written
+        subjects = {}  # subject_id -> list of predicates
+        for triple in triples:
+            if triple.subject_id not in subjects:
+                subjects[triple.subject_id] = []
+            subjects[triple.subject_id].append(triple.predicate)
+
+        logger.info(
+            f"🔵 PG_TXN_START: Writing {len(triples)} triples across {len(subjects)} subjects"
+        )
+        for subject_id, predicates in subjects.items():
+            logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:3])}{'...' if len(predicates) > 3 else ''})")
+
         created = []
         for triple in triples:
             created.append(await self.create_triple(triple))
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully wrote {len(created)} triples"
+        )
+
         return created
 
     async def update_triple(self, triple_id: int, data: TripleUpdate) -> Optional[Triple]:
@@ -182,6 +203,15 @@ class TripleService:
         existing = await self.get_triple(triple_id)
         if not existing:
             return None
+
+        # Log transaction start for single update
+        logger.info(
+            f"🔵 PG_TXN_START: Writing 1 triple (update)"
+        )
+        logger.info(
+            f"  📝 {existing.subject_id}: updating {existing.predicate} "
+            f"from '{existing.object_value}' to '{data.object_value}'"
+        )
 
         # Validate if needed
         if self.validate:
@@ -210,7 +240,8 @@ class TripleService:
         row = result.fetchone()
         if not row:
             return None
-        return Triple(
+
+        triple = Triple(
             id=row.id,
             subject_id=row.subject_id,
             predicate=row.predicate,
@@ -219,6 +250,26 @@ class TripleService:
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+        # Determine likely index from subject prefix (order -> orders, inventory -> inventory, etc.)
+        prefix = triple.subject_id.split(":")[0]
+        # Map common prefixes to their likely OpenSearch index
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        likely_index = index_map.get(prefix, prefix)
+
+        logger.info(
+            f"✅ PG_TXN_END: Successfully updated 1 triple → will update {likely_index} index for {triple.subject_id}"
+        )
+
+        return triple
 
     async def delete_triple(self, triple_id: int) -> bool:
         """Delete a triple."""

@@ -27,19 +27,22 @@ if ! docker-compose ps | grep -q "search-sync.*Up"; then
     exit 1
 fi
 
-echo "${BLUE}📋 Step 1: Watch the sync worker logs in real-time${NC}"
-echo "   This terminal will show SUBSCRIBE events with timestamps"
+echo "${BLUE}📋 Step 1: Watch the complete flow (PostgreSQL → Materialize → OpenSearch)${NC}"
+echo "   This terminal will show:"
+echo "     - PostgreSQL transaction logs (api service)"
+echo "     - Materialize SUBSCRIBE events (search-sync service)"
+echo "     - OpenSearch flush operations (search-sync service)"
 echo ""
-echo "   Filter: grep for 'BATCH', 'FLUSH', 'mz_ts', or emoji symbols"
+echo "   Filter: grep for transaction and event symbols"
 echo ""
 echo "Press Enter to start tailing logs..."
 read
 
-# Start log tail in background
-echo "${GREEN}Starting log tail...${NC}"
+# Start log tail in background (both api and search-sync)
+echo "${GREEN}Starting log tail for api and search-sync services...${NC}"
 echo ""
 
-docker-compose logs -f --tail=0 search-sync | grep --line-buffered -E "📦|💾|➕|🔄|❌|mz_ts=" &
+docker-compose logs -f --tail=0 api search-sync | grep --line-buffered -E "🔵|📝|✅|📦|💾|➕|🔄|❌|mz_ts=" &
 LOG_PID=$!
 
 # Give logs time to start
@@ -228,9 +231,15 @@ docker-compose exec -T api curl -s -X POST http://localhost:8080/triples/batch \
 echo "✅ Order created with 3 line items"
 echo ""
 echo "${YELLOW}👀 Watch the logs above! You should see:${NC}"
-echo "   - 📦 BATCH @ mz_ts=XXXXX with the SAME timestamp for all tuples"
+echo "   API SERVICE:"
+echo "   - 🔵 PG_TXN_START showing 28 triples across 4 subjects"
+echo "   - 📝 Each subject (order + 3 line items) with their properties"
+echo "   - ✅ PG_TXN_END confirming all triples written"
+echo ""
+echo "   SEARCH-SYNC SERVICE:"
+echo "   - 📦 BATCH @ mz_ts=XXXXX with the SAME timestamp for all 28 events"
 echo "   - ➕ Inserts showing the order and all 3 line items"
-echo "   - 💾 FLUSH showing them written to OpenSearch together"
+echo "   - 💾 FLUSH → orders showing them written to OpenSearch together"
 echo ""
 sleep 3
 
@@ -250,9 +259,10 @@ docker-compose exec -T db psql -U postgres -d freshmart -c \
 echo "✅ Order status updated"
 echo ""
 echo "${YELLOW}👀 Watch the logs above! You should see:${NC}"
+echo "   SEARCH-SYNC SERVICE:"
 echo "   - 📦 BATCH @ mz_ts=YYYYY (different timestamp from insert)"
-echo "   - 🔄 Updates showing consolidated UPDATE operation"
-echo "   - 💾 FLUSH showing the update written to OpenSearch"
+echo "   - 🔄 Updates showing consolidated UPDATE operation (DELETE + INSERT → UPDATE)"
+echo "   - 💾 FLUSH → orders showing the update written to OpenSearch"
 echo ""
 sleep 3
 
@@ -271,8 +281,9 @@ echo ""
 echo "✅ Demo complete!"
 echo ""
 echo "${YELLOW}Key Takeaways:${NC}"
-echo "  ✓ All tuples from a transaction share the SAME mz_ts"
-echo "  ✓ System correctly identifies affected documents (order + 3 line items)"
+echo "  ✓ PostgreSQL transaction writes all tuples atomically (28 triples)"
+echo "  ✓ Materialize groups them by timestamp (all share same mz_ts)"
+echo "  ✓ System identifies affected documents (1 order + 3 line items = 4 docs)"
 echo "  ✓ Updates are consolidated (DELETE + INSERT → UPDATE)"
 echo "  ✓ Sub-2-second latency from PostgreSQL → OpenSearch"
 echo ""
@@ -281,5 +292,13 @@ echo ""
 kill $LOG_PID 2>/dev/null || true
 rm -f /tmp/demo_order.json
 
-echo "To watch logs manually, run:"
+echo "To watch logs manually:"
+echo ""
+echo "  # Full flow (PostgreSQL → Materialize → OpenSearch)"
+echo "  docker-compose logs -f api search-sync | grep -E '🔵|📝|✅|📦|💾|➕|🔄|❌'"
+echo ""
+echo "  # Just PostgreSQL transactions"
+echo "  docker-compose logs -f api | grep -E '🔵|📝|✅'"
+echo ""
+echo "  # Just SUBSCRIBE events and OpenSearch flushes"
 echo "  docker-compose logs -f search-sync | grep -E '📦|💾|➕|🔄|❌'"

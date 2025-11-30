@@ -101,13 +101,60 @@ docker-compose logs --tail=20 search-sync | grep -E "📦|🔄|💾"
 
 ## Log Symbols Reference
 
-| Symbol | Meaning | Color |
-|--------|---------|-------|
-| 📦 | Batch received from SUBSCRIBE | Blue |
-| ➕ | Insert operations | Green |
-| 🔄 | Update operations (consolidated) | Yellow |
-| ❌ | Delete operations | Red |
-| 💾 | Flush to OpenSearch | Blue |
+| Symbol | Meaning | Service | Color |
+|--------|---------|---------|-------|
+| 🔵 | PostgreSQL transaction start | api | Blue |
+| 📝 | Subject being written in transaction | api | Blue |
+| ✅ | PostgreSQL transaction end | api | Green |
+| 📦 | Batch received from SUBSCRIBE | search-sync | Blue |
+| ➕ | Insert operations | search-sync | Green |
+| 🔄 | Update operations (consolidated) | search-sync | Yellow |
+| ❌ | Delete operations | search-sync | Red |
+| 💾 | Flush to OpenSearch | search-sync | Blue |
+
+---
+
+## Show PostgreSQL Transactions
+
+### View All Tuples Being Written in a Transaction
+```bash
+docker-compose logs -f api | grep -E "🔵|📝|✅"
+```
+
+**Example Output:**
+```
+🔵 PG_TXN_START: Writing 28 triples across 4 subjects
+  📝 order:FM-12345: 5 properties (order_number, order_status, placed_by...)
+  📝 orderline:FM-12345-001: 7 properties (line_of_order, line_product, quantity...)
+  📝 orderline:FM-12345-002: 7 properties (line_of_order, line_product, quantity...)
+  📝 orderline:FM-12345-003: 7 properties (line_of_order, line_product, quantity...)
+✅ PG_TXN_END: Successfully wrote 28 triples
+```
+
+**What it shows:**
+- All tuples written in a single PostgreSQL transaction
+- Which subjects (order, line items) are affected
+- How many properties each subject has
+
+### Show Complete Flow: PostgreSQL → Materialize → OpenSearch
+```bash
+docker-compose logs -f api search-sync | grep -E "🔵|📝|✅|📦|➕|🔄|💾|mz_ts="
+```
+
+**Example Output:**
+```
+api          | 🔵 PG_TXN_START: Writing 28 triples across 4 subjects
+api          |   📝 order:FM-12345: 5 properties (order_number, order_status, placed_by...)
+api          |   📝 orderline:FM-12345-001: 7 properties (line_of_order, line_product, quantity...)
+api          |   📝 orderline:FM-12345-002: 7 properties (line_of_order, line_product, quantity...)
+api          |   📝 orderline:FM-12345-003: 7 properties (line_of_order, line_product, quantity...)
+api          | ✅ PG_TXN_END: Successfully wrote 28 triples
+search-sync  | 📦 BATCH @ mz_ts=1701234567890: Processing 28 events from orders_with_lines_mv
+search-sync  |   ➕ Inserts: ['order:FM-12345', 'orderline:FM-12345-001', 'orderline:FM-12345-002', 'orderline:FM-12345-003']
+search-sync  | 💾 FLUSH → orders: 4 upserts, 0 deletes
+```
+
+**Key Insight:** The 28 triples written in PostgreSQL become 28 events in Materialize (all with the same `mz_ts`), which get consolidated into 4 OpenSearch documents.
 
 ---
 

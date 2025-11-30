@@ -440,13 +440,6 @@ class BaseSubscribeWorker(ABC):
 
         self.events_received += len(events)
 
-        # Extract timestamp from first event for batch identification
-        timestamp = events[0].timestamp if events else "unknown"
-        logger.info(
-            f"📦 BATCH @ mz_ts={timestamp}: Processing {len(events)} events from {self.get_view_name()} "
-            f"(total received: {self.events_received})"
-        )
-
         # Route to appropriate handler
         if self.should_consolidate_events():
             await self._handle_events_with_consolidation(events)
@@ -578,11 +571,6 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
         upsert_count = len(self.pending_upserts)
         delete_count = len(self.pending_deletes)
-
-        logger.info(
-            f"💾 FLUSH → {index_name}: "
-            f"{upsert_count} upserts, {delete_count} deletes"
-        )
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts
