@@ -492,10 +492,13 @@ class BaseSubscribeWorker(ABC):
                     delete_ids.append(doc_id)
 
         # Log operations grouped by type for easy filtering
+        timestamp = events[0].timestamp if events else "unknown"
+        index_name = self.get_index_name()
+
         if insert_ids:
-            logger.info(f"  ➕ Inserts: {insert_ids}")
+            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(insert_ids)} docs {insert_ids}")
         if delete_ids:
-            logger.info(f"  ❌ Deletes: {delete_ids}")
+            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _handle_events_with_consolidation(self, events: list[SubscribeEvent]):
         """Complex event processing: consolidate DELETE + INSERT = UPDATE.
@@ -552,12 +555,15 @@ class BaseSubscribeWorker(ABC):
                     update_ids.append(doc_id)
 
         # Log operations grouped by type for easy filtering
+        timestamp = events[0].timestamp if events else "unknown"
+        index_name = self.get_index_name()
+
         if upsert_ids:
-            logger.info(f"  ➕ Inserts: {upsert_ids}")
+            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(upsert_ids)} docs {upsert_ids}")
         if update_ids:
-            logger.info(f"  🔄 Updates: {update_ids}")
+            logger.info(f"  🔄 Updates @ mz_ts={timestamp} → {index_name}: {len(update_ids)} docs {update_ids}")
         if delete_ids:
-            logger.info(f"  ❌ Deletes: {delete_ids}")
+            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _flush_batch(self):
         """Flush pending upserts and deletes to OpenSearch with retry logic.

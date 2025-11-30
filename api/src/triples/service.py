@@ -181,8 +181,28 @@ class TripleService:
                 subjects[triple.subject_id] = []
             subjects[triple.subject_id].append(triple.predicate)
 
+        # Determine which OpenSearch indices will be affected
+        indices_affected = {}
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":")[0]
+            index = index_map.get(prefix, prefix)
+            if index not in indices_affected:
+                indices_affected[index] = set()
+            indices_affected[index].add(subject_id)
+
+        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+
         logger.info(
-            f"🔵 PG_TXN_START: Writing {len(triples)} triples across {len(subjects)} subjects"
+            f"🔵 PG_TXN_START: Writing {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
         )
         for subject_id, predicates in subjects.items():
             logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:3])}{'...' if len(predicates) > 3 else ''})")
@@ -213,8 +233,28 @@ class TripleService:
                 subjects[triple.subject_id] = []
             subjects[triple.subject_id].append(triple.predicate)
 
+        # Determine which OpenSearch indices will be affected
+        indices_affected = {}
+        index_map = {
+            "order": "orders",
+            "orderline": "orders",
+            "inventory": "inventory",
+            "product": "products",
+            "customer": "customers",
+            "store": "stores",
+            "courier": "couriers",
+        }
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":")[0]
+            index = index_map.get(prefix, prefix)
+            if index not in indices_affected:
+                indices_affected[index] = set()
+            indices_affected[index].add(subject_id)
+
+        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+
         logger.info(
-            f"🔵 PG_TXN_START: Upserting {len(triples)} triples across {len(subjects)} subjects"
+            f"🔵 PG_TXN_START: Upserting {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
         )
         for subject_id, predicates in subjects.items():
             logger.info(f"  📝 {subject_id}: {len(predicates)} properties ({', '.join(predicates[:3])}{'...' if len(predicates) > 3 else ''})")
