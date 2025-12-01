@@ -181,8 +181,19 @@ class TripleService:
                 subjects[triple.subject_id] = []
             subjects[triple.subject_id].append(triple.predicate)
 
-        # Determine which OpenSearch indices will be affected
-        indices_affected = {}
+        # Determine which entity types and OpenSearch indices will be affected
+        entity_types_affected = {}
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":")[0]
+            if prefix not in entity_types_affected:
+                entity_types_affected[prefix] = set()
+            entity_types_affected[prefix].add(subject_id)
+
+        # Create summary showing entity types (e.g., "2 orderlines, 1 order")
+        entity_summary = ", ".join([f"{len(docs)} {entity_type}{'s' if len(docs) != 1 else ''}"
+                                    for entity_type, docs in sorted(entity_types_affected.items())])
+
+        # Also track OpenSearch indices for context
         index_map = {
             "order": "orders",
             "orderline": "orders",
@@ -192,18 +203,18 @@ class TripleService:
             "store": "stores",
             "courier": "couriers",
         }
-        for subject_id in subjects.keys():
-            prefix = subject_id.split(":")[0]
-            index = index_map.get(prefix, prefix)
+        indices_affected = {}
+        for entity_type, docs in entity_types_affected.items():
+            index = index_map.get(entity_type, entity_type)
             if index not in indices_affected:
                 indices_affected[index] = set()
-            indices_affected[index].add(subject_id)
+            indices_affected[index].update(docs)
 
-        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+        indices_summary = ", ".join([f"{idx} index" for idx in sorted(indices_affected.keys())])
 
         MAX_PREDICATES_TO_LOG = 3
         logger.info(
-            f"  📝 [BATCH INSERT] Writing {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
+            f"  📝 [BATCH INSERT] Writing {len(triples)} triples → {entity_summary} → {indices_summary}"
         )
         for subject_id, predicates in subjects.items():
             logger.info(f"     • {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")
@@ -285,8 +296,19 @@ class TripleService:
                 subjects[triple.subject_id] = []
             subjects[triple.subject_id].append(triple.predicate)
 
-        # Determine which OpenSearch indices will be affected
-        indices_affected = {}
+        # Determine which entity types and OpenSearch indices will be affected
+        entity_types_affected = {}
+        for subject_id in subjects.keys():
+            prefix = subject_id.split(":", 1)[0]
+            if prefix not in entity_types_affected:
+                entity_types_affected[prefix] = set()
+            entity_types_affected[prefix].add(subject_id)
+
+        # Create summary showing entity types (e.g., "2 orderlines, 1 order")
+        entity_summary = ", ".join([f"{len(docs)} {entity_type}{'s' if len(docs) != 1 else ''}"
+                                    for entity_type, docs in sorted(entity_types_affected.items())])
+
+        # Also track OpenSearch indices for context
         index_map = {
             "order": "orders",
             "orderline": "orders",
@@ -296,18 +318,18 @@ class TripleService:
             "store": "stores",
             "courier": "couriers",
         }
-        for subject_id in subjects.keys():
-            prefix = subject_id.split(":", 1)[0]
-            index = index_map.get(prefix, prefix)
+        indices_affected = {}
+        for entity_type, docs in entity_types_affected.items():
+            index = index_map.get(entity_type, entity_type)
             if index not in indices_affected:
                 indices_affected[index] = set()
-            indices_affected[index].add(subject_id)
+            indices_affected[index].update(docs)
 
-        indices_summary = ", ".join([f"{idx} ({len(docs)} docs)" for idx, docs in indices_affected.items()])
+        indices_summary = ", ".join([f"{idx} index" for idx in sorted(indices_affected.keys())])
 
         MAX_PREDICATES_TO_LOG = 3
         logger.info(
-            f"  📝 [BATCH UPSERT] Upserting {len(triples)} triples across {len(subjects)} subjects → {indices_summary}"
+            f"  📝 [BATCH UPSERT] Upserting {len(triples)} triples → {entity_summary} → {indices_summary}"
         )
         for subject_id, predicates in subjects.items():
             logger.info(f"     • {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")

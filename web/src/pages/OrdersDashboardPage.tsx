@@ -576,16 +576,20 @@ export default function OrdersDashboardPage() {
         perishable_flag: item.perishable_flag,
       }));
 
-      // Single atomic transaction: updates order fields and replaces all line items
+      // Only send changed order fields (avoid unnecessary triple updates)
+      const normalizeDate = (date: string | undefined | null) =>
+        date ? new Date(date).toISOString() : undefined;
+
       await freshmartApi.atomicUpdateOrder(order.order_id, {
-        order_status: data.order_status,
-        customer_id: data.customer_id,
-        store_id: data.store_id,
-        delivery_window_start: data.delivery_window_start
-          ? new Date(data.delivery_window_start).toISOString()
+        // Only include fields that changed
+        order_status: data.order_status !== order.order_status ? data.order_status : undefined,
+        customer_id: data.customer_id !== order.customer_id ? data.customer_id : undefined,
+        store_id: data.store_id !== order.store_id ? data.store_id : undefined,
+        delivery_window_start: normalizeDate(data.delivery_window_start) !== normalizeDate(order.delivery_window_start)
+          ? normalizeDate(data.delivery_window_start)
           : undefined,
-        delivery_window_end: data.delivery_window_end
-          ? new Date(data.delivery_window_end).toISOString()
+        delivery_window_end: normalizeDate(data.delivery_window_end) !== normalizeDate(order.delivery_window_end)
+          ? normalizeDate(data.delivery_window_end)
           : undefined,
         line_items: lineItemsToCreate,
       });
