@@ -1232,7 +1232,7 @@ class TestCreateCustomer:
 
     @pytest.mark.asyncio
     async def test_creates_customer_with_only_required_fields(self, mock_settings):
-        """Creates customer with only name (required)."""
+        """Creates customer with only name (required) - address is auto-generated."""
         with patch("src.tools.tool_create_customer.get_settings", return_value=mock_settings):
             with patch("httpx.AsyncClient") as mock_client_class:
                 mock_response = MagicMock()
@@ -1254,21 +1254,21 @@ class TestCreateCustomer:
                 assert result["success"] is True
                 assert result["name"] == "Jane Smith"
                 assert result["email"] is None
-                assert result["address"] is None
+                assert result["address"] == "123 Main St, Brooklyn, NY 11201"  # dummy address
                 assert result["home_store_id"] == "store:BK-01"  # default
 
                 # Verify the triples posted
                 call_args = mock_client.post.call_args
                 triples = call_args.kwargs["json"]
 
-                # Should have 2 triples: name and home_store (defaults)
-                assert len(triples) == 2
+                # Should have 3 triples: name, address (dummy), and home_store
+                assert len(triples) == 3
 
                 predicates = {t["predicate"] for t in triples}
                 assert "customer_name" in predicates
                 assert "home_store" in predicates
+                assert "customer_address" in predicates  # now always included
                 assert "customer_email" not in predicates
-                assert "customer_address" not in predicates
 
     @pytest.mark.asyncio
     async def test_generates_unique_customer_id(self, mock_settings):

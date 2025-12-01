@@ -68,15 +68,18 @@ async def create_customer(
             }
         )
 
-    if address:
-        triples.append(
-            {
-                "subject_id": customer_id,
-                "predicate": "customer_address",
-                "object_value": address,
-                "object_type": "string",
-            }
-        )
+    # Always add an address - use provided or create dummy
+    if not address:
+        address = "123 Main St, Brooklyn, NY 11201"
+
+    triples.append(
+        {
+            "subject_id": customer_id,
+            "predicate": "customer_address",
+            "object_value": address,
+            "object_type": "string",
+        }
+    )
 
     # Create customer triples via batch API
     async with httpx.AsyncClient() as client:
