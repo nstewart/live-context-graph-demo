@@ -12,6 +12,8 @@ This project demonstrates a **live digital twin** of same-day grocery delivery o
 - **LangGraph Agents** with semantic reasoning over the knowledge graph
 - **React Admin UI** with WebSocket-powered real-time updates
 
+**Why digital twins?** AI agents need access to **fresh operational context** that reflects your business at the current moment. This starter transforms operational data into **live data products**—composable contextual building blocks maintained continuously—enabling agents to observe, reason, and act within your **latency budget**. Rather than waiting for batch ETL or querying stale data, agents operate in **operational space** where consequences of their actions are visible within seconds, enabling tight feedback loops for multi-agent coordination.
+
 ## Who Is This For?
 
 - Developers building **AI agents** that reason over operational data
@@ -45,8 +47,9 @@ The system automatically seeds demo data: 5 stores, 15 products, 15 customers, 2
 ### Low-latency Data Synchronization
 - **Sub-second CDC** from PostgreSQL to Materialize via replication
 - **Differential streaming** to UI clients via Zero WebSocket protocol
-- **Automatic reconciliation** across all connected interfaces
-- Changes appear in UI, search indexes, and materialized views simultaneously
+- **Speed layer for operational decisions**: Agents and users operate in real-time, not batch ETL time
+- **Tight feedback loops**: Changes appear in UI, search indexes, and materialized views simultaneously
+- **Butterfly effect visibility**: See cascading consequences of actions across the system within seconds
 
 ### Semantic Knowledge Graph
 - **RDF-style triples** (subject-predicate-object) as universal data model
@@ -56,9 +59,10 @@ The system automatically seeds demo data: 5 stores, 15 products, 15 customers, 2
 
 ### CQRS Architecture
 - **Write model**: PostgreSQL triple store with ontology validation
-- **Read model**: Materialize materialized views optimized per query pattern
+- **Read model**: Materialize materialized views optimized per query pattern with pre-assembled context
+- **No latency-freshness tradeoff**: Get the data freshness of an OLTP system with the last-mile context assembly of a data warehouse
 - **Independent scaling** of writes (PostgreSQL) and reads (Materialize)
-- **Strong consistency** maintained as transaction boundaries are honored
+- **Agents stay within latency budget**: No approximating data, accepting stale inputs, or sacrificing correctness for latency
 
 ### Dynamic Pricing Engine
 - **Zone-based adjustments**: Manhattan (+15%), Brooklyn (+5%), baseline Queens
@@ -68,11 +72,13 @@ The system automatically seeds demo data: 5 stores, 15 products, 15 customers, 2
 - **Live price display** in UI shopping cart and order creation
 
 ### AI-Powered Operations
+- **Agent control loop**: Observe (pre-assembled context in milliseconds) → Think (LLM reasoning) → Act (writes visible within seconds)
 - **Natural language search** over orders and inventory via OpenSearch
-- **LangGraph agents** with tools for semantic reasoning
+- **LangGraph agents** with tools for semantic reasoning over the knowledge graph
 - **Conversational memory** with PostgreSQL-backed checkpointing
-- **Write operations** agents can create customers, orders, and update statuses
-- **Read operations** agents can search, fetch context, and analyze data
+- **Tight feedback loops**: Agents see consequences of their actions immediately, enabling multi-agent coordination
+- **Write operations**: Create customers, orders, and update statuses
+- **Read operations**: Search, fetch context, and analyze data without querying stale snapshots
 
 ### Full-Text Search
 - **Orders index**: Search by customer name, address, order number, status
@@ -88,12 +94,13 @@ FreshMart implements **CQRS (Command Query Responsibility Segregation)** to sepa
 All data modifications flow through the PostgreSQL triple store where they are validated against the ontology schema (classes, properties, ranges, domains). This ensures semantic consistency and referential integrity at write time.
 
 **Read Path:**
-Queries use Materialize materialized views that are pre-computed, denormalized, and indexed in a three-tier architecture (ingest cluster for CDC, compute cluster for aggregation, serving cluster for indexed queries). Views update via Change Data Capture.
+Queries use Materialize materialized views that provide **millisecond access to sub-second fresh data**. Rather than querying multiple tables on demand, agents and users access **pre-assembled context** that is incrementally maintained through a three-tier architecture (ingest cluster for CDC, compute cluster for aggregation, serving cluster for indexed queries).
 
 **Benefits:**
 - Write model enforces schema through ontology validation
-- Read model optimized for specific query patterns (orders, inventory, customers)
-- Real-time consistency via CDC ensures views reflect writes within milliseconds
+- Read model provides **pre-assembled context** optimized for specific query patterns
+- **Millisecond access to sub-second fresh data**: No waiting for batch ETL or dealing with stale data
+- Avoids the **latency-freshness tradeoff** that plagues traditional architectures
 - Independent scaling of write and read workloads
 
 **Data Flow:**
