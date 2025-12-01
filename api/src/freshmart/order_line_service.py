@@ -240,15 +240,12 @@ class OrderLineService:
         Returns:
             List of line items sorted by sequence
         """
-        # Query triples directly with product enrichment (for PostgreSQL)
-        order_number = order_id.split(":")[1]
-        pattern = f"orderline:{order_number}-%"
-
+        # Query by line_of_order relationship to support both sequential and UUID-based line IDs
         query = """
             WITH line_items AS (
                 SELECT DISTINCT subject_id AS line_id
                 FROM triples
-                WHERE subject_id LIKE :pattern
+                WHERE predicate = 'line_of_order' AND object_value = :order_id
             ),
             line_data AS (
                 SELECT
@@ -277,11 +274,10 @@ class OrderLineService:
             SELECT ld.*, p.product_name, p.category
             FROM line_data ld
             LEFT JOIN products p ON p.product_id = ld.product_id
-            WHERE ld.order_id = :order_id
-            ORDER BY ld.line_sequence
+            ORDER BY ld.line_sequence NULLS LAST, ld.line_id
         """
 
-        result = await self.session.execute(text(query), {"pattern": pattern, "order_id": order_id})
+        result = await self.session.execute(text(query), {"order_id": order_id})
         rows = result.fetchall()
 
         return [
@@ -453,15 +449,32 @@ class OrderLineService:
         Returns:
             Number of line items deleted
         """
-        order_number = order_id.split(":")[1]
-        pattern = f"orderline:{order_number}-%"
+        # First, get the list of line item IDs to delete
+        line_ids_result = await self.session.execute(
+            text("""
+                SELECT DISTINCT subject_id
+                FROM triples
+                WHERE predicate = 'line_of_order' AND object_value = :order_id
+            """),
+            {"order_id": order_id},
+        )
+        line_ids = [row.subject_id for row in line_ids_result.fetchall()]
+
+        if not line_ids:
+            return 0
+
+        # Delete all triples for these line items
+        # Build IN clause with placeholders
+        placeholders = ', '.join(f':line_id_{i}' for i in range(len(line_ids)))
+        params = {f"line_id_{i}": line_id for i, line_id in enumerate(line_ids)}
 
         result = await self.session.execute(
-            text("DELETE FROM triples WHERE subject_id LIKE :pattern"),
-            {"pattern": pattern},
+            text(f"DELETE FROM triples WHERE subject_id IN ({placeholders})"),
+            params,
         )
-        # Each line item has 7 triples, so divide by 7
-        return result.rowcount // 7
+
+        # Return the count of line items deleted (not triples)
+        return len(line_ids)
 
     async def atomic_update_order_with_lines(
         self,
