@@ -86,6 +86,8 @@ def chat(
                     break
                 except Exception as e:
                     console.print(f"[red]Error: {e}[/red]")
+                    import traceback
+                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
         # Run with a single event loop for the entire session
         try:
@@ -105,6 +107,8 @@ def chat(
 
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
             sys.exit(1)
 
 

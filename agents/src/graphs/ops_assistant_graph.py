@@ -15,6 +15,7 @@ from src.tools import (
     create_order,
     fetch_order_context,
     get_ontology,
+    manage_order_lines,
     search_inventory,
     search_orders,
     write_triples,
@@ -34,6 +35,7 @@ TOOLS = [
     create_customer,
     search_inventory,
     create_order,
+    manage_order_lines,
     search_orders,
     fetch_order_context,
     get_ontology,
@@ -67,6 +69,7 @@ You help customers:
 - create_customer: Create a new customer account (requires name)
 - search_inventory: Find products in a store's inventory
 - create_order: Create an order with confirmed items
+- manage_order_lines: Add, update, or delete products from an existing order
 - search_orders: Search existing orders
 - fetch_order_context: Get full details for an order
 - write_triples: Update order status or other data
