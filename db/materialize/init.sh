@@ -502,6 +502,8 @@ SELECT
   inv.product_name,
   inv.category,
   inv.stock_level,
+  inv.reserved_quantity,
+  inv.available_quantity,
   inv.perishable,
   inv.unit_price AS base_price,
 
@@ -521,10 +523,10 @@ SELECT
     ELSE 1.0
   END AS perishable_adjustment,
 
-  -- Low stock at this specific store gets additional premium
+  -- Low available stock at this specific store gets additional premium
   CASE
-    WHEN inv.stock_level <= 5 THEN 1.10
-    WHEN inv.stock_level <= 15 THEN 1.03
+    WHEN inv.available_quantity <= 5 THEN 1.10
+    WHEN inv.available_quantity <= 15 THEN 1.03
     ELSE 1.0
   END AS local_stock_adjustment,
 
@@ -536,7 +538,7 @@ SELECT
   pf.sale_count AS product_sale_count,
   pf.total_stock AS product_total_stock,
 
-  -- Computed dynamic price with all factors
+  -- Computed dynamic price with all factors (using available quantity, not total stock)
   ROUND(
     COALESCE(inv.unit_price, 0) *
     CASE WHEN inv.store_zone = 'MAN' THEN 1.15
@@ -546,8 +548,8 @@ SELECT
          WHEN inv.store_zone = 'SI' THEN 0.95
          ELSE 1.00 END *
     CASE WHEN inv.perishable = TRUE THEN 0.95 ELSE 1.0 END *
-    CASE WHEN inv.stock_level <= 5 THEN 1.10
-         WHEN inv.stock_level <= 15 THEN 1.03
+    CASE WHEN inv.available_quantity <= 5 THEN 1.10
+         WHEN inv.available_quantity <= 15 THEN 1.03
          ELSE 1.0 END *
     COALESCE(pf.popularity_adjustment, 1.0) *
     COALESCE(pf.scarcity_adjustment, 1.0) *
@@ -566,8 +568,8 @@ SELECT
            WHEN inv.store_zone = 'SI' THEN 0.95
            ELSE 1.00 END *
       CASE WHEN inv.perishable = TRUE THEN 0.95 ELSE 1.0 END *
-      CASE WHEN inv.stock_level <= 5 THEN 1.10
-           WHEN inv.stock_level <= 15 THEN 1.03
+      CASE WHEN inv.available_quantity <= 5 THEN 1.10
+           WHEN inv.available_quantity <= 15 THEN 1.03
            ELSE 1.0 END *
       COALESCE(pf.popularity_adjustment, 1.0) *
       COALESCE(pf.scarcity_adjustment, 1.0) *

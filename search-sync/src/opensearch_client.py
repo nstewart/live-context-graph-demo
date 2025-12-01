@@ -85,6 +85,8 @@ INVENTORY_INDEX_MAPPING = {
             "store_id": {"type": "keyword"},
             "product_id": {"type": "keyword"},
             "stock_level": {"type": "integer"},
+            "reserved_quantity": {"type": "integer"},
+            "available_quantity": {"type": "integer"},
             "replenishment_eta": {"type": "date"},
             "product_name": {
                 "type": "text",

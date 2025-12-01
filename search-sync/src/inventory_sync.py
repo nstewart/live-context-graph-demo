@@ -43,6 +43,8 @@ INVENTORY_INDEX_MAPPING = {
             "store_id": {"type": "keyword"},
             "product_id": {"type": "keyword"},
             "stock_level": {"type": "integer"},
+            "reserved_quantity": {"type": "integer"},
+            "available_quantity": {"type": "integer"},
             "replenishment_eta": {"type": "date"},
             "product_name": {
                 "type": "text",
@@ -225,6 +227,8 @@ class InventorySyncWorker(BaseSubscribeWorker):
                 "store_id": data.get("store_id"),
                 "product_id": data.get("product_id"),
                 "stock_level": data.get("stock_level"),
+                "reserved_quantity": data.get("reserved_quantity"),
+                "available_quantity": data.get("available_quantity"),
                 "replenishment_eta": data.get("replenishment_eta"),
                 "effective_updated_at": data.get("effective_updated_at"),
                 # Product details (denormalized from products_flat)
