@@ -16,6 +16,9 @@ async def write_triples(
     """
     Write one or more triples to the FreshMart knowledge graph.
 
+    **IMPORTANT: You MUST call get_ontology BEFORE using this tool to verify
+    that the predicates you want to use exist in the ontology schema.**
+
     Use this tool to:
     - Update order status (e.g., mark as DELIVERED)
     - Assign couriers to tasks
@@ -27,6 +30,9 @@ async def write_triples(
     - object_value: The value to set
     - object_type: One of "string", "int", "float", "bool", "timestamp", "entity_ref"
 
+    **DO NOT use predicates that don't exist in the ontology.**
+    For operations like removing order items, use manage_order_lines instead.
+
     Args:
         triples: List of triples to create/update
         validate_ontology: Whether to validate against ontology (default True)
@@ -35,6 +41,10 @@ async def write_triples(
         List of created/updated triples or error details
 
     Example:
+        # First check ontology:
+        ontology = get_ontology()
+        # Verify "order_status" exists in properties
+        # Then write:
         write_triples([{
             "subject_id": "order:FM-1001",
             "predicate": "order_status",
@@ -45,6 +55,24 @@ async def write_triples(
     settings = get_settings()
     results = []
 
+    # Fetch ontology for client-side validation if requested
+    ontology_properties = None
+    if validate_ontology:
+        async with httpx.AsyncClient() as client:
+            try:
+                ont_response = await client.get(
+                    f"{settings.agent_api_base}/ontology/schema",
+                    timeout=10.0,
+                )
+                if ont_response.status_code == 200:
+                    ontology_schema = ont_response.json()
+                    ontology_properties = {
+                        p["prop_name"]: p for p in ontology_schema.get("properties", [])
+                    }
+            except Exception:
+                # If we can't fetch ontology, let server-side validation handle it
+                pass
+
     async with httpx.AsyncClient() as client:
         for triple in triples:
             try:
@@ -54,6 +82,18 @@ async def write_triples(
                 if missing:
                     results.append({
                         "error": f"Missing required fields: {missing}",
+                        "triple": triple,
+                    })
+                    continue
+
+                # Client-side ontology validation
+                if ontology_properties and triple["predicate"] not in ontology_properties:
+                    available_predicates = list(ontology_properties.keys())
+                    results.append({
+                        "success": False,
+                        "error": f"Predicate '{triple['predicate']}' does not exist in ontology",
+                        "suggestion": "Check get_ontology() for available predicates, or use a high-level tool like manage_order_lines",
+                        "available_predicates_sample": available_predicates[:10],  # Show first 10
                         "triple": triple,
                     })
                     continue
