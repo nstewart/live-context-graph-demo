@@ -4,11 +4,12 @@ Tests the complete workflow: Create order → Add line → Update quantity → D
 """
 
 import os
+import asyncio
 import pytest
 from decimal import Decimal
 from httpx import AsyncClient
 
-from conftest import requires_db
+from tests.conftest import requires_db
 
 
 @pytest.mark.asyncio
@@ -43,7 +44,7 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
         },
         {
             "subject_id": customer_id,
-            "predicate": "email",
+            "predicate": "customer_email",
             "object_value": "test@example.com",
             "object_type": "string",
         },
@@ -113,7 +114,7 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
         },
         {
             "subject_id": store_id,
-            "predicate": "address",
+            "predicate": "store_address",
             "object_value": "123 Test St",
             "object_type": "string",
         },
@@ -179,7 +180,7 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
         },
         {
             "subject_id": line_id_1,
-            "predicate": "unit_price",
+            "predicate": "order_line_unit_price",
             "object_value": "10.00",
             "object_type": "float",
         },
@@ -209,6 +210,9 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
         params={"validate": True},
     )
     assert create_order_response.status_code == 201, f"Failed to create order: {create_order_response.text}"
+
+    # Wait for Materialize views to hydrate
+    await asyncio.sleep(1)
 
     # Verify order was created
     get_order_response = await async_client.get(f"/freshmart/orders/{order_id}")
@@ -243,10 +247,11 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
         },
     )
     assert add_response.status_code == 201, f"Failed to add line item: {add_response.text}"
-    new_line_items = add_response.json()
-    assert len(new_line_items) == 1
-    assert new_line_items[0]["line_id"] == line_id_2
-    assert new_line_items[0]["quantity"] == 3
+    all_line_items = add_response.json()
+    # API returns ALL line items for the order, not just newly added
+    assert len(all_line_items) == 2
+    new_item = [item for item in all_line_items if item["line_id"] == line_id_2][0]
+    assert new_item["quantity"] == 3
 
     # Verify we now have 2 line items
     list_response = await async_client.get(f"/freshmart/orders/{order_id}/line-items")
@@ -375,7 +380,7 @@ async def test_update_line_quantity_validation(async_client: AsyncClient):
             {"subject_id": line_id, "predicate": "line_of_order", "object_value": order_id, "object_type": "entity_ref"},
             {"subject_id": line_id, "predicate": "line_product", "object_value": product_id, "object_type": "entity_ref"},
             {"subject_id": line_id, "predicate": "quantity", "object_value": "1", "object_type": "int"},
-            {"subject_id": line_id, "predicate": "unit_price", "object_value": "10.00", "object_type": "float"},
+            {"subject_id": line_id, "predicate": "order_line_unit_price", "object_value": "10.00", "object_type": "float"},
             {"subject_id": line_id, "predicate": "line_amount", "object_value": "10.00", "object_type": "float"},
         ],
         params={"validate": True},
