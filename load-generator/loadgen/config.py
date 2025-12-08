@@ -22,6 +22,34 @@ class LoadProfile:
     inventory_update_weight: float = 0.10
     order_cancellation_weight: float = 0.05
 
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        # Validate that weights sum to approximately 1.0
+        total_weight = (
+            self.new_order_weight
+            + self.status_transition_weight
+            + self.order_modification_weight
+            + self.customer_creation_weight
+            + self.inventory_update_weight
+            + self.order_cancellation_weight
+        )
+        if abs(total_weight - 1.0) > 0.01:
+            raise ValueError(
+                f"Activity weights must sum to 1.0, got {total_weight:.3f} for profile '{self.name}'"
+            )
+
+        # Validate that all weights are non-negative
+        weights = [
+            self.new_order_weight,
+            self.status_transition_weight,
+            self.order_modification_weight,
+            self.customer_creation_weight,
+            self.inventory_update_weight,
+            self.order_cancellation_weight,
+        ]
+        if any(w < 0 for w in weights):
+            raise ValueError(f"Activity weights must be non-negative for profile '{self.name}'")
+
 
 # Predefined profiles matching the product brief
 PROFILES = {

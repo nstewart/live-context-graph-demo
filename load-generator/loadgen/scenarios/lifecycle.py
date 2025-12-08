@@ -28,8 +28,11 @@ class OrderLifecycleScenario:
         self.api_client = api_client
         self.data_generator = data_generator
 
-    async def execute(self) -> dict[str, Any]:
+    async def execute(self, force_cancellation: bool = False) -> dict[str, Any]:
         """Execute order lifecycle scenario.
+
+        Args:
+            force_cancellation: If True, force cancellation instead of transition
 
         Returns:
             Result dictionary with transition details
@@ -51,8 +54,8 @@ class OrderLifecycleScenario:
             order = random.choice(orders)
             order_id = order["order_id"]
 
-            # Check if order should be cancelled
-            if self.data_generator.should_cancel_order(status):
+            # Check if order should be cancelled (forced or random)
+            if force_cancellation or self.data_generator.should_cancel_order(status):
                 await self.api_client.update_order_status(order_id, "CANCELLED")
                 logger.debug(f"Cancelled order {order_id} (was {status})")
                 return {

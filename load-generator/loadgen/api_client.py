@@ -1,5 +1,6 @@
 """FreshMart API client wrapper for load generation."""
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Optional
@@ -12,18 +13,26 @@ logger = logging.getLogger(__name__)
 class FreshMartAPIClient:
     """Client for interacting with FreshMart API."""
 
-    def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 30.0):
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8080",
+        timeout: float = 30.0,
+        max_retries: int = 3,
+    ):
         """Initialize API client.
 
         Args:
             base_url: Base URL for FreshMart API
             timeout: Request timeout in seconds
+            max_retries: Maximum number of retries for transient failures
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max_retries
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, connect=5.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             follow_redirects=True,
         )
 
@@ -39,6 +48,65 @@ class FreshMartAPIClient:
         """Context manager exit."""
         await self.close()
 
+    async def _retry_request(self, method: str, *args, **kwargs) -> httpx.Response:
+        """Execute HTTP request with retry logic for transient failures.
+
+        Args:
+            method: HTTP method (get, post, put, delete)
+            *args: Positional arguments for the request
+            **kwargs: Keyword arguments for the request
+
+        Returns:
+            HTTP response
+
+        Raises:
+            httpx.HTTPError: If all retries fail
+        """
+        last_exception = None
+
+        for attempt in range(self.max_retries):
+            try:
+                # Get the appropriate method from the client
+                request_func = getattr(self.client, method)
+                response = await request_func(*args, **kwargs)
+                response.raise_for_status()
+                return response
+
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                # Retry on network/timeout errors
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    backoff = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.debug(
+                        f"Request failed (attempt {attempt + 1}/{self.max_retries}), "
+                        f"retrying in {backoff}s: {e}"
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                else:
+                    logger.error(f"Request failed after {self.max_retries} attempts: {e}")
+                    raise
+
+            except httpx.HTTPStatusError as e:
+                # Retry on 5xx server errors, but not on 4xx client errors
+                if e.response.status_code >= 500:
+                    last_exception = e
+                    if attempt < self.max_retries - 1:
+                        backoff = 2 ** attempt
+                        logger.debug(
+                            f"Server error {e.response.status_code} "
+                            f"(attempt {attempt + 1}/{self.max_retries}), "
+                            f"retrying in {backoff}s"
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                # Don't retry on client errors (4xx)
+                raise
+
+        # This should not be reached, but just in case
+        if last_exception:
+            raise last_exception
+
     async def health_check(self) -> dict[str, Any]:
         """Check API health.
 
@@ -48,8 +116,7 @@ class FreshMartAPIClient:
         Raises:
             httpx.HTTPError: If health check fails
         """
-        response = await self.client.get("/health")
-        response.raise_for_status()
+        response = await self._retry_request("get", "/health")
         return response.json()
 
     async def get_stores(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -61,8 +128,7 @@ class FreshMartAPIClient:
         Returns:
             List of store objects
         """
-        response = await self.client.get("/freshmart/stores", params={"limit": limit})
-        response.raise_for_status()
+        response = await self._retry_request("get", "/freshmart/stores", params={"limit": limit})
         return response.json()
 
     async def get_customers(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -74,8 +140,7 @@ class FreshMartAPIClient:
         Returns:
             List of customer objects
         """
-        response = await self.client.get("/freshmart/customers", params={"limit": limit})
-        response.raise_for_status()
+        response = await self._retry_request("get", "/freshmart/customers", params={"limit": limit})
         return response.json()
 
     async def get_products(self, limit: int = 1000) -> list[dict[str, Any]]:
@@ -87,8 +152,7 @@ class FreshMartAPIClient:
         Returns:
             List of product objects
         """
-        response = await self.client.get("/freshmart/products", params={"limit": limit})
-        response.raise_for_status()
+        response = await self._retry_request("get", "/freshmart/products", params={"limit": limit})
         return response.json()
 
     async def get_orders(
@@ -111,8 +175,7 @@ class FreshMartAPIClient:
         if status:
             params["status"] = status
 
-        response = await self.client.get("/freshmart/orders", params=params)
-        response.raise_for_status()
+        response = await self._retry_request("get", "/freshmart/orders", params=params)
         return response.json()
 
     async def create_triples_batch(
@@ -130,12 +193,12 @@ class FreshMartAPIClient:
         Raises:
             httpx.HTTPError: If creation fails
         """
-        response = await self.client.post(
+        response = await self._retry_request(
+            "post",
             "/triples/batch",
             json=triples,
             params={"validate": validate},
         )
-        response.raise_for_status()
         return response.json()
 
     async def update_triples_batch(
@@ -153,12 +216,12 @@ class FreshMartAPIClient:
         Raises:
             httpx.HTTPError: If update fails
         """
-        response = await self.client.put(
+        response = await self._retry_request(
+            "put",
             "/triples/batch",
             json=updates,
             params={"validate": validate},
         )
-        response.raise_for_status()
         return response.json()
 
     async def create_customer(

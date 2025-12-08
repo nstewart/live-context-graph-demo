@@ -26,6 +26,9 @@ class ActivityMetrics:
     inventory_updates: int = 0
     cancellations: int = 0
 
+    # Error tracking
+    error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
     def record_success(self, latency: float, activity_type: str):
         """Record a successful activity.
 
@@ -49,10 +52,16 @@ class ActivityMetrics:
         elif activity_type == "cancellation":
             self.cancellations += 1
 
-    def record_failure(self):
-        """Record a failed activity."""
+    def record_failure(self, error: str = "Unknown error"):
+        """Record a failed activity.
+
+        Args:
+            error: Error message or type
+        """
         self.total_attempts += 1
         self.total_failures += 1
+        # Track error type for debugging
+        self.error_counts[error] += 1
 
     @property
     def success_rate(self) -> float:
@@ -118,6 +127,7 @@ class MetricsTracker:
         success: bool,
         latency: float = 0.0,
         activity_type: str = "other",
+        error: str = None,
     ):
         """Record an activity.
 
@@ -125,13 +135,15 @@ class MetricsTracker:
             success: Whether activity succeeded
             latency: Activity latency in seconds
             activity_type: Type of activity
+            error: Error message if activity failed
         """
         if success:
             self.overall.record_success(latency, activity_type)
             self.windowed.record_success(latency, activity_type)
         else:
-            self.overall.record_failure()
-            self.windowed.record_failure()
+            error_msg = error or "Unknown error"
+            self.overall.record_failure(error_msg)
+            self.windowed.record_failure(error_msg)
 
     def reset_window(self):
         """Reset windowed metrics (call every minute)."""
@@ -180,6 +192,7 @@ class MetricsTracker:
             "customers_created": self.overall.customers_created,
             "inventory_updates": self.overall.inventory_updates,
             "cancellations": self.overall.cancellations,
+            "error_counts": dict(self.overall.error_counts),
         }
 
     def get_windowed_summary(self) -> dict[str, Any]:

@@ -128,10 +128,10 @@ class LoadOrchestrator:
                 result = await self.order_scenario.execute()
                 metric_type = "order"
             elif activity_type == "transition":
-                result = await self.lifecycle_scenario.execute()
+                result = await self.lifecycle_scenario.execute(force_cancellation=False)
                 metric_type = "transition"
             elif activity_type == "cancellation":
-                result = await self.lifecycle_scenario.execute()
+                result = await self.lifecycle_scenario.execute(force_cancellation=True)
                 metric_type = "cancellation"
             elif activity_type == "customer":
                 result = await self.customer_scenario.execute()
@@ -141,7 +141,7 @@ class LoadOrchestrator:
                 metric_type = "inventory"
             elif activity_type == "modification":
                 # For now, treat modifications like status transitions
-                result = await self.lifecycle_scenario.execute()
+                result = await self.lifecycle_scenario.execute(force_cancellation=False)
                 metric_type = "transition"
             else:
                 result = {"success": False, "error": f"Unknown activity: {activity_type}"}
@@ -152,13 +152,17 @@ class LoadOrchestrator:
                 success=result.get("success", False),
                 latency=latency,
                 activity_type=metric_type,
+                error=result.get("error") if not result.get("success", False) else None,
             )
 
             return result
 
         except Exception as e:
             logger.error(f"Activity execution failed: {e}", exc_info=True)
-            self.metrics.record_activity(success=False)
+            self.metrics.record_activity(
+                success=False,
+                error=str(e),
+            )
             return {"success": False, "error": str(e)}
 
     async def worker(self, worker_id: int):
@@ -308,4 +312,16 @@ class LoadOrchestrator:
         logger.info(f"  Customers created: {summary['customers_created']}")
         logger.info(f"  Inventory updates: {summary['inventory_updates']}")
         logger.info(f"  Cancellations: {summary['cancellations']}")
+
+        # Print error breakdown if there were failures
+        if summary['total_failures'] > 0 and summary['error_counts']:
+            logger.info("")
+            logger.info("Error Breakdown:")
+            for error_msg, count in sorted(
+                summary['error_counts'].items(), key=lambda x: x[1], reverse=True
+            ):
+                # Truncate long error messages
+                display_msg = error_msg[:60] + "..." if len(error_msg) > 60 else error_msg
+                logger.info(f"  {display_msg}: {count}")
+
         logger.info("=" * 60)
