@@ -233,6 +233,22 @@ make help
 ./db/scripts/generate_data.sh --scale 0.1
 ```
 
+### Generate Live Load
+
+For continuous, realistic activity that demonstrates real-time data flow:
+
+```bash
+# Start load generator with demo profile (5 orders/min)
+make load-gen
+
+# Or use specific profiles
+make load-gen-standard  # 20 orders/min
+make load-gen-peak      # 60 orders/min
+make load-gen-stress    # 200 orders/min
+```
+
+See [load-generator/README.md](load-generator/README.md) for detailed documentation.
+
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for development setup, testing guidelines, and contribution workflow.
 
 ## Project Structure

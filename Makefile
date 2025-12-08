@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer
+.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-health test-load-gen
 
 # Default target
 help:
@@ -20,6 +20,15 @@ help:
 	@echo "  make seed            - Seed demo data"
 	@echo "  make reset-db        - Reset database (WARNING: destroys data)"
 	@echo "  make init-checkpointer - Initialize agent checkpointer tables"
+	@echo ""
+	@echo "Load Generation:"
+	@echo "  make load-gen          - Start load generator (demo profile)"
+	@echo "  make load-gen-demo     - Start with demo profile (5 orders/min)"
+	@echo "  make load-gen-standard - Start with standard profile (20 orders/min)"
+	@echo "  make load-gen-peak     - Start with peak profile (60 orders/min)"
+	@echo "  make load-gen-stress   - Start with stress profile (200 orders/min)"
+	@echo "  make load-gen-health   - Check API health for load generator"
+	@echo "  make test-load-gen     - Run load generator tests"
 	@echo ""
 	@echo "Development:"
 	@echo "  make test       - Run all tests"
@@ -181,3 +190,29 @@ health:
 	@echo "Checking service health..."
 	@curl -s http://localhost:$${API_PORT:-8080}/health | jq . || echo "API: Not responding"
 	@curl -s http://localhost:$${OS_PORT:-9200}/_cluster/health | jq . || echo "OpenSearch: Not responding"
+
+# Load Generation
+load-gen: load-gen-demo
+
+load-gen-demo:
+	@echo "Starting load generator with demo profile..."
+	@cd load-generator && python -m loadgen start --profile demo
+
+load-gen-standard:
+	@echo "Starting load generator with standard profile..."
+	@cd load-generator && python -m loadgen start --profile standard
+
+load-gen-peak:
+	@echo "Starting load generator with peak profile..."
+	@cd load-generator && python -m loadgen start --profile peak
+
+load-gen-stress:
+	@echo "Starting load generator with stress profile..."
+	@cd load-generator && python -m loadgen start --profile stress
+
+load-gen-health:
+	@cd load-generator && python -m loadgen health
+
+test-load-gen:
+	@echo "Running load generator tests..."
+	@cd load-generator && pytest -v
