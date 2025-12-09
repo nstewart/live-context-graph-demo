@@ -48,19 +48,19 @@ def sample_products():
         {
             "product_id": "product:1",
             "product_name": "Organic Milk",
-            "base_price": 4.99,
+            "unit_price": 4.99,
             "category": "Dairy",
         },
         {
             "product_id": "product:2",
             "product_name": "Fresh Eggs",
-            "base_price": 3.49,
+            "unit_price": 3.49,
             "category": "Dairy",
         },
         {
             "product_id": "product:3",
             "product_name": "Whole Wheat Bread",
-            "base_price": 2.99,
+            "unit_price": 2.99,
             "category": "Bakery",
         },
     ]

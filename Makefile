@@ -196,23 +196,23 @@ load-gen: load-gen-demo
 
 load-gen-demo:
 	@echo "Starting load generator with demo profile..."
-	@cd load-generator && python -m loadgen start --profile demo
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project python -m loadgen start --profile demo
 
 load-gen-standard:
 	@echo "Starting load generator with standard profile..."
-	@cd load-generator && python -m loadgen start --profile standard
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project python -m loadgen start --profile standard
 
 load-gen-peak:
 	@echo "Starting load generator with peak profile..."
-	@cd load-generator && python -m loadgen start --profile peak
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project python -m loadgen start --profile peak
 
 load-gen-stress:
 	@echo "Starting load generator with stress profile..."
-	@cd load-generator && python -m loadgen start --profile stress
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project python -m loadgen start --profile stress
 
 load-gen-health:
-	@cd load-generator && python -m loadgen health
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project python -m loadgen health
 
 test-load-gen:
 	@echo "Running load generator tests..."
-	@cd load-generator && pytest -v
+	@cd load-generator && uv pip install -q -r requirements.txt && uv run --no-project pytest -v

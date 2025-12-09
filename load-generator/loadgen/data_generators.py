@@ -136,7 +136,7 @@ class DataGenerator:
                 {
                     "product_id": product["product_id"],
                     "quantity": quantity,
-                    "price": product["base_price"],
+                    "price": float(product["unit_price"]) if isinstance(product["unit_price"], str) else product["unit_price"],
                 }
             )
 

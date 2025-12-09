@@ -17,10 +17,10 @@ from loadgen.scenarios import (
 def mock_api_client():
     """Create a mock API client."""
     client = MagicMock(spec=FreshMartAPIClient)
-    client.get_stores = AsyncMock(return_value=[{"store_id": "store:1"}])
-    client.get_customers = AsyncMock(return_value=[{"customer_id": "customer:1"}])
+    client.get_stores = AsyncMock(return_value=[{"store_id": "store:1", "store_name": "Test Store"}])
+    client.get_customers = AsyncMock(return_value=[{"customer_id": "customer:1", "customer_name": "Test Customer"}])
     client.get_products = AsyncMock(
-        return_value=[{"product_id": "product:1", "name": "Test Product"}]
+        return_value=[{"product_id": "product:1", "product_name": "Test Product", "unit_price": 4.99}]
     )
     client.get_orders = AsyncMock(
         return_value=[{"order_id": "order:FM-123", "status": "CREATED"}]
@@ -161,8 +161,8 @@ async def test_inventory_scenario_execute(mock_api_client, data_generator):
     # Verify result structure
     assert "success" in result
     assert result["success"] is True
-    assert "store_id" in result
-    assert "product_id" in result
+    assert "store_name" in result
+    assert "product_name" in result
     assert "new_quantity" in result
 
     # Verify API call was made
