@@ -100,6 +100,8 @@ up-agent:
 	@sleep 5
 	@echo "Running migrations..."
 	@$(MAKE) migrate
+	@echo "Initializing Materialize views..."
+	@$(MAKE) init-mz
 	@echo "Loading seed data..."
 	@$(MAKE) seed
 	@echo ""

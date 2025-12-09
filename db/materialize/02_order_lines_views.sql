@@ -43,7 +43,7 @@ GROUP BY subject_id;
 -- These persist results for serving
 -- =============================================================================
 
--- Tier 2: Flattened order lines with product enrichment
+-- Tier 2: Flattened order lines with product enrichment and pricing
 CREATE MATERIALIZED VIEW IF NOT EXISTS order_lines_flat_mv IN CLUSTER compute AS
 SELECT
     ol.line_id,
@@ -58,9 +58,23 @@ SELECT
     p.category,
     p.unit_price AS current_product_price,
     p.unit_weight_grams,
-    ol.effective_updated_at
+    ol.effective_updated_at,
+    -- Pricing columns for UI display
+    p.unit_price AS base_price,  -- Static catalog price (base)
+    COALESCE(inv.live_price, p.unit_price) AS live_price  -- Dynamic price or fallback to base
 FROM order_lines_base ol
-LEFT JOIN products_flat p ON p.product_id = ol.product_id;
+LEFT JOIN products_flat p ON p.product_id = ol.product_id
+LEFT JOIN (
+    -- Get order's store_id to join with inventory pricing
+    SELECT
+        subject_id AS order_id,
+        MAX(CASE WHEN predicate = 'store_id' THEN object_value END) AS store_id
+    FROM triples
+    WHERE subject_id LIKE 'order:%'
+    GROUP BY subject_id
+) o ON o.order_id = ol.order_id
+LEFT JOIN inventory_items_with_dynamic_pricing_mv inv
+    ON inv.store_id = o.store_id AND inv.product_id = ol.product_id;
 
 -- Tier 3: Orders with aggregated line items (JSONB)
 CREATE MATERIALIZED VIEW IF NOT EXISTS orders_with_lines_mv IN CLUSTER compute AS

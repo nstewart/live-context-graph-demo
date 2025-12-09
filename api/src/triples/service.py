@@ -174,6 +174,8 @@ class TripleService:
 
     async def create_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
         """Create multiple triples in a batch."""
+        logger.info(f"🔵 [TRANSACTION START] Creating {len(triples)} new triples")
+
         # Log transaction start with summary of what's being written
         subjects = {}  # subject_id -> list of predicates
         for triple in triples:
@@ -277,6 +279,8 @@ class TripleService:
             prefix = triple.subject_id.split(":", 1)[0]
             if not prefix:
                 raise ValueError(f"Invalid subject_id format: '{triple.subject_id}'. Prefix cannot be empty")
+
+        logger.info(f"🔵 [TRANSACTION START] Upserting {len(triples)} triples")
 
         # Log transaction start
         subjects = {}
