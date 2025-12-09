@@ -639,7 +639,7 @@ class OrderLineService:
             order_triples.append(
                 TripleCreate(
                     subject_id=order_id,
-                    predicate="customer_id",
+                    predicate="placed_by",
                     object_value=customer_id,
                     object_type="entity_ref",
                 )
@@ -649,7 +649,7 @@ class OrderLineService:
             order_triples.append(
                 TripleCreate(
                     subject_id=order_id,
-                    predicate="store_id",
+                    predicate="order_store",
                     object_value=store_id,
                     object_type="entity_ref",
                 )
@@ -695,18 +695,36 @@ class OrderLineService:
 
             # Get existing line item details (line_sequence -> line_id mapping)
             existing_items_map = {}
-            for line_id in existing_line_ids:
-                seq_result = await self.session.execute(
+            if existing_line_ids:
+                # Batch fetch all line sequence numbers in a single query
+                existing_items_result = await self.session.execute(
                     text("""
-                        SELECT object_value
+                        SELECT subject_id, object_value
                         FROM triples
-                        WHERE subject_id = :line_id AND predicate = 'line_sequence'
+                        WHERE subject_id = ANY(:line_ids) AND predicate = 'line_sequence'
                     """),
-                    {"line_id": line_id},
+                    {"line_ids": list(existing_line_ids)},
                 )
-                seq_row = seq_result.fetchone()
-                if seq_row:
-                    existing_items_map[int(seq_row.object_value)] = line_id
+                existing_items_map = {
+                    int(row.object_value): row.subject_id
+                    for row in existing_items_result.fetchall()
+                }
+
+            # Batch fetch all existing values for all line items in a single query
+            existing_vals_by_line = {}
+            if existing_line_ids:
+                existing_vals_result = await self.session.execute(
+                    text("""
+                        SELECT subject_id, predicate, object_value
+                        FROM triples
+                        WHERE subject_id = ANY(:line_ids)
+                    """),
+                    {"line_ids": list(existing_line_ids)},
+                )
+                for row in existing_vals_result.fetchall():
+                    if row.subject_id not in existing_vals_by_line:
+                        existing_vals_by_line[row.subject_id] = {}
+                    existing_vals_by_line[row.subject_id][row.predicate] = row.object_value
 
             # Track which line items to keep
             line_ids_to_keep = set()
@@ -720,16 +738,8 @@ class OrderLineService:
                     # Line item exists at this sequence - check if it changed
                     line_ids_to_keep.add(existing_line_id)
 
-                    # Get existing values
-                    existing_vals_result = await self.session.execute(
-                        text("""
-                            SELECT predicate, object_value
-                            FROM triples
-                            WHERE subject_id = :line_id
-                        """),
-                        {"line_id": existing_line_id},
-                    )
-                    existing_vals = {row.predicate: row.object_value for row in existing_vals_result.fetchall()}
+                    # Get existing values from our batch-fetched data
+                    existing_vals = existing_vals_by_line.get(existing_line_id, {})
 
                     # Build triples for changed fields only
                     line_amount = Decimal(str(new_item.quantity)) * Decimal(str(new_item.unit_price))
