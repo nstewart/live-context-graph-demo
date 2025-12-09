@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { triplesApi, ontologyApi, Triple, TripleCreate, OntologyProperty, OntologyClass } from '../api/client'
-import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
+import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X, ArrowLeft } from 'lucide-react'
 
 interface TripleFormData {
   subject_id: string
@@ -252,6 +252,7 @@ const PAGE_SIZE = 100
 export default function TriplesBrowserPage() {
   const queryClient = useQueryClient()
   const [subjectId, setSubjectId] = useState('')
+  const [navigationHistory, setNavigationHistory] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState('')
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>('')
   const [showModal, setShowModal] = useState(false)
@@ -346,6 +347,7 @@ export default function TriplesBrowserPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subjects'] })
       setSubjectId('')
+      setNavigationHistory([])
       setDeleteSubjectConfirm(null)
     },
     onError: (error) => {
@@ -382,7 +384,25 @@ export default function TriplesBrowserPage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchInput) {
-      setSubjectId(searchInput)
+      navigateToSubject(searchInput)
+    }
+  }
+
+  // Navigate to a subject and track history
+  const navigateToSubject = (newSubjectId: string) => {
+    if (subjectId && subjectId !== newSubjectId) {
+      // Add current subject to history before navigating
+      setNavigationHistory(prev => [...prev, subjectId])
+    }
+    setSubjectId(newSubjectId)
+  }
+
+  // Navigate back to previous subject
+  const navigateBack = () => {
+    if (navigationHistory.length > 0) {
+      const previousSubject = navigationHistory[navigationHistory.length - 1]
+      setNavigationHistory(prev => prev.slice(0, -1))
+      setSubjectId(previousSubject)
     }
   }
 
@@ -460,7 +480,7 @@ export default function TriplesBrowserPage() {
                 filteredSubjects.map(s => (
                   <button
                     key={s}
-                    onClick={() => setSubjectId(s)}
+                    onClick={() => navigateToSubject(s)}
                     className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 ${
                       subjectId === s ? 'bg-green-50 text-green-700' : ''
                     }`}
@@ -515,13 +535,25 @@ export default function TriplesBrowserPage() {
           {subjectInfo && (
             <div className="bg-white rounded-lg shadow">
               <div className="p-4 border-b flex justify-between items-start">
-                <div>
-                  <h2 className="font-semibold text-lg">{subjectInfo.subject_id}</h2>
-                  {subjectInfo.class_name && (
-                    <span className="text-sm bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                      {subjectInfo.class_name}
-                    </span>
+                <div className="flex items-center gap-3">
+                  {navigationHistory.length > 0 && (
+                    <button
+                      onClick={navigateBack}
+                      className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+                      title="Go back to previous entity"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Back
+                    </button>
                   )}
+                  <div>
+                    <h2 className="font-semibold text-lg">{subjectInfo.subject_id}</h2>
+                    {subjectInfo.class_name && (
+                      <span className="text-sm bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                        {subjectInfo.class_name}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -564,7 +596,7 @@ export default function TriplesBrowserPage() {
                         <td className="py-2">
                           {triple.object_type === 'entity_ref' ? (
                             <button
-                              onClick={() => setSubjectId(triple.object_value)}
+                              onClick={() => navigateToSubject(triple.object_value)}
                               className="text-green-600 hover:underline"
                             >
                               {triple.object_value}

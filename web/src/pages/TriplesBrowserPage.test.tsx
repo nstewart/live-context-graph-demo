@@ -616,4 +616,189 @@ describe('TriplesBrowserPage', () => {
       })
     })
   })
+
+  describe('Navigation History', () => {
+    it('does not show back button initially', async () => {
+      vi.mocked(triplesApi.listSubjects).mockResolvedValue({ data: mockSubjects } as never)
+      vi.mocked(triplesApi.getSubject).mockResolvedValue({ data: mockSubjectInfo } as never)
+      renderWithClient(<TriplesBrowserPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('order:FM-1001')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('order:FM-1001'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText('Back')).not.toBeInTheDocument()
+    })
+
+    it('shows back button after navigating to entity_ref', async () => {
+      const mockStoreInfo = {
+        subject_id: 'store:BK-01',
+        class_name: 'Store',
+        class_id: 2,
+        triples: [
+          { id: 4, subject_id: 'store:BK-01', predicate: 'store_name', object_value: 'Brooklyn Store', object_type: 'string', created_at: '', updated_at: '' },
+        ],
+      }
+
+      vi.mocked(triplesApi.listSubjects).mockResolvedValue({ data: mockSubjects } as never)
+      vi.mocked(triplesApi.getSubject)
+        .mockResolvedValueOnce({ data: mockSubjectInfo } as never)
+        .mockResolvedValueOnce({ data: mockStoreInfo } as never)
+
+      renderWithClient(<TriplesBrowserPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('order:FM-1001')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('order:FM-1001'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+      })
+
+      // Click on entity_ref link to navigate
+      const storeElements = screen.getAllByText('store:BK-01')
+      const storeLink = storeElements.find(el => el.tagName === 'BUTTON' && el.classList.contains('text-green-600'))
+      fireEvent.click(storeLink!)
+
+      await waitFor(() => {
+        expect(screen.getByText('Brooklyn Store')).toBeInTheDocument()
+      })
+
+      // Back button should now be visible
+      expect(screen.getByText('Back')).toBeInTheDocument()
+    })
+
+    it('navigates back to previous entity when back button is clicked', async () => {
+      const mockStoreInfo = {
+        subject_id: 'store:BK-01',
+        class_name: 'Store',
+        class_id: 2,
+        triples: [
+          { id: 4, subject_id: 'store:BK-01', predicate: 'store_name', object_value: 'Brooklyn Store', object_type: 'string', created_at: '', updated_at: '' },
+        ],
+      }
+
+      vi.mocked(triplesApi.listSubjects).mockResolvedValue({ data: mockSubjects } as never)
+      vi.mocked(triplesApi.getSubject)
+        .mockResolvedValueOnce({ data: mockSubjectInfo } as never)
+        .mockResolvedValueOnce({ data: mockStoreInfo } as never)
+
+      renderWithClient(<TriplesBrowserPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('order:FM-1001')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('order:FM-1001'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+      })
+
+      // Navigate to store
+      const storeElements = screen.getAllByText('store:BK-01')
+      const storeLink = storeElements.find(el => el.tagName === 'BUTTON' && el.classList.contains('text-green-600'))
+      fireEvent.click(storeLink!)
+
+      await waitFor(() => {
+        expect(screen.getByText('Brooklyn Store')).toBeInTheDocument()
+      })
+
+      // Click back button
+      fireEvent.click(screen.getByText('Back'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+        expect(screen.getByText('CREATED')).toBeInTheDocument()
+      })
+
+      // Back button should be hidden again
+      expect(screen.queryByText('Back')).not.toBeInTheDocument()
+    })
+
+    it('maintains navigation history through multiple clicks', async () => {
+      const mockStoreInfo = {
+        subject_id: 'store:BK-01',
+        class_name: 'Store',
+        class_id: 2,
+        triples: [
+          { id: 4, subject_id: 'store:BK-01', predicate: 'store_location', object_value: 'customer:101', object_type: 'entity_ref', created_at: '', updated_at: '' },
+        ],
+      }
+
+      const mockCustomerInfo = {
+        subject_id: 'customer:101',
+        class_name: 'Customer',
+        class_id: 3,
+        triples: [
+          { id: 5, subject_id: 'customer:101', predicate: 'customer_name', object_value: 'John Doe', object_type: 'string', created_at: '', updated_at: '' },
+        ],
+      }
+
+      vi.mocked(triplesApi.listSubjects).mockResolvedValue({ data: mockSubjects } as never)
+      vi.mocked(triplesApi.getSubject)
+        .mockResolvedValueOnce({ data: mockSubjectInfo } as never)
+        .mockResolvedValueOnce({ data: mockStoreInfo } as never)
+        .mockResolvedValueOnce({ data: mockCustomerInfo } as never)
+
+      renderWithClient(<TriplesBrowserPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('order:FM-1001')).toBeInTheDocument()
+      })
+
+      // Navigate to order
+      fireEvent.click(screen.getByText('order:FM-1001'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+      })
+
+      // Navigate to store
+      const storeElements = screen.getAllByText('store:BK-01')
+      const storeLink = storeElements.find(el => el.tagName === 'BUTTON' && el.classList.contains('text-green-600'))
+      fireEvent.click(storeLink!)
+
+      await waitFor(() => {
+        expect(screen.getByText('store_location')).toBeInTheDocument()
+      })
+
+      // Navigate to customer
+      const customerElements = screen.getAllByText('customer:101')
+      const customerLink = customerElements.find(el => el.tagName === 'BUTTON' && el.classList.contains('text-green-600'))
+      fireEvent.click(customerLink!)
+
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+
+      // Click back once - should go to store
+      fireEvent.click(screen.getByText('Back'))
+
+      await waitFor(() => {
+        expect(screen.getByText('store_location')).toBeInTheDocument()
+      })
+
+      // Back button should still be visible
+      expect(screen.getByText('Back')).toBeInTheDocument()
+
+      // Click back again - should go to order
+      fireEvent.click(screen.getByText('Back'))
+
+      await waitFor(() => {
+        expect(screen.getByText('order_status')).toBeInTheDocument()
+      })
+
+      // Back button should be hidden now
+      expect(screen.queryByText('Back')).not.toBeInTheDocument()
+    })
+  })
 })
