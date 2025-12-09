@@ -407,8 +407,8 @@ class FreshMartAPIClient:
             {
                 "subject_id": order_id,
                 "predicate": "order_status",
-                "new_object_value": new_status,
-                "new_object_type": "string",
+                "object_value": new_status,
+                "object_type": "string",
             }
         ]
         return await self.update_triples_batch(updates)
@@ -432,9 +432,9 @@ class FreshMartAPIClient:
         updates = [
             {
                 "subject_id": inventory_id,
-                "predicate": "available_quantity",
-                "new_object_value": str(new_quantity),
-                "new_object_type": "int",
+                "predicate": "stock_level",
+                "object_value": str(new_quantity),
+                "object_type": "int",
             }
         ]
         return await self.update_triples_batch(updates)
