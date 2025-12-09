@@ -33,14 +33,14 @@ class OrderLineService:
         line_uuid = str(uuid.uuid4())
         return f"orderline:{line_uuid}"
 
-    def _normalize_decimal(self, value) -> str:
+    def _normalize_decimal(self, value) -> Optional[str]:
         """Normalize a numeric value to a consistent string representation.
 
         Args:
             value: Numeric value (int, float, Decimal, or string)
 
         Returns:
-            Normalized string representation
+            Normalized string representation or None if value is None
         """
         if value is None:
             return None
@@ -818,6 +818,14 @@ class OrderLineService:
                             object_type="bool",
                         ))
 
+                    if self._normalize_decimal(existing_vals.get("line_sequence")) != self._normalize_decimal(line_sequence):
+                        changed_triples.append(TripleCreate(
+                            subject_id=existing_line_id,
+                            predicate="line_sequence",
+                            object_value=str(line_sequence),
+                            object_type="int",
+                        ))
+
                     # Only update if something actually changed
                     if changed_triples:
                         logger.info(f"  📝 Updating {len(changed_triples)} triple(s) for line item seq={line_sequence}")
@@ -832,11 +840,11 @@ class OrderLineService:
 
             # Delete line items that are no longer in the new list
             line_ids_to_delete = existing_line_ids - line_ids_to_keep
-            for line_id in line_ids_to_delete:
-                logger.info(f"  🗑️  Deleting line item {line_id}")
+            if line_ids_to_delete:
+                logger.info(f"  🗑️  Deleting {len(line_ids_to_delete)} line item(s)")
                 await self.session.execute(
-                    text("DELETE FROM triples WHERE subject_id = :line_id"),
-                    {"line_id": line_id},
+                    text("DELETE FROM triples WHERE subject_id = ANY(:line_ids)"),
+                    {"line_ids": list(line_ids_to_delete)},
                 )
 
         return None
