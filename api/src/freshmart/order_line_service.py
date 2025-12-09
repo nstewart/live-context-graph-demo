@@ -653,6 +653,8 @@ class OrderLineService:
             f"🔵 [TRANSACTION START] Patching {order_id}: "
             f"{field_count} field(s), {line_item_count} line item(s)"
         )
+        if line_items is not None:
+            logger.info(f"  📦 Received line items: {[{'seq': li.line_sequence, 'product': li.product_id, 'qty': li.quantity} for li in line_items]}")
 
         order_triples = []
 
@@ -786,13 +788,19 @@ class OrderLineService:
                         ))
 
                     # Use normalized decimal comparison for numeric fields
-                    if self._normalize_decimal(existing_vals.get("quantity")) != self._normalize_decimal(new_item.quantity):
+                    existing_qty = self._normalize_decimal(existing_vals.get("quantity"))
+                    new_qty = self._normalize_decimal(new_item.quantity)
+                    logger.info(f"  🔍 Comparing quantity: existing={existing_qty!r} vs new={new_qty!r}")
+                    if existing_qty != new_qty:
+                        logger.info(f"  ✅ Quantity changed: {existing_qty} -> {new_qty}")
                         changed_triples.append(TripleCreate(
                             subject_id=existing_line_id,
                             predicate="quantity",
                             object_value=str(new_item.quantity),
                             object_type="int",
                         ))
+                    else:
+                        logger.info(f"  ⏭️  Quantity unchanged: {existing_qty}")
 
                     if self._normalize_decimal(existing_vals.get("order_line_unit_price")) != self._normalize_decimal(new_item.unit_price):
                         changed_triples.append(TripleCreate(
