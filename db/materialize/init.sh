@@ -639,7 +639,7 @@ SELECT
                 'demand_premium', inv.demand_premium,
                 'product_sale_count', inv.product_sale_count,
                 'product_total_stock', inv.product_total_stock,
-                'current_stock_level', inv.stock_level
+                'current_stock_level', inv.available_quantity
             ) ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
