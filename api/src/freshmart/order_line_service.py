@@ -33,6 +33,19 @@ class OrderLineService:
         line_uuid = str(uuid.uuid4())
         return f"orderline:{line_uuid}"
 
+    def _normalize_decimal(self, value) -> str:
+        """Normalize a numeric value to a consistent string representation.
+
+        Args:
+            value: Numeric value (int, float, Decimal, or string)
+
+        Returns:
+            Normalized string representation
+        """
+        if value is None:
+            return None
+        return str(Decimal(str(value)))
+
     async def _fetch_live_prices(
         self, store_id: str, product_ids: list[str]
     ) -> dict[str, Decimal]:
@@ -608,7 +621,26 @@ class OrderLineService:
             delivery_window_start: New delivery window start (optional)
             delivery_window_end: New delivery window end (optional)
             line_items: New line items to patch (optional). If provided, will smart-patch.
+
+        Raises:
+            ValueError: If order not found
         """
+        # Validate order exists
+        order_check = await self.session.execute(
+            text("SELECT 1 FROM triples WHERE subject_id = :order_id LIMIT 1"),
+            {"order_id": order_id}
+        )
+        if not order_check.fetchone():
+            raise ValueError(f"Order {order_id} not found")
+
+        # Validate line sequence uniqueness if provided
+        if line_items is not None:
+            sequences = [item.line_sequence for item in line_items]
+            if len(sequences) != len(set(sequences)):
+                raise ValueError("line_sequence values must be unique")
+            if any(seq < 1 for seq in sequences):
+                raise ValueError("line_sequence must be positive")
+
         field_count = sum([
             order_status is not None,
             customer_id is not None,
@@ -753,7 +785,8 @@ class OrderLineService:
                             object_type="entity_ref",
                         ))
 
-                    if existing_vals.get("quantity") != str(new_item.quantity):
+                    # Use normalized decimal comparison for numeric fields
+                    if self._normalize_decimal(existing_vals.get("quantity")) != self._normalize_decimal(new_item.quantity):
                         changed_triples.append(TripleCreate(
                             subject_id=existing_line_id,
                             predicate="quantity",
@@ -761,7 +794,7 @@ class OrderLineService:
                             object_type="int",
                         ))
 
-                    if existing_vals.get("order_line_unit_price") != str(new_item.unit_price):
+                    if self._normalize_decimal(existing_vals.get("order_line_unit_price")) != self._normalize_decimal(new_item.unit_price):
                         changed_triples.append(TripleCreate(
                             subject_id=existing_line_id,
                             predicate="order_line_unit_price",
@@ -769,7 +802,7 @@ class OrderLineService:
                             object_type="float",
                         ))
 
-                    if existing_vals.get("line_amount") != str(line_amount):
+                    if self._normalize_decimal(existing_vals.get("line_amount")) != self._normalize_decimal(line_amount):
                         changed_triples.append(TripleCreate(
                             subject_id=existing_line_id,
                             predicate="line_amount",

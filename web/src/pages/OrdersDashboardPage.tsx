@@ -586,6 +586,32 @@ export default function OrdersDashboardPage() {
     },
   });
 
+  // Helper function to check if line items have changed
+  const hasLineItemsChanged = (
+    originalItems: OrderLineItem[] | undefined,
+    newItems: CartLineItem[]
+  ): boolean => {
+    if (!originalItems && newItems.length === 0) return false;
+    if (!originalItems || originalItems.length !== newItems.length) return true;
+
+    // Compare each line item
+    for (let i = 0; i < originalItems.length; i++) {
+      const original = originalItems[i];
+      const newItem = newItems[i];
+
+      if (
+        original.product_id !== newItem.product_id ||
+        original.quantity !== newItem.quantity ||
+        Number(original.unit_price) !== Number(newItem.unit_price) ||
+        original.perishable_flag !== newItem.perishable_flag
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const updateMutation = useMutation({
     mutationFn: async ({
       order,
@@ -618,14 +644,16 @@ export default function OrdersDashboardPage() {
         updateData.delivery_window_end = normalizeDate(data.delivery_window_end);
       }
 
-      // Always include line items - backend will smart-patch them
-      updateData.line_items = lineItems.map((item, index) => ({
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        line_sequence: index + 1,
-        perishable_flag: item.perishable_flag,
-      }));
+      // Only include line items if they actually changed
+      if (hasLineItemsChanged(order.line_items, lineItems)) {
+        updateData.line_items = lineItems.map((item, index) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          line_sequence: index + 1,
+          perishable_flag: item.perishable_flag,
+        }));
+      }
 
       // Use PATCH for smart updates (only writes what changed)
       await freshmartApi.updateOrderFields(order.order_id, updateData);
