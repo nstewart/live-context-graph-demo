@@ -37,12 +37,19 @@ async def search_inventory(
         - product_name: Full product name
         - category: Product category (Dairy, Produce, Meat, etc.)
         - base_price: Original unit price
-        - live_price: Current dynamic price (includes zone, perishable, and stock adjustments)
+        - live_price: Current dynamic price (includes all 7 pricing factors)
         - price_change: Dollar difference between live and base price
         - quantity_available: Current stock level
         - is_perishable: Whether product requires refrigeration
         - store_id: The store where item is available
         - store_zone: Store neighborhood (MAN=Manhattan, BK=Brooklyn, etc.)
+        - zone_adjustment: Zone-based pricing multiplier (if available)
+        - perishable_adjustment: Perishable discount multiplier (if available)
+        - local_stock_adjustment: Store-level scarcity multiplier (if available)
+        - popularity_adjustment: Sales ranking multiplier (if available)
+        - scarcity_adjustment: Global stock scarcity multiplier (if available)
+        - demand_multiplier: Recent sales trends multiplier (if available)
+        - demand_premium: High demand premium multiplier (if available)
 
     Example:
         search_inventory(query="chicken", store_id="store:BK-01")
@@ -88,9 +95,14 @@ async def search_inventory(
                         "base_price": source.get("base_price"),
                         "live_price": source.get("live_price"),
                         "price_change": source.get("price_change"),
+                        # All 7 pricing adjustments
                         "zone_adjustment": source.get("zone_adjustment"),
                         "perishable_adjustment": source.get("perishable_adjustment"),
                         "local_stock_adjustment": source.get("local_stock_adjustment"),
+                        "popularity_adjustment": source.get("popularity_adjustment"),
+                        "scarcity_adjustment": source.get("scarcity_adjustment"),
+                        "demand_multiplier": source.get("demand_multiplier"),
+                        "demand_premium": source.get("demand_premium"),
                         # Store info
                         "store_zone": source.get("store_zone"),
                         "store_name": source.get("store_name"),
@@ -128,13 +140,21 @@ async def search_inventory(
                         "is_perishable": inv_info.get("perishable", False),
                     }
 
-                    # Add pricing adjustments if available (optional, for detailed queries)
-                    if inv_info.get("zone_adjustment"):
+                    # Add all 7 pricing adjustments if available (optional, for detailed queries)
+                    if inv_info.get("zone_adjustment") is not None:
                         result["zone_adjustment"] = inv_info.get("zone_adjustment")
-                    if inv_info.get("perishable_adjustment"):
+                    if inv_info.get("perishable_adjustment") is not None:
                         result["perishable_adjustment"] = inv_info.get("perishable_adjustment")
-                    if inv_info.get("local_stock_adjustment"):
+                    if inv_info.get("local_stock_adjustment") is not None:
                         result["local_stock_adjustment"] = inv_info.get("local_stock_adjustment")
+                    if inv_info.get("popularity_adjustment") is not None:
+                        result["popularity_adjustment"] = inv_info.get("popularity_adjustment")
+                    if inv_info.get("scarcity_adjustment") is not None:
+                        result["scarcity_adjustment"] = inv_info.get("scarcity_adjustment")
+                    if inv_info.get("demand_multiplier") is not None:
+                        result["demand_multiplier"] = inv_info.get("demand_multiplier")
+                    if inv_info.get("demand_premium") is not None:
+                        result["demand_premium"] = inv_info.get("demand_premium")
 
                     # Add warning if price is missing
                     if inv_info.get("live_price") is None:

@@ -65,9 +65,14 @@ INVENTORY_INDEX_MAPPING = {
             "base_price": {"type": "float"},
             "live_price": {"type": "float"},
             "price_change": {"type": "float"},
+            # All 7 pricing adjustments
             "zone_adjustment": {"type": "float"},
             "perishable_adjustment": {"type": "float"},
             "local_stock_adjustment": {"type": "float"},
+            "popularity_adjustment": {"type": "float"},
+            "scarcity_adjustment": {"type": "float"},
+            "demand_multiplier": {"type": "float"},
+            "demand_premium": {"type": "float"},
             "store_name": {
                 "type": "text",
                 "copy_to": "search_text",
@@ -241,9 +246,14 @@ class InventorySyncWorker(BaseSubscribeWorker):
                 "base_price": float(data["base_price"]) if data.get("base_price") else None,
                 "live_price": float(data["live_price"]) if data.get("live_price") else None,
                 "price_change": float(data["price_change"]) if data.get("price_change") else None,
+                # All 7 pricing adjustments
                 "zone_adjustment": float(data["zone_adjustment"]) if data.get("zone_adjustment") else None,
                 "perishable_adjustment": float(data["perishable_adjustment"]) if data.get("perishable_adjustment") else None,
                 "local_stock_adjustment": float(data["local_stock_adjustment"]) if data.get("local_stock_adjustment") else None,
+                "popularity_adjustment": float(data["popularity_adjustment"]) if data.get("popularity_adjustment") else None,
+                "scarcity_adjustment": float(data["scarcity_adjustment"]) if data.get("scarcity_adjustment") else None,
+                "demand_multiplier": float(data["demand_multiplier"]) if data.get("demand_multiplier") else None,
+                "demand_premium": float(data["demand_premium"]) if data.get("demand_premium") else None,
                 # Store details (denormalized from stores_flat)
                 "store_name": data.get("store_name"),
                 "store_zone": data.get("store_zone"),
