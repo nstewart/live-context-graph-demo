@@ -260,16 +260,18 @@ def create_workflow() -> StateGraph:
     return workflow
 
 
-async def run_assistant(user_message: str, thread_id: str = "default") -> str:
+async def run_assistant(user_message: str, thread_id: str = "default", stream_events: bool = False):
     """
     Run the ops assistant with a user message.
 
     Args:
         user_message: Natural language request
         thread_id: Conversation thread ID for memory persistence (default: "default")
+        stream_events: If True, yields status updates during execution
 
-    Returns:
-        Assistant's final response
+    Yields:
+        Status updates as (event_type, data) tuples
+        Final event is always ("response", response_text)
     """
     settings = get_settings()
 
@@ -287,11 +289,53 @@ async def run_assistant(user_message: str, thread_id: str = "default") -> str:
             "iteration": 0,
         }
 
-        final_state = await graph.ainvoke(initial_state, config)
+        if stream_events:
+            # Stream events to show what's happening
+            final_response = None
+            async for event in graph.astream(initial_state, config):
+                # Agent node processing
+                if "agent" in event:
+                    agent_data = event["agent"]
+                    if "messages" in agent_data and agent_data["messages"]:
+                        last_msg = agent_data["messages"][-1]
+                        if isinstance(last_msg, AIMessage):
+                            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                                # Agent decided to call tools
+                                for tool_call in last_msg.tool_calls:
+                                    tool_name = tool_call.get("name", "unknown")
+                                    tool_args = tool_call.get("args", {})
+                                    yield ("tool_call", {"name": tool_name, "args": tool_args})
+                            elif last_msg.content:
+                                # Agent produced a response
+                                final_response = last_msg.content
 
-        # Get final AI response
-        for msg in reversed(final_state["messages"]):
-            if isinstance(msg, AIMessage) and msg.content:
-                return msg.content
+                # Tool node processing
+                elif "tools" in event:
+                    tools_data = event["tools"]
+                    if "messages" in tools_data and tools_data["messages"]:
+                        for msg in tools_data["messages"]:
+                            if isinstance(msg, ToolMessage):
+                                # Extract tool name from the message
+                                content_preview = str(msg.content)[:100]
+                                yield ("tool_result", {"content": content_preview})
 
-        return "I couldn't complete that request."
+            # Yield final response
+            if final_response:
+                yield ("response", final_response)
+            else:
+                yield ("response", "I couldn't complete that request.")
+        else:
+            # Non-streaming: just get result and yield final response
+            final_state = await graph.ainvoke(initial_state, config)
+
+            # Get final AI response
+            response = None
+            for msg in reversed(final_state["messages"]):
+                if isinstance(msg, AIMessage) and msg.content:
+                    response = msg.content
+                    break
+
+            if response:
+                yield ("response", response)
+            else:
+                yield ("response", "I couldn't complete that request.")

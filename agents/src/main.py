@@ -75,11 +75,28 @@ def chat(
                     if not user_input.strip():
                         continue
 
-                    with console.status("[bold green]Thinking..."):
-                        response = await run_assistant(user_input, thread_id=session_thread_id)
+                    # Stream events to show what the agent is doing
+                    console.print()  # Blank line before thinking output
+                    final_response = None
+                    async for event_type, data in run_assistant(user_input, thread_id=session_thread_id, stream_events=True):
+                        if event_type == "tool_call":
+                            tool_name = data.get("name", "unknown")
+                            args_str = ", ".join(f"{k}={repr(v)}" for k, v in data.get("args", {}).items())
+                            console.print(f"[dim]Calling {tool_name}({args_str})[/dim]")
+                        elif event_type == "tool_result":
+                            content = data.get("content", "")
+                            if len(content) > 80:
+                                content = content[:77] + "..."
+                            console.print(f"[dim]Tool returned: {content}[/dim]")
+                        elif event_type == "response":
+                            final_response = data
 
-                    console.print("\n[bold green]Assistant:[/bold green]")
-                    console.print(Markdown(response))
+                    # Display final response
+                    if final_response:
+                        console.print("\n[bold green]Assistant:[/bold green]")
+                        console.print(Markdown(final_response))
+                    else:
+                        console.print("[red]No response received[/red]")
 
                 except KeyboardInterrupt:
                     console.print("\n[yellow]Goodbye![/yellow]")
@@ -99,12 +116,30 @@ def chat(
         # Use provided thread_id or generate a one-time ID
         msg_thread_id = thread_id or f"oneshot-{uuid.uuid4().hex[:8]}"
 
+        async def run_once():
+            console.print()
+            final_response = None
+            async for event_type, data in run_assistant(message, thread_id=msg_thread_id, stream_events=True):
+                if event_type == "tool_call":
+                    tool_name = data.get("name", "unknown")
+                    args_str = ", ".join(f"{k}={repr(v)}" for k, v in data.get("args", {}).items())
+                    console.print(f"[dim]Calling {tool_name}({args_str})[/dim]")
+                elif event_type == "tool_result":
+                    content = data.get("content", "")
+                    if len(content) > 80:
+                        content = content[:77] + "..."
+                    console.print(f"[dim]Tool returned: {content}[/dim]")
+                elif event_type == "response":
+                    final_response = data
+
+            if final_response:
+                console.print()
+                console.print(Panel(Markdown(final_response), title="Response"))
+            else:
+                console.print("[red]No response received[/red]")
+
         try:
-            with console.status("[bold green]Processing..."):
-                response = asyncio.run(run_assistant(message, thread_id=msg_thread_id))
-
-            console.print(Panel(Markdown(response), title="Response"))
-
+            asyncio.run(run_once())
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
             import traceback
