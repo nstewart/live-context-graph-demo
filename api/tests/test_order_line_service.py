@@ -62,7 +62,7 @@ class TestCreateLineItemTriples:
             "line_of_order",
             "line_product",
             "quantity",
-            "unit_price",
+            "order_line_unit_price",
             "line_amount",
             "line_sequence",
             "perishable_flag",

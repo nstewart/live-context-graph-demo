@@ -68,7 +68,7 @@ LEFT JOIN (
     -- Get order's store_id to join with inventory pricing
     SELECT
         subject_id AS order_id,
-        MAX(CASE WHEN predicate = 'store_id' THEN object_value END) AS store_id
+        MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id
     FROM triples
     WHERE subject_id LIKE 'order:%'
     GROUP BY subject_id

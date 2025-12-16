@@ -1044,10 +1044,12 @@ class DataGenerator:
                 line_total = unit_price * quantity
                 order_total += line_total
 
-                self.add_triple(line_id, "line_order", order_id, "entity_ref")
+                self.add_triple(line_id, "line_of_order", order_id, "entity_ref")
                 self.add_triple(line_id, "line_product", product_id, "entity_ref")
                 self.add_triple(line_id, "quantity", str(quantity), "int")
-                self.add_triple(line_id, "unit_price", str(unit_price), "float")
+                self.add_triple(line_id, "order_line_unit_price", str(unit_price), "float")
+                self.add_triple(line_id, "line_amount", str(line_total), "float")
+                self.add_triple(line_id, "line_sequence", str(line_num), "int")
 
             # Order triples
             self.add_triple(order_id, "order_number", f"FM-{i+1:06d}", "string")
