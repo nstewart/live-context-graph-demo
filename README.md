@@ -30,6 +30,12 @@ git clone https://github.com/your-org/freshmart-digital-twin-agent-starter.git
 cd freshmart-digital-twin-agent-starter
 cp .env.example .env
 
+# Install uv (Python package manager) if not already installed
+# macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Or on macOS with Homebrew:
+brew install uv
+
 # Start with AI agent included
 make up-agent
 ```

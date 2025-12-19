@@ -365,6 +365,56 @@ PROFILES["custom"] = LoadProfile(
 
 ## Troubleshooting
 
+### uv Command Not Found
+
+**Problem**: `command not found: uv` or `command not found: homebrew`
+
+**Solution**:
+Install `uv` using one of these methods:
+
+```bash
+# macOS/Linux (recommended):
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# macOS with Homebrew (note: it's "brew" not "homebrew"):
+brew install uv
+
+# Windows (PowerShell):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+After installation, restart your terminal or run:
+```bash
+source ~/.bashrc  # or ~/.zshrc for zsh
+```
+
+For more information: https://github.com/astral-sh/uv
+
+### No Virtual Environment Found
+
+**Problem**: `error: No virtual environment found; run 'uv venv'`
+
+**Solution**:
+The Makefile automatically creates the virtual environment. However, if running commands directly:
+
+```bash
+cd load-generator
+
+# Create virtual environment
+uv venv
+
+# Install dependencies
+uv pip install -r requirements.txt
+
+# Now you can run commands
+uv run --no-project python -m loadgen start
+```
+
+Or simply use the Makefile which handles this automatically:
+```bash
+make load-gen-standard
+```
+
 ### API Connection Refused
 
 **Problem**: `Connection refused` or `API health check failed`
