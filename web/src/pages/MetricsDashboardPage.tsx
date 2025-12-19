@@ -158,6 +158,7 @@ export default function MetricsDashboardPage() {
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Product</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Store</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Stock</th>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Pending</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Risk</th>
                   <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">$ at Risk</th>
                 </tr>
@@ -172,6 +173,9 @@ export default function MetricsDashboardPage() {
                       <td className="px-4 py-2">{item.product_name}</td>
                       <td className="px-4 py-2 text-gray-600">{item.store_name}</td>
                       <td className="px-4 py-2 text-center">{item.stock_level}</td>
+                      <td className="px-4 py-2 text-center">
+                        <span className="text-amber-600 font-medium">{item.pending_reservations || 0}</span>
+                      </td>
                       <td className="px-4 py-2 text-center">
                         <span className={`px-2 py-1 text-xs rounded-full ${
                           item.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
