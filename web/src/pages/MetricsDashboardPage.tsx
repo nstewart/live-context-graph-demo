@@ -61,7 +61,7 @@ export default function MetricsDashboardPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">CEO Metrics Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Live Metrics Dashboard</h1>
             {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -85,10 +85,13 @@ export default function MetricsDashboardPage() {
       <div className="grid grid-cols-3 gap-6 mb-6">
         {/* Pricing Yield */}
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-500">Dynamic Pricing Yield</h3>
             <DollarSign className="h-5 w-5 text-green-600" />
           </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Revenue premium captured above base catalog prices through dynamic pricing
+          </p>
           <div className="text-3xl font-bold text-gray-900 mb-2">
             {metrics.pricingYield.yieldRate.toFixed(1)}%
           </div>
@@ -102,10 +105,13 @@ export default function MetricsDashboardPage() {
 
         {/* Inventory Risk */}
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-500">Revenue at Risk</h3>
             <AlertTriangle className="h-5 w-5 text-red-600" />
           </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Order value at risk due to low inventory levels with pending customer orders
+          </p>
           <div className="text-3xl font-bold text-gray-900 mb-2">
             ${formatAmount(metrics.inventoryRisk.totalRevAtRisk)}
           </div>
@@ -116,10 +122,13 @@ export default function MetricsDashboardPage() {
 
         {/* Capacity Health */}
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-500">Avg Store Utilization</h3>
             <Activity className="h-5 w-5 text-blue-600" />
           </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Current order volume as percentage of maximum store capacity per hour
+          </p>
           <div className="text-3xl font-bold text-gray-900 mb-2">
             {metrics.capacityHealth.avgUtilization.toFixed(1)}%
           </div>
@@ -138,6 +147,9 @@ export default function MetricsDashboardPage() {
               <Package className="h-5 w-5" />
               High-Risk Inventory
             </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Products with low stock levels that have pending customer orders (may cause stockouts)
+            </p>
           </div>
           <div className="overflow-x-auto max-h-96">
             <table className="min-w-full text-sm">
@@ -184,6 +196,9 @@ export default function MetricsDashboardPage() {
               <Store className="h-5 w-5" />
               Store Capacity Status
             </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Real-time store workload with automated recommendations for demand management
+            </p>
           </div>
           <div className="overflow-x-auto max-h-96">
             <table className="min-w-full text-sm">

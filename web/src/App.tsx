@@ -21,7 +21,7 @@ import MetricsDashboardPage from './pages/MetricsDashboardPage'
 
 const navItems = [
   { path: '/', icon: ShoppingCart, label: 'Orders' },
-  { path: '/metrics', icon: TrendingUp, label: 'CEO Metrics' },
+  { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
   { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },
   { path: '/ontology/classes', icon: Database, label: 'Ontology Classes' },
