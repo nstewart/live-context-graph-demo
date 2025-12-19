@@ -177,6 +177,59 @@ const inventory_items_with_dynamic_pricing = table('inventory_items_with_dynamic
   })
   .primaryKey('inventory_id')
 
+// pricing_yield_mv - pricing capture metrics
+const pricing_yield_mv = table('pricing_yield_mv')
+  .columns({
+    order_id: string(),
+    store_id: string().optional(),
+    store_zone: string().optional(),
+    product_id: string().optional(),
+    category: string().optional(),
+    quantity: number().optional(),
+    order_price: number().optional(),
+    base_price: number().optional(),
+    price_premium: number().optional(),
+    order_status: string().optional(),
+    effective_updated_at: number().optional(),
+  })
+  .primaryKey('order_id')
+
+// inventory_risk_mv - inventory at risk metrics
+const inventory_risk_mv = table('inventory_risk_mv')
+  .columns({
+    inventory_id: string(),
+    store_id: string().optional(),
+    store_name: string().optional(),
+    store_zone: string().optional(),
+    product_id: string().optional(),
+    product_name: string().optional(),
+    category: string().optional(),
+    stock_level: number().optional(),
+    pending_reservations: number().optional(),
+    revenue_at_risk: number().optional(),
+    perishable: boolean().optional(),
+    risk_level: string().optional(),
+    risk_weighted_value: number().optional(),
+    effective_updated_at: number().optional(),
+  })
+  .primaryKey('inventory_id')
+
+// store_capacity_health_mv - store capacity metrics
+const store_capacity_health_mv = table('store_capacity_health_mv')
+  .columns({
+    store_id: string(),
+    store_name: string().optional(),
+    store_zone: string().optional(),
+    store_capacity_orders_per_hour: number().optional(),
+    current_active_orders: number().optional(),
+    current_utilization_pct: number().optional(),
+    headroom: number().optional(),
+    health_status: string().optional(),
+    recommended_action: string().optional(),
+    effective_updated_at: number().optional(),
+  })
+  .primaryKey('store_id')
+
 // Define relationships
 const storeRelationships = relationships(stores_mv, ({ many }) => ({
   inventory: many({
@@ -213,7 +266,7 @@ const inventoryRelationships = relationships(store_inventory_mv, ({ one }) => ({
 }))
 
 export const schema = createSchema({
-  tables: [orders_search_source_mv, orders_with_lines_mv, stores_mv, store_inventory_mv, courier_schedule_mv, customers_mv, products_mv, inventory_items_with_dynamic_pricing],
+  tables: [orders_search_source_mv, orders_with_lines_mv, stores_mv, store_inventory_mv, courier_schedule_mv, customers_mv, products_mv, inventory_items_with_dynamic_pricing, pricing_yield_mv, inventory_risk_mv, store_capacity_health_mv],
   relationships: [storeRelationships, courierRelationships, orderWithLinesRelationships, inventoryRelationships],
 })
 
@@ -277,6 +330,30 @@ export const permissions = definePermissions<unknown, Schema>(schema, () => ({
     },
   },
   inventory_items_with_dynamic_pricing: {
+    row: {
+      select: ANYONE_CAN,
+      insert: NOBODY_CAN,
+      update: { preMutation: NOBODY_CAN },
+      delete: NOBODY_CAN,
+    },
+  },
+  pricing_yield_mv: {
+    row: {
+      select: ANYONE_CAN,
+      insert: NOBODY_CAN,
+      update: { preMutation: NOBODY_CAN },
+      delete: NOBODY_CAN,
+    },
+  },
+  inventory_risk_mv: {
+    row: {
+      select: ANYONE_CAN,
+      insert: NOBODY_CAN,
+      update: { preMutation: NOBODY_CAN },
+      delete: NOBODY_CAN,
+    },
+  },
+  store_capacity_health_mv: {
     row: {
       select: ANYONE_CAN,
       insert: NOBODY_CAN,

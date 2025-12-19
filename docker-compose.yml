@@ -101,7 +101,7 @@ services:
           MATERIALIZE_AUTH_OPTIONS_USER: ${MZ_USER:-materialize}
           MATERIALIZE_AUTH_OPTIONS_PASSWORD: ${MZ_PASSWORD:-materialize}
           MATERIALIZE_DATABASE: ${MZ_DATABASE:-materialize}
-          MATERIALIZE_COLLECTIONS: "orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing"
+          MATERIALIZE_COLLECTIONS: "orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing,pricing_yield_mv,inventory_risk_mv,store_capacity_health_mv"
           PORT: 8080
           LOG_LEVEL: ${LOG_LEVEL:-INFO}
           NODE_ENV: production
@@ -259,6 +259,11 @@ services:
       dockerfile: Dockerfile
     environment:
       - AGENT_API_BASE=http://api:8080
+      - PG_HOST=${PG_HOST:-db}
+      - PG_PORT=5432
+      - PG_USER=${PG_USER:-postgres}
+      - PG_PASSWORD=${PG_PASSWORD:-postgres}
+      - PG_DATABASE=${PG_DATABASE:-freshmart}
       - MZ_HOST=${MZ_HOST:-mz}
       - MZ_PORT=6875
       - MZ_USER=${MZ_USER:-materialize}
@@ -271,8 +276,12 @@ services:
     ports:
       - "${AGENT_PORT:-8081}:8081"
     depends_on:
-      - api
-      - opensearch
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
     profiles:
       - agent
     volumes:

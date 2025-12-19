@@ -15,6 +15,7 @@ from src.tools import (
     create_order,
     fetch_order_context,
     get_ontology,
+    get_store_health,
     manage_order_lines,
     search_inventory,
     search_orders,
@@ -39,6 +40,7 @@ TOOLS = [
     search_orders,
     fetch_order_context,
     get_ontology,
+    get_store_health,
     write_triples,
 ]
 
@@ -82,6 +84,7 @@ SYSTEM_PROMPT = """You are an operations assistant for FreshMart's same-day groc
 - search_orders: Search existing orders
 - fetch_order_context: Get full details for an order
 - get_ontology: Get the schema of all entity classes and properties
+- get_store_health: Get real-time operational health metrics (capacity, inventory risk, pricing yield)
 - write_triples: Update order status or other data
 
 ## CRITICAL: Ontology Validation Rules
@@ -121,6 +124,23 @@ SYSTEM_PROMPT = """You are an operations assistant for FreshMart's same-day groc
 1. First verify the current status using search_orders
 2. Use write_triples to update order_status predicate
 3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+**When checking store operational health:**
+1. Use get_store_health to understand current operational state before making recommendations
+2. Choose appropriate view based on question:
+   - **summary**: "How are all stores doing?" or "What's our overall operational health?"
+   - **quick_check**: "What's happening at Brooklyn store?" (requires store_id)
+   - **capacity**: "Which stores are overloaded?" or "Can we handle more orders?"
+   - **inventory_risk**: "Any inventory emergencies?" or "What products might stock out?"
+3. Proactively check store health before creating large orders or during peak times
+4. Include health metrics in your response to provide context for operational decisions
+5. Use recommendations from the tool to advise staff on actions (e.g., close intake, surge pricing, replenishment)
+
+**Examples of when to use get_store_health:**
+- Staff asks: "Can we accept a large catering order at Manhattan store?" → Check capacity first
+- Staff reports: "Customer says their order is delayed" → Quick check the fulfilling store's health
+- Manager asks: "What's the state of operations right now?" → Get summary view
+- During order creation: If store shows CRITICAL capacity, warn staff before proceeding
 
 ## General Guidelines
 

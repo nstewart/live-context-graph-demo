@@ -701,6 +701,126 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS o
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_id_idx IN CLUSTER serving ON order_lines_flat_mv (order_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_product_id_idx IN CLUSTER serving ON order_lines_flat_mv (product_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_sequence_idx IN CLUSTER serving ON order_lines_flat_mv (order_id, line_sequence);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_idx IN CLUSTER serving ON orders_with_lines_mv (effective_updated_at DESC);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_status_idx IN CLUSTER serving ON orders_with_lines_mv (order_status);"
 # Dynamic pricing indexes
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (inventory_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_product_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (product_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_store_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_zone_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_zone);"
+
+echo "Creating CEO metrics materialized views..."
+
+# 1. Pricing Yield MV - tracks revenue premium from dynamic pricing
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS pricing_yield_mv IN CLUSTER compute AS
+SELECT
+    ol.order_id,
+    o.store_id,
+    s.store_zone,
+    ol.product_id,
+    ol.category,
+    ol.quantity,
+    ol.unit_price AS order_price,
+    ol.current_product_price AS base_price,
+    (ol.unit_price - ol.current_product_price) * ol.quantity AS price_premium,
+    o.order_status,
+    o.effective_updated_at
+FROM order_lines_flat_mv ol
+JOIN orders_flat_mv o ON o.order_id = ol.order_id
+JOIN stores_flat s ON s.store_id = o.store_id
+WHERE o.order_status = 'DELIVERED'
+  AND ol.current_product_price IS NOT NULL;"
+
+# 2. Inventory Risk MV - identifies products at risk of stockout with revenue impact
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_risk_mv IN CLUSTER compute AS
+WITH pending_reservations AS (
+    SELECT
+        o.store_id,
+        ol.product_id,
+        SUM(ol.quantity) AS pending_qty,
+        SUM(ol.line_amount) AS pending_value
+    FROM order_lines_flat_mv ol
+    JOIN orders_flat_mv o ON o.order_id = ol.order_id
+    WHERE o.order_status IN ('CREATED', 'PICKING', 'OUT_FOR_DELIVERY')
+    GROUP BY o.store_id, ol.product_id
+)
+SELECT
+    inv.inventory_id,
+    inv.store_id,
+    inv.store_name,
+    inv.store_zone,
+    inv.product_id,
+    inv.product_name,
+    inv.category,
+    inv.stock_level,
+    COALESCE(pr.pending_qty, 0)::INT AS pending_reservations,
+    COALESCE(pr.pending_value, 0) AS revenue_at_risk,
+    inv.perishable,
+    CASE
+        WHEN GREATEST(inv.stock_level - COALESCE(pr.pending_qty, 0), 0) <= 0 THEN 'CRITICAL'
+        WHEN GREATEST(inv.stock_level - COALESCE(pr.pending_qty, 0), 0) <= 5 THEN 'HIGH'
+        WHEN GREATEST(inv.stock_level - COALESCE(pr.pending_qty, 0), 0) <= 10 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END AS risk_level,
+    CASE WHEN inv.perishable
+        THEN COALESCE(pr.pending_value, 0) * 2
+        ELSE COALESCE(pr.pending_value, 0)
+    END AS risk_weighted_value,
+    inv.effective_updated_at
+FROM store_inventory_mv inv
+LEFT JOIN pending_reservations pr
+    ON pr.store_id = inv.store_id AND pr.product_id = inv.product_id
+WHERE inv.unit_price IS NOT NULL;"
+
+# 3. Store Capacity Health MV - monitors store utilization and capacity constraints
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS store_capacity_health_mv IN CLUSTER compute AS
+WITH active_workload AS (
+    SELECT
+        store_id,
+        COUNT(*) AS active_orders,
+        SUM(order_total_amount) AS active_value
+    FROM orders_flat_mv
+    WHERE order_status IN ('CREATED', 'PICKING', 'OUT_FOR_DELIVERY')
+    GROUP BY store_id
+)
+SELECT
+    s.store_id,
+    s.store_name,
+    s.store_zone,
+    s.store_capacity_orders_per_hour,
+    COALESCE(aw.active_orders, 0) AS current_active_orders,
+    ROUND((COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) * 100, 1) AS current_utilization_pct,
+    s.store_capacity_orders_per_hour - COALESCE(aw.active_orders, 0) AS headroom,
+    CASE
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90 THEN 'CRITICAL'
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70 THEN 'STRAINED'
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.40 THEN 'HEALTHY'
+        ELSE 'UNDERUTILIZED'
+    END AS health_status,
+    CASE
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90
+            THEN 'CLOSE_INTAKE'
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70
+            THEN 'SURGE_PRICING'
+        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) < 0.40
+            THEN 'PROMOTE_DEMAND'
+        ELSE 'MONITOR'
+    END AS recommended_action,
+    s.effective_updated_at
+FROM stores_mv s
+LEFT JOIN active_workload aw ON aw.store_id = s.store_id;"
+
+echo "Creating indexes for CEO metrics..."
+
+# Pricing yield indexes
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS pricing_yield_zone_idx IN CLUSTER serving ON pricing_yield_mv (store_zone, category);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS pricing_yield_store_idx IN CLUSTER serving ON pricing_yield_mv (store_id);"
+
+# Inventory risk indexes
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_risk_level_idx IN CLUSTER serving ON inventory_risk_mv (risk_level, store_zone);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_risk_store_idx IN CLUSTER serving ON inventory_risk_mv (store_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_risk_category_idx IN CLUSTER serving ON inventory_risk_mv (category);"
+
+# Store capacity health indexes
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_capacity_health_idx IN CLUSTER serving ON store_capacity_health_mv (health_status, store_zone);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_capacity_store_idx IN CLUSTER serving ON store_capacity_health_mv (store_id);"
+
 echo "Verifying three-tier setup..."
 echo ""
 echo "=== Clusters ==="
