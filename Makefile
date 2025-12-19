@@ -66,7 +66,7 @@ init-mz:
 # Initialize Agent Checkpointer
 init-checkpointer:
 	@echo "Initializing agent checkpointer tables..."
-	docker-compose exec agents python -m src.init_checkpointer
+	docker-compose exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 
 # Start services
 up:
@@ -113,7 +113,7 @@ up-agent:
 	@sleep 3
 	@echo ""
 	@echo "Initializing agent checkpointer..."
-	@docker-compose exec agents python -m src.init_checkpointer
+	@docker-compose exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 	@echo ""
 	@echo "Note: Materialize is automatically initialized via materialize-init service"
 	@echo "      OpenSearch will be populated automatically once search-sync starts"
