@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import random
+import signal
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -250,6 +251,19 @@ class LoadOrchestrator:
         logger.info(f"API: {self.api_url}")
         logger.info("=" * 60)
 
+        # Set up signal handlers within the async context
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+
+        def signal_handler():
+            logger.info("Interrupt received, stopping gracefully...")
+            self.stop_requested = True
+            shutdown_event.set()
+
+        # Register signal handlers
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, signal_handler)
+
         # Initialize
         await self.initialize()
 
@@ -266,23 +280,35 @@ class LoadOrchestrator:
 
         try:
             if duration:
-                # Run for specified duration
+                # Run for specified duration or until interrupted
                 logger.info(f"Running for {duration} minutes...")
-                await asyncio.sleep(duration * 60)
+                try:
+                    await asyncio.wait_for(shutdown_event.wait(), timeout=duration * 60)
+                except asyncio.TimeoutError:
+                    # Duration expired normally
+                    pass
             else:
                 # Run indefinitely until interrupted
                 logger.info("Running until interrupted (Ctrl+C)...")
-                await asyncio.Event().wait()  # Wait forever
+                await shutdown_event.wait()
 
         except asyncio.CancelledError:
-            logger.info("Load generation interrupted")
+            logger.info("Load generation cancelled")
         finally:
+            # Remove signal handlers
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
+
             # Stop workers
             logger.info("Stopping workers...")
             self.running = False
             self.stop_requested = True
 
-            # Wait for workers to finish
+            # Cancel all tasks
+            for task in workers + [rate_task, metrics_task]:
+                task.cancel()
+
+            # Wait for workers to finish with timeout
             await asyncio.gather(*workers, rate_task, metrics_task, return_exceptions=True)
 
             # Cleanup

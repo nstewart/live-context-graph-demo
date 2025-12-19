@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import signal
 import sys
 
 import click
@@ -129,15 +128,7 @@ def start(
         seed=seed,
     )
 
-    # Set up signal handlers for graceful shutdown
-    def signal_handler(sig, frame):
-        console.print("\n[yellow]Interrupt received, stopping gracefully...[/yellow]")
-        orchestrator.stop_requested = True
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Run orchestrator
+    # Run orchestrator with proper signal handling
     try:
         asyncio.run(orchestrator.run(duration_minutes=duration))
     except KeyboardInterrupt:
