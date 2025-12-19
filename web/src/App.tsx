@@ -20,8 +20,8 @@ import SettingsPage from './pages/SettingsPage'
 import MetricsDashboardPage from './pages/MetricsDashboardPage'
 
 const navItems = [
-  { path: '/', icon: ShoppingCart, label: 'Orders' },
-  { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
+  { path: '/', icon: TrendingUp, label: 'Live Metrics' },
+  { path: '/orders', icon: ShoppingCart, label: 'Orders' },
   { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },
   { path: '/ontology/classes', icon: Database, label: 'Ontology Classes' },
@@ -63,8 +63,8 @@ function App() {
         {/* Main content */}
         <main className="flex-1 overflow-auto">
           <Routes>
-            <Route path="/" element={<OrdersDashboardPage />} />
-            <Route path="/metrics" element={<MetricsDashboardPage />} />
+            <Route path="/" element={<MetricsDashboardPage />} />
+            <Route path="/orders" element={<OrdersDashboardPage />} />
             <Route path="/stores" element={<StoresInventoryPage />} />
             <Route path="/couriers" element={<CouriersSchedulePage />} />
             <Route path="/ontology/classes" element={<OntologyClassesPage />} />
