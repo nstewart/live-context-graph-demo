@@ -109,6 +109,24 @@ python -m pytest tests/ -v
 docker-compose logs -f search-sync
 ```
 
+### Claude Code with Materialize MCP Server
+
+If you use [Claude Code](https://github.com/anthropics/claude-code), you can install the [Materialize MCP Server](https://github.com/MaterializeInc/materialize-mcp-server) to query Materialize directly from your Claude Code session.
+
+**Install the MCP Server:**
+
+```bash
+# Clone the repository
+git clone https://github.com/MaterializeInc/materialize-mcp-server
+
+# Add the MCP server to Claude Code (use absolute path to your clone)
+claude mcp add materialize-local --command "uv" --args "run" "--project" "/path/to/materialize-mcp-server" "materialize-mcp-server"
+```
+
+The default connection string (`postgresql://materialize@localhost:6875/materialize`) works with the local Materialize instance started by `make up`.
+
+For more details, see the [Materialize MCP Server developer docs](https://github.com/MaterializeInc/materialize-mcp-server/tree/main/developers).
+
 ## Project Structure
 
 ```
