@@ -371,7 +371,6 @@ class OrderLineService:
             raise ValueError(f"Line item {line_id} not found")
 
         # Track what's being updated for logging
-        logger.info(f"🔵 [TRANSACTION START] Updating line item {line_id}")
         changes = []
         triples_written = 0
         if updates.quantity is not None and updates.quantity != current.quantity:

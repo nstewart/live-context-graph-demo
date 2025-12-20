@@ -790,7 +790,23 @@ LEFT JOIN pending_reservations pr
 WHERE inv.unit_price IS NOT NULL;"
 
 # 3. Store Capacity Health MV - monitors store utilization and capacity constraints
-# Concurrent capacity = hourly throughput × avg fulfillment time (4 hours for same-day delivery)
+#
+# CAPACITY MODEL EXPLANATION:
+# - Hourly capacity (store_capacity_orders_per_hour): Number of new orders a store can accept per hour
+# - Concurrent capacity: Total number of orders a store can handle simultaneously
+#   Formula: hourly_rate × average_fulfillment_time
+#
+# The 4-hour multiplier represents the average fulfillment time for same-day delivery:
+#   - Order placed → Picking (1-2 hours) → Packing (30 min) → Delivery (1-2 hours)
+#   - This allows orders to arrive continuously while previous orders are still being fulfilled
+#
+# Example: A store with 10 orders/hour capacity can handle 40 concurrent orders
+#   - New orders arrive at 10/hour
+#   - Each order takes ~4 hours to complete
+#   - At steady state: 40 orders in various stages of fulfillment
+#
+# Utilization is calculated as: active_orders / concurrent_capacity
+# This gives a more accurate view of store workload than comparing to hourly intake rate alone.
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS store_capacity_health_mv IN CLUSTER compute AS
 WITH active_workload AS (
@@ -809,6 +825,7 @@ store_with_capacity AS (
         s.store_zone,
         s.store_capacity_orders_per_hour,
         -- Concurrent capacity = hourly rate × 4 hours avg fulfillment time
+        -- See comment block above for detailed explanation
         s.store_capacity_orders_per_hour * 4 AS concurrent_capacity,
         COALESCE(aw.active_orders, 0) AS active_orders,
         s.effective_updated_at
