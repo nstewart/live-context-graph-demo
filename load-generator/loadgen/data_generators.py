@@ -3,7 +3,7 @@
 import random
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from faker import Faker
 
@@ -147,7 +147,7 @@ class DataGenerator:
         self,
         current_status: str,
         order_age_minutes: float,
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[bool, Optional[str]]:
         """Determine if an order should transition to next status.
 
         Args:
