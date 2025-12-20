@@ -462,7 +462,8 @@ class BaseSubscribeWorker(ABC):
                 self._backpressure_active = False
 
         # Flush batch to OpenSearch
-        await self._flush_batch()
+        timestamp = events[0].timestamp if events else None
+        await self._flush_batch(timestamp)
 
     async def _handle_events_simple(self, events: list[SubscribeEvent]):
         """Simple event processing: direct insert/delete handling.
@@ -639,7 +640,7 @@ class BaseSubscribeWorker(ABC):
         if delete_ids:
             logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
-    async def _flush_batch(self):
+    async def _flush_batch(self, timestamp=None):
         """Flush pending upserts and deletes to OpenSearch with retry logic.
 
         Performs bulk operations to sync accumulated events. Implements
@@ -651,6 +652,15 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
         upsert_count = len(self.pending_upserts)
         delete_count = len(self.pending_deletes)
+
+        # Log batch summary (single bulk request to OpenSearch)
+        ops = []
+        if upsert_count:
+            ops.append(f"{upsert_count} upserts")
+        if delete_count:
+            ops.append(f"{delete_count} deletes")
+        ts_str = f"mz_ts={timestamp} " if timestamp else ""
+        logger.info(f"  📦 Bulk request @ {ts_str}→ {index_name}: {', '.join(ops)} (1 HTTP call)")
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts
