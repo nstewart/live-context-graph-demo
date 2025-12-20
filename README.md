@@ -26,8 +26,8 @@ This project demonstrates a **live digital twin** of same-day grocery delivery o
 
 ```bash
 # Clone and configure
-git clone https://github.com/your-org/freshmart-digital-twin-agent-starter.git
-cd freshmart-digital-twin-agent-starter
+git clone https://github.com/nstewart/live-agent-ontology-demo.git
+cd live-agent-ontology-demo
 cp .env.example .env
 
 # Install uv (Python package manager) if not already installed
