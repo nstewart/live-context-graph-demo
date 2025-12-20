@@ -26,8 +26,8 @@ async def get_session() -> AsyncSession:
     """Dependency to get database session."""
     factory = get_pg_session_factory()
     async with factory() as session:
+        logger.info("🔵 [TRANSACTION START] PostgreSQL write transaction started")
         try:
-            logger.info("🔵 [TRANSACTION START] PostgreSQL write transaction started")
             yield session
             await session.commit()
             logger.info("✅ [TRANSACTION END] PostgreSQL transaction committed successfully")
