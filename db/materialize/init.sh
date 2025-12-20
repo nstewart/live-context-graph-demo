@@ -769,6 +769,7 @@ LEFT JOIN pending_reservations pr
 WHERE inv.unit_price IS NOT NULL;"
 
 # 3. Store Capacity Health MV - monitors store utilization and capacity constraints
+# Concurrent capacity = hourly throughput × avg fulfillment time (4 hours for same-day delivery)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS store_capacity_health_mv IN CLUSTER compute AS
 WITH active_workload AS (
@@ -779,33 +780,42 @@ WITH active_workload AS (
     FROM orders_flat_mv
     WHERE order_status IN ('CREATED', 'PICKING', 'OUT_FOR_DELIVERY')
     GROUP BY store_id
+),
+store_with_capacity AS (
+    SELECT
+        s.store_id,
+        s.store_name,
+        s.store_zone,
+        s.store_capacity_orders_per_hour,
+        -- Concurrent capacity = hourly rate × 4 hours avg fulfillment time
+        s.store_capacity_orders_per_hour * 4 AS concurrent_capacity,
+        COALESCE(aw.active_orders, 0) AS active_orders,
+        s.effective_updated_at
+    FROM stores_mv s
+    LEFT JOIN active_workload aw ON aw.store_id = s.store_id
 )
 SELECT
-    s.store_id,
-    s.store_name,
-    s.store_zone,
-    s.store_capacity_orders_per_hour,
-    COALESCE(aw.active_orders, 0) AS current_active_orders,
-    ROUND((COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) * 100, 1) AS current_utilization_pct,
-    s.store_capacity_orders_per_hour - COALESCE(aw.active_orders, 0) AS headroom,
+    store_id,
+    store_name,
+    store_zone,
+    store_capacity_orders_per_hour,
+    active_orders AS current_active_orders,
+    ROUND((active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) * 100, 1) AS current_utilization_pct,
+    concurrent_capacity - active_orders AS headroom,
     CASE
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90 THEN 'CRITICAL'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70 THEN 'STRAINED'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.40 THEN 'HEALTHY'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.90 THEN 'CRITICAL'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.70 THEN 'STRAINED'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.40 THEN 'HEALTHY'
         ELSE 'UNDERUTILIZED'
     END AS health_status,
     CASE
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90
-            THEN 'CLOSE_INTAKE'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70
-            THEN 'SURGE_PRICING'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) < 0.40
-            THEN 'PROMOTE_DEMAND'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.90 THEN 'CLOSE_INTAKE'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.70 THEN 'SURGE_PRICING'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) < 0.40 THEN 'PROMOTE_DEMAND'
         ELSE 'MONITOR'
     END AS recommended_action,
-    s.effective_updated_at
-FROM stores_mv s
-LEFT JOIN active_workload aw ON aw.store_id = s.store_id;"
+    effective_updated_at
+FROM store_with_capacity;"
 
 echo "Creating indexes for CEO metrics..."
 
