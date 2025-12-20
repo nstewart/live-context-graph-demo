@@ -58,6 +58,9 @@ CREATE SOURCE IF NOT EXISTS pg_source
 echo "Waiting for source to hydrate..."
 sleep 5
 
+echo "Creating index on triples source for subject_id lookups..."
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS triples_subject_idx IN CLUSTER serving ON triples (subject_id);"
+
 echo "Creating regular views for intermediate transformations..."
 
 # Create regular views (one at a time due to Materialize transaction requirements)
