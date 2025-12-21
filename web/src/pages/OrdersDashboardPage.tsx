@@ -317,11 +317,9 @@ function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
                     </span>
                   )}
                 </div>
-                {item.category && (
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {item.category}
-                  </div>
-                )}
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {item.line_id}
+                </div>
               </td>
               <td className="px-3 py-2 text-center text-gray-900">
                 {item.quantity}
