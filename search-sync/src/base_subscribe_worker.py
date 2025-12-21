@@ -573,7 +573,7 @@ class BaseSubscribeWorker(ABC):
             def summarize_array_diff(old_list, new_list, id_key='id'):
                 """Summarize changes between two lists of dicts."""
                 if not old_list or not new_list:
-                    return f"{len(old_list or [])} items → {len(new_list or [])} items"
+                    return f"{len(old_list or [])} items -> {len(new_list or [])} items"
 
                 # Try to match items by common ID keys
                 id_keys = ['line_id', 'id', 'inventory_id', 'product_id']
@@ -584,7 +584,7 @@ class BaseSubscribeWorker(ABC):
                         break
 
                 if not matched_key:
-                    return f"{len(old_list)} items → {len(new_list)} items"
+                    return f"{len(old_list)} items -> {len(new_list)} items"
 
                 # Build lookup by ID
                 old_by_id = {item.get(matched_key): item for item in old_list}
@@ -600,13 +600,15 @@ class BaseSubscribeWorker(ABC):
                             if field in (matched_key,) or field.endswith('_at'):
                                 continue
                             if old_item.get(field) != new_item.get(field):
-                                item_changes.append(f"{field}: {old_item.get(field)} → {new_item.get(field)}")
+                                item_changes.append(f"  {field}: {old_item.get(field)} -> {new_item.get(field)}")
                         if item_changes:
                             short_id = item_id.split(':')[-1] if ':' in str(item_id) else item_id
-                            changes.append(f"[{short_id}] {' | '.join(item_changes[:3])}")
+                            # Add item header followed by each field change as separate entries
+                            changes.append(f"[{short_id}]")
+                            changes.extend(item_changes[:3])
 
                 if changes:
-                    return '; '.join(changes[:3])  # Limit to 3 item changes
+                    return ' | '.join(changes)
                 return f"{len(new_list)} items (no field changes)"
 
             def compute_diff_signature(old_doc, new_doc):
@@ -626,7 +628,7 @@ class BaseSubscribeWorker(ABC):
                         else:
                             old_str = str(old_val) if old_val is not None else 'null'
                             new_str = str(new_val) if new_val is not None else 'null'
-                            diffs.append(f"{key}: {old_str} → {new_str}")
+                            diffs.append(f"{key}: {old_str} -> {new_str}")
                 return ' | '.join(diffs) if diffs else None
 
             # Group updates by their diff signature
