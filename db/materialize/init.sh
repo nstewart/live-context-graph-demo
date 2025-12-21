@@ -58,6 +58,9 @@ CREATE SOURCE IF NOT EXISTS pg_source
 echo "Waiting for source to hydrate..."
 sleep 5
 
+echo "Creating index on triples source for subject_id lookups..."
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS triples_subject_idx IN CLUSTER serving ON triples (subject_id);"
+
 echo "Creating regular views for intermediate transformations..."
 
 # Create regular views (one at a time due to Materialize transaction requirements)
@@ -118,11 +121,12 @@ echo "Creating materialized views IN CLUSTER compute..."
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS orders_flat_mv IN CLUSTER compute AS
 WITH order_line_amounts AS (
-    -- Extract line_amount for each orderline
+    -- Calculate line_amount from quantity * unit_price (derived, not stored)
     SELECT
         subject_id AS line_id,
         MAX(CASE WHEN predicate = 'line_of_order' THEN object_value END) AS order_id,
-        MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount
+        (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+         * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount
     FROM triples
     WHERE subject_id LIKE 'orderline:%'
     GROUP BY subject_id
@@ -162,7 +166,9 @@ SELECT
     MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
     MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
     MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
-    MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount,
+    -- Calculate line_amount from quantity * unit_price (derived, not stored)
+    (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+     * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
     MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
     MAX(CASE WHEN predicate = 'perishable_flag' THEN object_value END)::BOOLEAN AS perishable_flag,
     MAX(updated_at) AS effective_updated_at
@@ -696,11 +702,26 @@ SELECT * FROM inventory_items_with_dynamic_pricing;"
 echo "Creating indexes IN CLUSTER serving on materialized views..."
 
 # Create indexes in serving cluster on materialized views
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_flat_idx IN CLUSTER serving ON orders_flat_mv (order_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory_mv (inventory_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source_mv (order_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS courier_schedule_idx IN CLUSTER serving ON courier_schedule_mv (courier_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS stores_idx IN CLUSTER serving ON stores_mv (store_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS customers_idx IN CLUSTER serving ON customers_mv (customer_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS products_idx IN CLUSTER serving ON products_mv (product_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_flat_idx IN CLUSTER serving ON orders_flat_mv (order_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS store_inventory_idx IN CLUSTER serving ON store_inventory_mv (inventory_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders_search_source_mv (order_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS courier_schedule_idx IN CLUSTER serving ON courier_schedule_mv (courier_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS stores_idx IN CLUSTER serving ON stores_mv (store_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS customers_idx IN CLUSTER serving ON customers_mv (customer_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS products_idx IN CLUSTER serving ON products_mv (product_id);"
+
 # Order line indexes
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_id_idx IN CLUSTER serving ON order_lines_flat_mv (order_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_product_id_idx IN CLUSTER serving ON order_lines_flat_mv (product_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_sequence_idx IN CLUSTER serving ON order_lines_flat_mv (order_id, line_sequence);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_idx IN CLUSTER serving ON orders_with_lines_mv (effective_updated_at DESC);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_status_idx IN CLUSTER serving ON orders_with_lines_mv (order_status);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_id_idx IN CLUSTER serving ON order_lines_flat_mv (order_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_product_id_idx IN CLUSTER serving ON order_lines_flat_mv (product_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_sequence_idx IN CLUSTER serving ON order_lines_flat_mv (order_id, line_sequence);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_idx IN CLUSTER serving ON orders_with_lines_mv (effective_updated_at DESC);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_status_idx IN CLUSTER serving ON orders_with_lines_mv (order_status);"
+
 # Dynamic pricing indexes
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (inventory_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_product_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (product_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_store_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_id);"psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_zone_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_zone);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (inventory_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_product_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (product_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_store_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_zone_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_zone);"
 
 echo "Creating CEO metrics materialized views..."
 
@@ -708,6 +729,7 @@ echo "Creating CEO metrics materialized views..."
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS pricing_yield_mv IN CLUSTER compute AS
 SELECT
+    ol.line_id,
     ol.order_id,
     o.store_id,
     s.store_zone,
@@ -768,6 +790,23 @@ LEFT JOIN pending_reservations pr
 WHERE inv.unit_price IS NOT NULL;"
 
 # 3. Store Capacity Health MV - monitors store utilization and capacity constraints
+#
+# CAPACITY MODEL EXPLANATION:
+# - Hourly capacity (store_capacity_orders_per_hour): Number of new orders a store can accept per hour
+# - Concurrent capacity: Total number of orders a store can handle simultaneously
+#   Formula: hourly_rate × average_fulfillment_time
+#
+# The 4-hour multiplier represents the average fulfillment time for same-day delivery:
+#   - Order placed → Picking (1-2 hours) → Packing (30 min) → Delivery (1-2 hours)
+#   - This allows orders to arrive continuously while previous orders are still being fulfilled
+#
+# Example: A store with 10 orders/hour capacity can handle 40 concurrent orders
+#   - New orders arrive at 10/hour
+#   - Each order takes ~4 hours to complete
+#   - At steady state: 40 orders in various stages of fulfillment
+#
+# Utilization is calculated as: active_orders / concurrent_capacity
+# This gives a more accurate view of store workload than comparing to hourly intake rate alone.
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS store_capacity_health_mv IN CLUSTER compute AS
 WITH active_workload AS (
@@ -778,33 +817,43 @@ WITH active_workload AS (
     FROM orders_flat_mv
     WHERE order_status IN ('CREATED', 'PICKING', 'OUT_FOR_DELIVERY')
     GROUP BY store_id
+),
+store_with_capacity AS (
+    SELECT
+        s.store_id,
+        s.store_name,
+        s.store_zone,
+        s.store_capacity_orders_per_hour,
+        -- Concurrent capacity = hourly rate × 4 hours avg fulfillment time
+        -- See comment block above for detailed explanation
+        s.store_capacity_orders_per_hour * 4 AS concurrent_capacity,
+        COALESCE(aw.active_orders, 0) AS active_orders,
+        s.effective_updated_at
+    FROM stores_mv s
+    LEFT JOIN active_workload aw ON aw.store_id = s.store_id
 )
 SELECT
-    s.store_id,
-    s.store_name,
-    s.store_zone,
-    s.store_capacity_orders_per_hour,
-    COALESCE(aw.active_orders, 0) AS current_active_orders,
-    ROUND((COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) * 100, 1) AS current_utilization_pct,
-    s.store_capacity_orders_per_hour - COALESCE(aw.active_orders, 0) AS headroom,
+    store_id,
+    store_name,
+    store_zone,
+    store_capacity_orders_per_hour,
+    active_orders AS current_active_orders,
+    ROUND((active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) * 100, 1) AS current_utilization_pct,
+    concurrent_capacity - active_orders AS headroom,
     CASE
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90 THEN 'CRITICAL'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70 THEN 'STRAINED'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.40 THEN 'HEALTHY'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.90 THEN 'CRITICAL'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.70 THEN 'STRAINED'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.40 THEN 'HEALTHY'
         ELSE 'UNDERUTILIZED'
     END AS health_status,
     CASE
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.90
-            THEN 'CLOSE_INTAKE'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) >= 0.70
-            THEN 'SURGE_PRICING'
-        WHEN (COALESCE(aw.active_orders, 0)::DECIMAL / NULLIF(s.store_capacity_orders_per_hour, 0)) < 0.40
-            THEN 'PROMOTE_DEMAND'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.90 THEN 'CLOSE_INTAKE'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) >= 0.70 THEN 'SURGE_PRICING'
+        WHEN (active_orders::DECIMAL / NULLIF(concurrent_capacity, 0)) < 0.40 THEN 'PROMOTE_DEMAND'
         ELSE 'MONITOR'
     END AS recommended_action,
-    s.effective_updated_at
-FROM stores_mv s
-LEFT JOIN active_workload aw ON aw.store_id = s.store_id;"
+    effective_updated_at
+FROM store_with_capacity;"
 
 echo "Creating indexes for CEO metrics..."
 

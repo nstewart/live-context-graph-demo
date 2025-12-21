@@ -15,8 +15,9 @@ class LoadProfile:
     duration_minutes: Optional[int] = None
 
     # Activity mix (should sum to 1.0)
-    new_order_weight: float = 0.40
-    status_transition_weight: float = 0.30
+    # Balanced for ~70-80% store utilization (strained but not critical)
+    new_order_weight: float = 0.25
+    status_transition_weight: float = 0.45
     order_modification_weight: float = 0.10
     customer_creation_weight: float = 0.05
     inventory_update_weight: float = 0.10

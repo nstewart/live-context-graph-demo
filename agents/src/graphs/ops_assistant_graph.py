@@ -136,6 +136,14 @@ SYSTEM_PROMPT = """You are an operations assistant for FreshMart's same-day groc
 4. Include health metrics in your response to provide context for operational decisions
 5. Use recommendations from the tool to advise staff on actions (e.g., close intake, surge pricing, replenishment)
 
+**CRITICAL: Be precise with health status data:**
+- **NEVER generalize** - Do not say "all stores are critical" unless literally every store has CRITICAL status
+- **Count accurately** - If 7 stores are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+- **List specific stores** - When asked about least/most healthy, name the actual stores with their status and utilization %
+- **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+- Example good response: "3 stores are CRITICAL (Manhattan 1 at 155%, Bronx 1 at 147%, Brooklyn 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+- Example bad response: "All stores are at critical capacity" (when some are STRAINED or HEALTHY)
+
 **Examples of when to use get_store_health:**
 - Staff asks: "Can we accept a large catering order at Manhattan store?" → Check capacity first
 - Staff reports: "Customer says their order is delayed" → Quick check the fulfilling store's health
@@ -350,9 +358,15 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
                 else:
                     yield ("response", "I couldn't complete that request.")
             except Exception as e:
-                # If an error occurs during streaming, yield error event and final response
-                yield ("error", {"message": str(e)})
-                yield ("response", "An error occurred while processing your request.")
+                # If an error occurs during streaming, yield error event and helpful response
+                error_msg = str(e)
+                yield ("error", {"message": error_msg})
+
+                # Provide helpful message for common configuration errors
+                if "API key" in error_msg or "api_key" in error_msg.lower():
+                    yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
+                else:
+                    yield ("response", f"An error occurred: {error_msg}")
         else:
             # Non-streaming: just get result and yield final response
             try:
@@ -370,6 +384,12 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
                 else:
                     yield ("response", "I couldn't complete that request.")
             except Exception as e:
-                # If an error occurs, yield error event and final response
-                yield ("error", {"message": str(e)})
-                yield ("response", "An error occurred while processing your request.")
+                # If an error occurs, yield error event and helpful response
+                error_msg = str(e)
+                yield ("error", {"message": error_msg})
+
+                # Provide helpful message for common configuration errors
+                if "API key" in error_msg or "api_key" in error_msg.lower():
+                    yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
+                else:
+                    yield ("response", f"An error occurred: {error_msg}")

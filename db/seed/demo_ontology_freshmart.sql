@@ -240,7 +240,7 @@ FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 
 INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
-SELECT 'line_amount', id, 'float', NULL, FALSE, TRUE, 'Line total amount (quantity * unit_price)'
+SELECT 'line_amount', id, 'float', NULL, FALSE, FALSE, 'Line total amount (derived: quantity * unit_price)'
 FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 

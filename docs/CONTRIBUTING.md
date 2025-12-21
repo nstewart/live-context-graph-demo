@@ -109,6 +109,48 @@ python -m pytest tests/ -v
 docker-compose logs -f search-sync
 ```
 
+### Claude Code with Materialize MCP Server
+
+If you use [Claude Code](https://github.com/anthropics/claude-code), you can install the [Materialize MCP Server](https://github.com/MaterializeInc/materialize-mcp-server) to query Materialize directly from your Claude Code session.
+
+**1. Clone and set up the MCP server:**
+
+```bash
+# Clone the repository
+git clone https://github.com/MaterializeInc/materialize-mcp-server
+cd materialize-mcp-server/developers
+
+# Install dependencies (requires Python 3.13 - torch doesn't have 3.14 wheels yet)
+uv sync --python 3.13
+
+# Add psycopg binary for database connectivity
+uv add psycopg-binary --python 3.13
+```
+
+**2. (Optional) Disable SearchDocumentation if you don't have AWS credentials:**
+
+The `SearchDocumentation` tool requires AWS S3 access. For local development without AWS, comment it out in `mcp_materialize_developers/mcp_server.py`:
+
+```python
+# self._server.add_tool(SearchDocumentation())
+```
+
+**3. Add the MCP server to Claude Code:**
+
+```bash
+claude mcp add --transport stdio materialize-local -- uv run --python 3.13 --project "/path/to/materialize-mcp-server/developers" mcp_materialize_developers
+```
+
+Replace `/path/to/materialize-mcp-server` with the actual absolute path to your clone.
+
+**4. Verify it works:**
+
+Restart Claude Code and run `/mcp` to check the server status. You should see `materialize-local` with a green checkmark.
+
+The default connection string (`postgresql://materialize@localhost:6875/materialize`) works with the local Materialize instance started by `make up`.
+
+For more details, see the [Materialize MCP Server developer docs](https://github.com/MaterializeInc/materialize-mcp-server/tree/main/developers).
+
 ## Project Structure
 
 ```

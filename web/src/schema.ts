@@ -177,10 +177,11 @@ const inventory_items_with_dynamic_pricing = table('inventory_items_with_dynamic
   })
   .primaryKey('inventory_id')
 
-// pricing_yield_mv - pricing capture metrics
+// pricing_yield_mv - pricing capture metrics (per line item)
 const pricing_yield_mv = table('pricing_yield_mv')
   .columns({
-    order_id: string(),
+    line_id: string(),
+    order_id: string().optional(),
     store_id: string().optional(),
     store_zone: string().optional(),
     product_id: string().optional(),
@@ -192,7 +193,7 @@ const pricing_yield_mv = table('pricing_yield_mv')
     order_status: string().optional(),
     effective_updated_at: number().optional(),
   })
-  .primaryKey('order_id')
+  .primaryKey('line_id')
 
 // inventory_risk_mv - inventory at risk metrics
 const inventory_risk_mv = table('inventory_risk_mv')

@@ -131,8 +131,7 @@ class OrderLineService:
         Returns:
             List of TripleCreate objects
         """
-        line_amount = line_item.quantity * line_item.unit_price
-
+        # Note: line_amount is derived in Materialize views as quantity * unit_price
         triples = [
             TripleCreate(
                 subject_id=line_id,
@@ -156,12 +155,6 @@ class OrderLineService:
                 subject_id=line_id,
                 predicate="order_line_unit_price",
                 object_value=str(line_item.unit_price),
-                object_type="float",
-            ),
-            TripleCreate(
-                subject_id=line_id,
-                predicate="line_amount",
-                object_value=str(line_amount),
                 object_type="float",
             ),
             TripleCreate(
@@ -267,7 +260,9 @@ class OrderLineService:
                     MAX(CASE WHEN t.predicate = 'line_product' THEN t.object_value END) AS product_id,
                     MAX(CASE WHEN t.predicate = 'quantity' THEN t.object_value END)::INT AS quantity,
                     MAX(CASE WHEN t.predicate = 'order_line_unit_price' THEN t.object_value END)::DECIMAL(10,2) AS unit_price,
-                    MAX(CASE WHEN t.predicate = 'line_amount' THEN t.object_value END)::DECIMAL(10,2) AS line_amount,
+                    -- line_amount is derived from quantity * unit_price (not stored as triple)
+                    (MAX(CASE WHEN t.predicate = 'quantity' THEN t.object_value END)::INT
+                     * MAX(CASE WHEN t.predicate = 'order_line_unit_price' THEN t.object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
                     MAX(CASE WHEN t.predicate = 'line_sequence' THEN t.object_value END)::INT AS line_sequence,
                     MAX(CASE WHEN t.predicate = 'perishable_flag' THEN t.object_value END)::BOOLEAN AS perishable_flag,
                     MAX(t.updated_at) AS effective_updated_at
@@ -326,7 +321,9 @@ class OrderLineService:
                 MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
                 MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
                 MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
-                MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount,
+                -- line_amount is derived from quantity * unit_price (not stored as triple)
+                (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+                 * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
                 MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
                 MAX(CASE WHEN predicate = 'perishable_flag' THEN object_value END)::BOOLEAN AS perishable_flag,
                 MAX(updated_at) AS effective_updated_at
@@ -373,6 +370,16 @@ class OrderLineService:
         if not current:
             raise ValueError(f"Line item {line_id} not found")
 
+        # Track what's being updated for logging
+        changes = []
+        triples_written = 0
+        if updates.quantity is not None and updates.quantity != current.quantity:
+            changes.append(f"quantity: {current.quantity} → {updates.quantity}")
+        if updates.unit_price is not None and updates.unit_price != current.unit_price:
+            changes.append(f"unit_price: {current.unit_price} → {updates.unit_price}")
+        if updates.line_sequence is not None and updates.line_sequence != current.line_sequence:
+            changes.append(f"line_sequence: {current.line_sequence} → {updates.line_sequence}")
+
         # Apply updates
         new_quantity = updates.quantity if updates.quantity is not None else current.quantity
         new_unit_price = (
@@ -381,17 +388,6 @@ class OrderLineService:
         new_sequence = (
             updates.line_sequence if updates.line_sequence is not None else current.line_sequence
         )
-
-        # Calculate line amount - handle case where unit_price might be None
-        if new_unit_price is not None:
-            new_line_amount = new_quantity * new_unit_price
-        elif current.line_amount is not None and current.quantity:
-            # Calculate unit price from existing line amount
-            new_unit_price = current.line_amount / current.quantity
-            new_line_amount = new_quantity * new_unit_price
-        else:
-            # Fallback - keep existing line amount or set to 0
-            new_line_amount = current.line_amount or 0
 
         # Update triples
         if updates.quantity is not None:
@@ -403,6 +399,7 @@ class OrderLineService:
                 """),
                 {"line_id": line_id, "value": str(new_quantity)},
             )
+            triples_written += 1
 
         if updates.unit_price is not None:
             await self.session.execute(
@@ -413,6 +410,7 @@ class OrderLineService:
                 """),
                 {"line_id": line_id, "value": str(new_unit_price)},
             )
+            triples_written += 1
 
         if updates.line_sequence is not None:
             await self.session.execute(
@@ -423,17 +421,11 @@ class OrderLineService:
                 """),
                 {"line_id": line_id, "value": str(new_sequence)},
             )
+            triples_written += 1
 
-        # Always update line_amount if quantity or unit_price changed
-        if updates.quantity is not None or updates.unit_price is not None:
-            await self.session.execute(
-                text("""
-                    UPDATE triples
-                    SET object_value = :value, updated_at = NOW()
-                    WHERE subject_id = :line_id AND predicate = 'line_amount'
-                """),
-                {"line_id": line_id, "value": str(new_line_amount)},
-            )
+        # Log summary of changes
+        if changes:
+            logger.info(f"📝 [LINE ITEM UPDATE] {line_id} ({triples_written} triples): {', '.join(changes)}")
 
         # Return updated item
         return await self.get_line_item(line_id)
@@ -773,8 +765,7 @@ class OrderLineService:
                     # Get existing values from our batch-fetched data
                     existing_vals = existing_vals_by_line.get(existing_line_id, {})
 
-                    # Build triples for changed fields only
-                    line_amount = Decimal(str(new_item.quantity)) * Decimal(str(new_item.unit_price))
+                    # Build triples for changed fields only (line_amount is derived in Materialize)
                     changed_triples = []
 
                     if existing_vals.get("line_product") != new_item.product_id:
@@ -801,14 +792,6 @@ class OrderLineService:
                             subject_id=existing_line_id,
                             predicate="order_line_unit_price",
                             object_value=str(new_item.unit_price),
-                            object_type="float",
-                        ))
-
-                    if self._normalize_decimal(existing_vals.get("line_amount")) != self._normalize_decimal(line_amount):
-                        changed_triples.append(TripleCreate(
-                            subject_id=existing_line_id,
-                            predicate="line_amount",
-                            object_value=str(line_amount),
                             object_type="float",
                         ))
 

@@ -34,9 +34,10 @@ SELECT 'perishable_flag', id, 'bool', NULL, FALSE, TRUE, 'Denormalized perishabl
 FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 
--- Update line_amount description for clarity
+-- Update line_amount to mark as derived (not required, computed in views)
 UPDATE ontology_properties
-SET description = 'Line total amount (quantity * unit_price)'
+SET description = 'Line total amount (derived: quantity * unit_price)',
+    is_required = FALSE
 WHERE prop_name = 'line_amount'
   AND domain_class_id = (SELECT id FROM ontology_classes WHERE class_name = 'OrderLine');
 

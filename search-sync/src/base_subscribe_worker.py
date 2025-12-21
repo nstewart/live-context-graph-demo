@@ -41,6 +41,7 @@ Example:
 """
 
 import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -461,7 +462,8 @@ class BaseSubscribeWorker(ABC):
                 self._backpressure_active = False
 
         # Flush batch to OpenSearch
-        await self._flush_batch()
+        timestamp = events[0].timestamp if events else None
+        await self._flush_batch(timestamp)
 
     async def _handle_events_simple(self, events: list[SubscribeEvent]):
         """Simple event processing: direct insert/delete handling.
@@ -520,25 +522,31 @@ class BaseSubscribeWorker(ABC):
                 continue
 
             if doc_id not in consolidated:
-                # First event for this document
-                consolidated[doc_id] = (event.diff, event.data)
+                # First event for this document: (net_diff, old_data, new_data)
+                if event.is_delete():
+                    consolidated[doc_id] = (event.diff, event.data, None)
+                else:
+                    consolidated[doc_id] = (event.diff, None, event.data)
             else:
                 # Consolidate with previous events
-                prev_diff, prev_data = consolidated[doc_id]
+                prev_diff, old_data, new_data = consolidated[doc_id]
                 net_diff = prev_diff + event.diff
-                # Keep insert data if we have one (has complete data)
-                latest_data = event.data if event.is_insert() else prev_data
-                consolidated[doc_id] = (net_diff, latest_data)
+                # Track old data from deletes, new data from inserts
+                if event.is_delete():
+                    old_data = event.data
+                else:
+                    new_data = event.data
+                consolidated[doc_id] = (net_diff, old_data, new_data)
 
         # Process consolidated events and track document IDs by operation type
         upsert_ids = []
         delete_ids = []
-        update_ids = []
+        update_diffs = []  # Track (doc_id, old_doc, new_doc) for updates to show diffs
 
-        for doc_id, (net_diff, data) in consolidated.items():
+        for doc_id, (net_diff, old_data, new_data) in consolidated.items():
             if net_diff > 0:
                 # Net insert
-                doc = self.transform_event_to_doc(data)
+                doc = self.transform_event_to_doc(new_data)
                 if doc:
                     self.pending_upserts.append(doc)
                     upsert_ids.append(doc_id)
@@ -549,10 +557,11 @@ class BaseSubscribeWorker(ABC):
             else:
                 # net_diff == 0: UPDATE (delete + insert cancelled out)
                 # Treat as upsert with latest data
-                doc = self.transform_event_to_doc(data)
-                if doc:
-                    self.pending_upserts.append(doc)
-                    update_ids.append(doc_id)
+                new_doc = self.transform_event_to_doc(new_data)
+                old_doc = self.transform_event_to_doc(old_data) if old_data else None
+                if new_doc:
+                    self.pending_upserts.append(new_doc)
+                    update_diffs.append((doc_id, old_doc, new_doc))
 
         # Log operations grouped by type for easy filtering
         timestamp = events[0].timestamp if events else "unknown"
@@ -560,12 +569,78 @@ class BaseSubscribeWorker(ABC):
 
         if upsert_ids:
             logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(upsert_ids)} docs {upsert_ids}")
-        if update_ids:
-            logger.info(f"  🔄 Updates @ mz_ts={timestamp} → {index_name}: {len(update_ids)} docs {update_ids}")
+        if update_diffs:
+            for doc_id, old_doc, new_doc in update_diffs:
+                # Compute actual diff between old and new documents
+                diffs = []
+                if old_doc and new_doc:
+                    def summarize_array_diff(old_list, new_list, id_key='id'):
+                        """Summarize changes between two lists of dicts."""
+                        if not old_list or not new_list:
+                            return f"{len(old_list or [])} items → {len(new_list or [])} items"
+
+                        # Try to match items by common ID keys
+                        id_keys = ['line_id', 'id', 'inventory_id', 'product_id']
+                        matched_key = None
+                        for k in id_keys:
+                            if old_list[0].get(k) and new_list[0].get(k):
+                                matched_key = k
+                                break
+
+                        if not matched_key:
+                            return f"{len(old_list)} items → {len(new_list)} items"
+
+                        # Build lookup by ID
+                        old_by_id = {item.get(matched_key): item for item in old_list}
+                        new_by_id = {item.get(matched_key): item for item in new_list}
+
+                        changes = []
+                        for item_id, new_item in new_by_id.items():
+                            old_item = old_by_id.get(item_id)
+                            if old_item:
+                                # Find changed fields within this item
+                                item_changes = []
+                                for field in new_item:
+                                    if field in (matched_key,) or field.endswith('_at'):
+                                        continue
+                                    if old_item.get(field) != new_item.get(field):
+                                        item_changes.append(f"{field}: {old_item.get(field)} → {new_item.get(field)}")
+                                if item_changes:
+                                    short_id = item_id.split(':')[-1] if ':' in str(item_id) else item_id
+                                    changes.append(f"[{short_id}] {', '.join(item_changes[:3])}")
+
+                        if changes:
+                            return '; '.join(changes[:3])  # Limit to 3 item changes
+                        return f"{len(new_list)} items (no field changes)"
+
+                    for key in new_doc:
+                        old_val = old_doc.get(key)
+                        new_val = new_doc.get(key)
+                        if old_val != new_val:
+                            # Skip timestamp fields and id
+                            if key.endswith('_at') or key in ('id',):
+                                continue
+                            # Summarize arrays
+                            if isinstance(old_val, list) and isinstance(new_val, list):
+                                summary = summarize_array_diff(old_val, new_val)
+                                diffs.append(f"{key}: {summary}")
+                            else:
+                                old_str = str(old_val) if old_val is not None else 'null'
+                                new_str = str(new_val) if new_val is not None else 'null'
+                                diffs.append(f"{key}: {old_str} → {new_str}")
+                if diffs:
+                    diffs_str = ', '.join(diffs)
+                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [{diffs_str}]")
+                elif not old_doc:
+                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [no previous state available]")
+                else:
+                    # Debug: show what keys were checked
+                    changed_keys = [k for k in new_doc if old_doc.get(k) != new_doc.get(k)]
+                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [changed keys: {changed_keys}]")
         if delete_ids:
             logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
 
-    async def _flush_batch(self):
+    async def _flush_batch(self, timestamp=None):
         """Flush pending upserts and deletes to OpenSearch with retry logic.
 
         Performs bulk operations to sync accumulated events. Implements
@@ -577,6 +652,15 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
         upsert_count = len(self.pending_upserts)
         delete_count = len(self.pending_deletes)
+
+        # Log batch summary (single bulk request to OpenSearch)
+        ops = []
+        if upsert_count:
+            ops.append(f"{upsert_count} upserts")
+        if delete_count:
+            ops.append(f"{delete_count} deletes")
+        ts_str = f"mz_ts={timestamp} " if timestamp else ""
+        logger.info(f"  📦 Bulk request @ {ts_str}→ {index_name}: {', '.join(ops)} (1 HTTP call)")
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts

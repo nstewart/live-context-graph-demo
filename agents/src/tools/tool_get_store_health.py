@@ -159,10 +159,11 @@ async def _get_summary(conn: asyncpg.Connection) -> dict:
     """)
 
     # Query 3: Pricing yield summary
+    # Yield = premium / base_revenue (not total revenue, which includes premium)
     pricing_summary = await conn.fetchrow("""
         SELECT
             ROUND(SUM(price_premium)::numeric, 2) as total_premium,
-            ROUND(SUM(order_price * quantity)::numeric, 2) as total_revenue,
+            ROUND(SUM(base_price * quantity)::numeric, 2) as base_revenue,
             COUNT(DISTINCT order_id) as delivered_orders
         FROM pricing_yield_mv
     """)
@@ -181,8 +182,8 @@ async def _get_summary(conn: asyncpg.Connection) -> dict:
     total_revenue_at_risk = sum(float(r.get('total_revenue_at_risk', 0)) for r in risk_data.values())
 
     total_premium = float(pricing_summary['total_premium'] or 0)
-    total_revenue = float(pricing_summary['total_revenue'] or 0)
-    pricing_yield_pct = (total_premium / total_revenue * 100) if total_revenue > 0 else 0
+    base_revenue = float(pricing_summary['base_revenue'] or 0)
+    pricing_yield_pct = (total_premium / base_revenue * 100) if base_revenue > 0 else 0
 
     # Generate recommendations
     recommendations = []
@@ -218,7 +219,7 @@ async def _get_summary(conn: asyncpg.Connection) -> dict:
         },
         "pricing_yield": {
             "total_premium": total_premium,
-            "total_revenue": total_revenue,
+            "base_revenue": base_revenue,
             "yield_percentage": round(pricing_yield_pct, 2),
             "delivered_orders": pricing_summary['delivered_orders'],
         },
