@@ -642,19 +642,26 @@ class BaseSubscribeWorker(ABC):
                     if sig:
                         signature_groups[sig].append(doc_id)
 
-            # Log grouped updates
+            # Log grouped updates in table format
             if signature_groups:
                 logger.info(f"  🔄 Updates @ mz_ts={timestamp} → {index_name}:")
                 for sig, doc_ids in signature_groups.items():
+                    # Parse the signature into individual field changes
+                    field_changes = sig.split(', ')
+
                     if len(doc_ids) == 1:
-                        logger.info(f"      • {doc_ids[0]} [{sig}]")
+                        logger.info(f"      • {doc_ids[0]}")
                     else:
                         # Show first 3 IDs, summarize rest
                         short_ids = [d.split(':')[-1] if ':' in d else d for d in doc_ids[:3]]
                         ids_str = ', '.join(short_ids)
                         if len(doc_ids) > 3:
                             ids_str += f", +{len(doc_ids) - 3} more"
-                        logger.info(f"      • [{sig}] × {len(doc_ids)} items ({ids_str})")
+                        logger.info(f"      • × {len(doc_ids)} items ({ids_str})")
+
+                    # Log each field change on its own line
+                    for change in field_changes:
+                        logger.info(f"          {change}")
 
             if no_old_doc:
                 for doc_id in no_old_doc:
@@ -682,7 +689,7 @@ class BaseSubscribeWorker(ABC):
         if delete_count:
             ops.append(f"{delete_count} deletes")
         ts_str = f"mz_ts={timestamp} " if timestamp else ""
-        logger.info(f"  📦 Bulk request @ {ts_str}→ {index_name}: {', '.join(ops)} (1 HTTP call)")
+        logger.debug(f"  📦 Bulk request @ {ts_str}→ {index_name}: {', '.join(ops)} (1 HTTP call)")
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts
