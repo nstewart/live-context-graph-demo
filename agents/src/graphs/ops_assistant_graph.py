@@ -1,5 +1,6 @@
 """FreshMart Operations Assistant - LangGraph implementation."""
 
+import asyncio
 import json
 import operator
 from typing import Annotated, Literal, Optional, TypedDict
@@ -301,22 +302,57 @@ def create_workflow() -> StateGraph:
 _cached_checkpointer = None
 _cached_graph = None
 _checkpointer_context = None
+_init_lock = asyncio.Lock()
 
 
 async def _get_graph_and_checkpointer():
     """Get or create the compiled graph with checkpointer (cached for reuse)."""
     global _cached_checkpointer, _cached_graph, _checkpointer_context
 
-    if _cached_graph is None:
-        settings = get_settings()
-        # from_conn_string returns a context manager, need to enter it
-        _checkpointer_context = AsyncPostgresSaver.from_conn_string(settings.pg_dsn)
-        _cached_checkpointer = await _checkpointer_context.__aenter__()
+    # Thread-safe initialization with lock
+    async with _init_lock:
+        if _cached_graph is None:
+            settings = get_settings()
+            try:
+                # from_conn_string returns a context manager, need to enter it
+                _checkpointer_context = AsyncPostgresSaver.from_conn_string(settings.pg_dsn)
+                _cached_checkpointer = await _checkpointer_context.__aenter__()
 
-        workflow = create_workflow()
-        _cached_graph = workflow.compile(checkpointer=_cached_checkpointer)
+                workflow = create_workflow()
+                _cached_graph = workflow.compile(checkpointer=_cached_checkpointer)
+            except Exception:
+                # Clean up partial state on initialization failure
+                if _checkpointer_context and _cached_checkpointer:
+                    try:
+                        await _checkpointer_context.__aexit__(None, None, None)
+                    except Exception:
+                        pass  # Best effort cleanup
+                _cached_graph = None
+                _cached_checkpointer = None
+                _checkpointer_context = None
+                raise
 
     return _cached_graph
+
+
+async def cleanup_graph_resources():
+    """
+    Clean up cached graph resources and exit the checkpointer context.
+
+    Call this on application shutdown to properly close database connections.
+    """
+    global _cached_checkpointer, _cached_graph, _checkpointer_context
+
+    async with _init_lock:
+        if _checkpointer_context and _cached_checkpointer:
+            try:
+                await _checkpointer_context.__aexit__(None, None, None)
+            except Exception:
+                pass  # Best effort cleanup
+
+        _cached_graph = None
+        _cached_checkpointer = None
+        _checkpointer_context = None
 
 
 async def run_assistant(user_message: str, thread_id: str = "default", stream_events: bool = False):
