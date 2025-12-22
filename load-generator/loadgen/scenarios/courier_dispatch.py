@@ -159,7 +159,7 @@ class CourierDispatchScenario:
             {
                 "subject_id": courier_id,
                 "predicate": "courier_status",
-                "object_value": "DELIVERING",
+                "object_value": "ON_DELIVERY",
                 "object_type": "string",
             },
         ]

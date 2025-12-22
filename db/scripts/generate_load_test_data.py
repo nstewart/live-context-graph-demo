@@ -828,7 +828,7 @@ NYC_ZONES = [
     ("SI", "Staten Island", ["Victory Blvd", "Forest Ave", "Hylan Blvd", "Richmond Ave", "Bay St"]),
 ]
 
-ORDER_STATUSES = ["CREATED", "PICKING", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"]
+ORDER_STATUSES = ["CREATED", "DELIVERED", "CANCELLED"]
 COURIER_STATUSES = ["OFF_SHIFT", "AVAILABLE", "ON_DELIVERY"]
 VEHICLE_TYPES = ["BIKE", "SCOOTER", "CAR", "WALKING"]
 TASK_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"]
@@ -947,7 +947,7 @@ class DataGenerator:
                 self.add_triple(courier_id, "courier_name", fake.name(), "string")
                 self.add_triple(courier_id, "courier_home_store", store_id, "entity_ref")
                 self.add_triple(courier_id, "vehicle_type", random.choice(VEHICLE_TYPES), "string")
-                self.add_triple(courier_id, "courier_status", random.choice(COURIER_STATUSES), "string")
+                self.add_triple(courier_id, "courier_status", "AVAILABLE", "string")
 
                 courier_num += 1
 
@@ -1016,17 +1016,17 @@ class DataGenerator:
             if days_ago > 2:
                 status = random.choices(
                     ORDER_STATUSES,
-                    weights=[1, 1, 2, 90, 6]  # Mostly delivered
+                    weights=[1, 90, 6]  # Mostly delivered
                 )[0]
             elif days_ago > 0:
                 status = random.choices(
                     ORDER_STATUSES,
-                    weights=[5, 10, 20, 60, 5]
+                    weights=[5, 60, 5]
                 )[0]
             else:  # Today
                 status = random.choices(
                     ORDER_STATUSES,
-                    weights=[30, 25, 25, 15, 5]
+                    weights=[30, 15, 5]  # Mostly created, waiting for courier
                 )[0]
 
             # Generate order lines first to calculate total
