@@ -480,3 +480,258 @@ class TestViewMapping:
         assert service._get_view("orders_search_source") == "orders_search_source_mv"
         assert service._get_view("store_inventory_flat") == "store_inventory_mv"
         assert service._get_view("courier_schedule_flat") == "courier_schedule_mv"
+
+
+# =============================================================================
+# Materialize Courier Dispatch Integration Tests
+# =============================================================================
+# These tests verify that the courier dispatch views exist in Materialize.
+# They catch infrastructure issues like missing views that unit tests miss.
+
+
+@requires_mz
+class TestMaterializeCourierDispatchViews:
+    """Integration tests for courier dispatch Materialize views.
+
+    These tests ensure the views required by the courier dispatch system
+    actually exist in Materialize. They prevent runtime errors caused by
+    missing database objects that unit tests cannot detect.
+    """
+
+    @pytest.mark.asyncio
+    async def test_couriers_available_view_exists(self, mz_session: AsyncSession):
+        """Verify couriers_available view exists and is queryable."""
+        result = await mz_session.execute(
+            text("SELECT * FROM couriers_available LIMIT 1")
+        )
+        # Should not raise - view exists
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+    @pytest.mark.asyncio
+    async def test_orders_awaiting_courier_view_exists(self, mz_session: AsyncSession):
+        """Verify orders_awaiting_courier view exists and is queryable."""
+        result = await mz_session.execute(
+            text("SELECT * FROM orders_awaiting_courier LIMIT 1")
+        )
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+    @pytest.mark.asyncio
+    async def test_delivery_tasks_active_view_exists(self, mz_session: AsyncSession):
+        """Verify delivery_tasks_active view exists and is queryable."""
+        result = await mz_session.execute(
+            text("SELECT * FROM delivery_tasks_active LIMIT 1")
+        )
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+    @pytest.mark.asyncio
+    async def test_tasks_ready_to_advance_view_exists(self, mz_session: AsyncSession):
+        """Verify tasks_ready_to_advance view exists and is queryable.
+
+        This view uses mz_now() for real-time filtering.
+        """
+        result = await mz_session.execute(
+            text("SELECT * FROM tasks_ready_to_advance LIMIT 1")
+        )
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+    @pytest.mark.asyncio
+    async def test_store_courier_metrics_mv_exists(self, mz_session: AsyncSession):
+        """Verify store_courier_metrics_mv materialized view exists."""
+        result = await mz_session.execute(
+            text("SELECT * FROM store_courier_metrics_mv LIMIT 1")
+        )
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+    @pytest.mark.asyncio
+    async def test_delivery_tasks_flat_has_task_started_at(self, mz_session: AsyncSession):
+        """Verify delivery_tasks_flat includes task_started_at column."""
+        result = await mz_session.execute(
+            text("SELECT task_started_at FROM delivery_tasks_flat LIMIT 1")
+        )
+        # Should not raise - column exists
+        rows = result.fetchall()
+        assert isinstance(rows, list)
+
+
+@requires_mz
+class TestMaterializeCourierDispatchService:
+    """Integration tests for courier dispatch service methods against Materialize.
+
+    These tests verify the service methods work end-to-end with real Materialize
+    queries, catching issues like incorrect SQL or schema mismatches.
+    """
+
+    @pytest.mark.asyncio
+    async def test_list_available_couriers_returns_data(self, mz_service: FreshMartService):
+        """list_available_couriers returns couriers from Materialize."""
+        couriers = await mz_service.list_available_couriers()
+
+        assert isinstance(couriers, list)
+        # Demo data should have available couriers
+        if couriers:
+            courier = couriers[0]
+            assert courier.courier_id is not None
+            assert courier.courier_id.startswith("courier:")
+            assert courier.courier_status == "AVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_list_available_couriers_filter_by_store(self, mz_service: FreshMartService):
+        """list_available_couriers filters by store_id."""
+        # First get all couriers to find a store
+        all_couriers = await mz_service.list_available_couriers()
+        if not all_couriers:
+            pytest.skip("No available couriers in database")
+
+        store_id = all_couriers[0].home_store_id
+        filtered = await mz_service.list_available_couriers(store_id=store_id)
+
+        assert isinstance(filtered, list)
+        for courier in filtered:
+            assert courier.home_store_id == store_id
+
+    @pytest.mark.asyncio
+    async def test_list_orders_awaiting_courier_returns_data(self, mz_service: FreshMartService):
+        """list_orders_awaiting_courier returns pending orders from Materialize."""
+        orders = await mz_service.list_orders_awaiting_courier()
+
+        assert isinstance(orders, list)
+        if orders:
+            order = orders[0]
+            assert order.order_id is not None
+            assert order.order_id.startswith("order:")
+
+    @pytest.mark.asyncio
+    async def test_list_orders_awaiting_courier_filter_by_store(self, mz_service: FreshMartService):
+        """list_orders_awaiting_courier filters by store_id."""
+        all_orders = await mz_service.list_orders_awaiting_courier()
+        if not all_orders:
+            pytest.skip("No orders awaiting courier in database")
+
+        store_id = all_orders[0].store_id
+        filtered = await mz_service.list_orders_awaiting_courier(store_id=store_id)
+
+        assert isinstance(filtered, list)
+        for order in filtered:
+            assert order.store_id == store_id
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_ready_to_advance_returns_data(self, mz_service: FreshMartService):
+        """list_tasks_ready_to_advance queries Materialize without error."""
+        # This may return empty if no tasks have elapsed their timer
+        tasks = await mz_service.list_tasks_ready_to_advance()
+
+        assert isinstance(tasks, list)
+        # If there are tasks, verify structure
+        for task in tasks:
+            assert task.task_id is not None
+            assert task.task_id.startswith("task:")
+            assert task.task_status in ("PICKING", "DELIVERING")
+
+    @pytest.mark.asyncio
+    async def test_list_store_courier_metrics_returns_data(self, mz_service: FreshMartService):
+        """list_store_courier_metrics returns metrics from Materialize."""
+        metrics = await mz_service.list_store_courier_metrics()
+
+        assert isinstance(metrics, list)
+        # Demo data should have stores with metrics
+        if metrics:
+            metric = metrics[0]
+            assert metric.store_id is not None
+            assert metric.store_id.startswith("store:")
+            assert metric.total_couriers >= 0
+            assert metric.available_couriers >= 0
+            assert metric.orders_in_queue >= 0
+
+    @pytest.mark.asyncio
+    async def test_list_store_courier_metrics_filter_by_store(self, mz_service: FreshMartService):
+        """list_store_courier_metrics filters by store_id."""
+        all_metrics = await mz_service.list_store_courier_metrics()
+        if not all_metrics:
+            pytest.skip("No store metrics in database")
+
+        store_id = all_metrics[0].store_id
+        filtered = await mz_service.list_store_courier_metrics(store_id=store_id)
+
+        assert isinstance(filtered, list)
+        assert len(filtered) == 1
+        assert filtered[0].store_id == store_id
+
+
+# =============================================================================
+# Materialize View Existence Smoke Tests
+# =============================================================================
+# Quick tests to verify all expected views exist - catches init.sh issues
+
+
+@requires_mz
+class TestMaterializeViewsExist:
+    """Smoke tests to verify all expected Materialize views exist.
+
+    These tests run quickly and catch issues where views are missing
+    due to init.sh not being run or CASCADE drops.
+    """
+
+    EXPECTED_VIEWS = [
+        "couriers_flat",
+        "customers_flat",
+        "delivery_tasks_flat",
+        "products_flat",
+        "stores_flat",
+        "order_lines_base",
+        "couriers_available",
+        "orders_awaiting_courier",
+        "delivery_tasks_active",
+        "tasks_ready_to_advance",
+        "inventory_items_with_dynamic_pricing",
+        "courier_tasks_flat",
+    ]
+
+    EXPECTED_MATERIALIZED_VIEWS = [
+        "orders_flat_mv",
+        "order_lines_flat_mv",
+        "store_inventory_mv",
+        "stores_mv",
+        "customers_mv",
+        "products_mv",
+        "courier_schedule_mv",
+        "orders_search_source_mv",
+        "orders_with_lines_mv",
+        "inventory_items_with_dynamic_pricing_mv",
+        "pricing_yield_mv",
+        "inventory_risk_mv",
+        "store_capacity_health_mv",
+        "store_courier_metrics_mv",
+    ]
+
+    @pytest.mark.asyncio
+    async def test_all_views_exist(self, mz_session: AsyncSession):
+        """Verify all expected views exist in Materialize."""
+        result = await mz_session.execute(text("SHOW VIEWS"))
+        rows = result.fetchall()
+        existing_views = {row[0] for row in rows}
+
+        missing = []
+        for view in self.EXPECTED_VIEWS:
+            if view not in existing_views:
+                missing.append(view)
+
+        assert not missing, f"Missing views: {missing}. Run db/materialize/init.sh"
+
+    @pytest.mark.asyncio
+    async def test_all_materialized_views_exist(self, mz_session: AsyncSession):
+        """Verify all expected materialized views exist in Materialize."""
+        result = await mz_session.execute(text("SHOW MATERIALIZED VIEWS"))
+        rows = result.fetchall()
+        existing_mvs = {row[0] for row in rows}
+
+        missing = []
+        for mv in self.EXPECTED_MATERIALIZED_VIEWS:
+            if mv not in existing_mvs:
+                missing.append(mv)
+
+        assert not missing, f"Missing materialized views: {missing}. Run db/materialize/init.sh"
