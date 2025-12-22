@@ -5,6 +5,7 @@ import {
   triplesApi,
   TripleCreate,
 } from "../api/client";
+import { useTrackedTriplesApi } from "../hooks/useTrackedApi";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema, OrderLineItem } from "../schema";
 import { formatAmount } from "../test/utils";
@@ -404,6 +405,7 @@ function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
 
 export default function OrdersDashboardPage() {
   const queryClient = useQueryClient();
+  const trackedTriplesApi = useTrackedTriplesApi();
   const [showModal, setShowModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<
     OrderWithLines | undefined
@@ -604,7 +606,7 @@ export default function OrdersDashboardPage() {
       }
 
       // Create order and all line items in a single transactional batch
-      await triplesApi.createBatch(triples);
+      await trackedTriplesApi.createBatch(triples);
 
       return { orderId };
     },

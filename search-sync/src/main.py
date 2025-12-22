@@ -9,6 +9,7 @@ from src.config import get_settings
 from src.opensearch_client import OpenSearchClient
 from src.orders_sync import OrdersSyncWorker
 from src.inventory_sync import InventorySyncWorker
+from src.propagation_api import start_api_server
 
 # Configure logging
 settings = get_settings()
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Reduce opensearch client logging verbosity (bulk request logs)
 logging.getLogger("opensearch").setLevel(logging.WARNING)
+
+# Reduce aiohttp access logs (propagation API polls every 500ms)
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 
 async def main():
@@ -40,6 +44,9 @@ async def main():
     else:
         logger.error("OpenSearch failed to become ready")
         sys.exit(1)
+
+    # Start propagation API server
+    api_runner = await start_api_server(port=8083)
 
     # Create workers (MaterializeClient is created inside each worker for SUBSCRIBE mode)
     orders_worker = OrdersSyncWorker(os_client)
@@ -74,6 +81,9 @@ async def main():
             )
         except Exception as e:
             logger.error(f"Error flushing on shutdown: {e}")
+
+        # Cleanup API server
+        await api_runner.cleanup()
 
         # Close OpenSearch client
         await os_client.close()
