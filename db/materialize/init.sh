@@ -648,7 +648,7 @@ SELECT
     dt.assigned_courier_id,
     dt.task_status AS delivery_task_status,
     dt.eta AS delivery_eta,
-    -- Line items with dynamic pricing
+    -- Line items (static order data only - no dynamic pricing)
     COALESCE(
         jsonb_agg(
             jsonb_build_object(
@@ -661,19 +661,7 @@ SELECT
                 'line_amount', ol.line_amount,
                 'line_sequence', ol.line_sequence,
                 'perishable_flag', ol.perishable_flag,
-                'unit_weight_grams', ol.unit_weight_grams,
-                'inventory_id', inv.inventory_id,
-                'base_price', inv.base_price,
-                'live_price', inv.live_price,
-                'price_change', inv.price_change,
-                'zone_adjustment', inv.zone_adjustment,
-                'perishable_adjustment', inv.perishable_adjustment,
-                'local_stock_adjustment', inv.local_stock_adjustment,
-                'popularity_adjustment', inv.popularity_adjustment,
-                'scarcity_adjustment', inv.scarcity_adjustment,
-                'demand_multiplier', inv.demand_multiplier,
-                'demand_premium', inv.demand_premium,
-                'current_stock_level', inv.available_quantity
+                'unit_weight_grams', ol.unit_weight_grams
             ) ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
@@ -694,9 +682,6 @@ LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
 LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id
 LEFT JOIN order_lines_flat_mv ol ON ol.order_id = o.order_id
-LEFT JOIN inventory_items_with_dynamic_pricing inv
-    ON inv.product_id = ol.product_id
-    AND inv.store_id = o.store_id
 GROUP BY
     o.order_id,
     o.order_number,
