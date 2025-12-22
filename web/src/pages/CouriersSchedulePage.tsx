@@ -3,8 +3,96 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { triplesApi, CourierSchedule, TripleCreate } from '../api/client'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
-import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
+import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff, Users, Clock, Package, AlertTriangle } from 'lucide-react'
 import { CourierFormModal, CourierFormData } from '../components/CourierFormModal'
+
+type StoreMetrics = {
+  store_id: string
+  store_name: string
+  store_zone: string
+  total_couriers: number
+  available_couriers: number
+  busy_couriers: number
+  off_shift_couriers: number
+  orders_in_queue: number
+  orders_picking: number
+  orders_delivering: number
+  utilization_pct: number
+  health_status: 'HEALTHY' | 'WARNING' | 'CRITICAL'
+}
+
+function StoreCapacityCard({ metrics, onClick, isSelected }: { metrics: StoreMetrics; onClick?: () => void; isSelected?: boolean }) {
+  const statusColors = {
+    HEALTHY: { bg: 'bg-green-50 border-green-200', indicator: 'bg-green-500', text: 'text-green-700' },
+    WARNING: { bg: 'bg-yellow-50 border-yellow-200', indicator: 'bg-yellow-500', text: 'text-yellow-700' },
+    CRITICAL: { bg: 'bg-red-50 border-red-200', indicator: 'bg-red-500', text: 'text-red-700' },
+  }
+
+  const colors = statusColors[metrics.health_status]
+  const availabilityPct = metrics.total_couriers > 0
+    ? (metrics.available_couriers / metrics.total_couriers) * 100
+    : 0
+
+  return (
+    <div
+      className={`rounded-lg border-2 p-4 ${colors.bg} ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''} ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-semibold text-gray-900">{metrics.store_name}</h3>
+          <span className="text-xs text-gray-500">{metrics.store_zone}</span>
+        </div>
+        <div className={`w-3 h-3 rounded-full ${colors.indicator}`} title={metrics.health_status} />
+      </div>
+
+      {/* Courier Availability Bar */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between text-sm mb-1">
+          <span className="text-gray-600 flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" />
+            Couriers
+          </span>
+          <span className="font-medium">
+            {metrics.available_couriers}/{metrics.total_couriers} available
+          </span>
+        </div>
+        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-green-500 transition-all duration-300"
+            style={{ width: `${availabilityPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="flex items-center gap-1.5">
+          <Package className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-gray-600">Queue:</span>
+          <span className="font-medium">{metrics.orders_in_queue}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-gray-600">Picking:</span>
+          <span className="font-medium">{metrics.orders_picking}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Truck className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-gray-600">Delivering:</span>
+          <span className="font-medium">{metrics.orders_delivering}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <AlertTriangle className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-gray-600">Util:</span>
+          <span className={`font-medium ${metrics.utilization_pct >= 80 ? 'text-red-600' : metrics.utilization_pct >= 50 ? 'text-yellow-600' : 'text-green-600'}`}>
+            {metrics.utilization_pct.toFixed(0)}%
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const vehicleIcons: Record<string, typeof Truck> = {
   BIKE: Bike,
@@ -27,6 +115,7 @@ export default function CouriersSchedulePage() {
   const [deleteCourierConfirm, setDeleteCourierConfirm] = useState<CourierSchedule | null>(null)
   const [courierIdSearch, setCourierIdSearch] = useState('')
   const [viewTasksCourier, setViewTasksCourier] = useState<CourierSchedule | null>(null)
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
 
   // 🔥 ZERO - Real-time couriers data
   const z = useZero<Schema>()
@@ -37,7 +126,63 @@ export default function CouriersSchedulePage() {
   // Stores for home store lookup (still needed for display in table)
   const [storesData] = useQuery(z.query.stores_mv.orderBy('store_id', 'asc'))
 
+  // Orders for queue/picking/delivering counts
+  const [ordersData] = useQuery(z.query.orders_with_lines_mv)
+
   const zeroConnected = true // Zero handles connection internally
+
+  // Compute store metrics from courier and order data
+  const storeMetrics: StoreMetrics[] = useMemo(() => {
+    if (storesData.length === 0) return []
+
+    return storesData.map((store) => {
+      // Count couriers by status for this store
+      const storeCouriers = couriersData.filter(c => c.home_store_id === store.store_id)
+      const total = storeCouriers.length
+      const available = storeCouriers.filter(c => c.courier_status === 'AVAILABLE').length
+      const busy = storeCouriers.filter(c => c.courier_status === 'PICKING' || c.courier_status === 'DELIVERING' || c.courier_status === 'ON_DELIVERY').length
+      const offShift = storeCouriers.filter(c => c.courier_status === 'OFF_SHIFT').length
+
+      // Count orders by status for this store
+      const storeOrders = ordersData.filter(o => o.store_id === store.store_id)
+      const inQueue = storeOrders.filter(o => o.order_status === 'CREATED').length
+      const picking = storeOrders.filter(o => o.order_status === 'PICKING').length
+      const delivering = storeOrders.filter(o => o.order_status === 'OUT_FOR_DELIVERY').length
+
+      // Calculate utilization
+      const utilization = total > 0 ? (busy / total) * 100 : 0
+
+      // Determine health status
+      let health: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY'
+      if (available === 0 && inQueue > 0) {
+        health = 'CRITICAL'
+      } else if (utilization >= 80 || (inQueue > available * 5)) {
+        health = 'WARNING'
+      }
+
+      return {
+        store_id: store.store_id,
+        store_name: store.store_name || store.store_id,
+        store_zone: store.store_zone || '',
+        total_couriers: total,
+        available_couriers: available,
+        busy_couriers: busy,
+        off_shift_couriers: offShift,
+        orders_in_queue: inQueue,
+        orders_picking: picking,
+        orders_delivering: delivering,
+        utilization_pct: utilization,
+        health_status: health,
+      }
+    }).sort((a, b) => {
+      // Sort by health status (CRITICAL first), then by name
+      const healthOrder = { CRITICAL: 0, WARNING: 1, HEALTHY: 2 }
+      if (healthOrder[a.health_status] !== healthOrder[b.health_status]) {
+        return healthOrder[a.health_status] - healthOrder[b.health_status]
+      }
+      return a.store_name.localeCompare(b.store_name)
+    })
+  }, [storesData, couriersData, ordersData])
 
   // Map couriers data (already sorted by Zero)
   const couriers = useMemo(() => {
@@ -132,16 +277,21 @@ export default function CouriersSchedulePage() {
     }
   }
 
-  // Filter couriers by ID search and merge with direct database search result
+  // Filter couriers by ID search, store filter, and merge with direct database search result
   const filteredCouriers = useMemo(() => {
     if (!couriers) return []
 
     let filtered = couriers
 
+    // Filter by selected store
+    if (selectedStoreId) {
+      filtered = filtered.filter(c => c.home_store_id === selectedStoreId)
+    }
+
     // Client-side filter for partial matches
     if (courierIdSearch) {
       const searchLower = courierIdSearch.toLowerCase()
-      filtered = couriers.filter(c =>
+      filtered = filtered.filter(c =>
         c.courier_id.toLowerCase().includes(searchLower)
       )
     }
@@ -152,7 +302,7 @@ export default function CouriersSchedulePage() {
     }
 
     return filtered
-  }, [couriers, courierIdSearch, searchedCourier])
+  }, [couriers, courierIdSearch, searchedCourier, selectedStoreId])
 
   return (
     <div className="p-6">
@@ -190,8 +340,45 @@ export default function CouriersSchedulePage() {
         <div className="text-center py-8 text-gray-500">Loading couriers...</div>
       )}
 
+      {/* Store Capacity Cards */}
+      {storeMetrics.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Store Demand vs Capacity</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {storeMetrics.map((metrics) => (
+              <StoreCapacityCard
+                key={metrics.store_id}
+                metrics={metrics}
+                isSelected={selectedStoreId === metrics.store_id}
+                onClick={() => {
+                  setSelectedStoreId(selectedStoreId === metrics.store_id ? null : metrics.store_id)
+                  setCourierIdSearch('')
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {couriers.length > 0 && (
         <>
+          {/* Active Store Filter */}
+          {selectedStoreId && (
+            <div className="mb-4 flex items-center gap-2 text-sm">
+              <span className="text-gray-600">Filtering by:</span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
+                {storesData.find(s => s.store_id === selectedStoreId)?.store_name || selectedStoreId}
+                <button
+                  onClick={() => setSelectedStoreId(null)}
+                  className="ml-1 hover:text-blue-900"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+              <span className="text-gray-500">({filteredCouriers.length} couriers)</span>
+            </div>
+          )}
+
           <div className="mb-4 space-y-2">
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
