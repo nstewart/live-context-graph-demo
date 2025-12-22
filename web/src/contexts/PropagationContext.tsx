@@ -13,6 +13,7 @@ export interface PropagationEvent {
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
   field_changes: Record<string, FieldChange>;
   timestamp: number;
+  display_name: string | null;
 }
 
 // Simplified write record - just holds events now

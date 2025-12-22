@@ -84,12 +84,17 @@ function EntityItem({
   // Merge all field changes from all events for this doc
   const allFieldChanges: Record<string, { old: string | null; new: string | null }> = {};
   const operations = new Set<string>();
+  let displayName: string | null = null;
 
   events.forEach(event => {
     operations.add(event.operation);
     Object.entries(event.field_changes).forEach(([field, change]) => {
       allFieldChanges[field] = change;
     });
+    // Use display_name from the first event that has one
+    if (!displayName && event.display_name) {
+      displayName = event.display_name;
+    }
   });
 
   const fieldChangeEntries = Object.entries(allFieldChanges);
@@ -111,7 +116,15 @@ function EntityItem({
         ) : (
           <span className="w-3" />
         )}
-        <span className="text-sm font-mono text-cyan-400">{docId}</span>
+        <span className="text-sm text-cyan-400">
+          {displayName ? (
+            <>
+              {displayName} <span className="font-mono text-gray-500">({docId})</span>
+            </>
+          ) : (
+            <span className="font-mono">{docId}</span>
+          )}
+        </span>
         <span
           className={`text-xs px-1.5 py-0.5 rounded ${
             operation === 'INSERT'

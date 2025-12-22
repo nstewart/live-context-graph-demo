@@ -684,6 +684,32 @@ class BaseSubscribeWorker(ABC):
                 for field, old_val, new_val in item_changes[:5]:  # Limit to 5 changes per item
                     logger.info(f"{prefix}  {field}: {old_val} -> {new_val}")
 
+    def _get_display_name(self, doc: dict) -> Optional[str]:
+        """Extract a human-readable display name from a document.
+
+        Looks for common name fields based on document type:
+        - Inventory: product_name
+        - Orders: order_number or customer_name
+
+        Args:
+            doc: Transformed document
+
+        Returns:
+            Display name string, or None if not available
+        """
+        if not doc:
+            return None
+
+        # Inventory items - use product name
+        if doc.get("product_name"):
+            return doc["product_name"]
+
+        # Orders - use order number
+        if doc.get("order_number"):
+            return doc["order_number"]
+
+        return None
+
     def _emit_propagation_events(self, timestamp, index_name: str, upsert_ids: list,
                                   update_diffs: list, delete_ids: list):
         """Emit propagation events for the widget to display."""
@@ -702,12 +728,14 @@ class BaseSubscribeWorker(ABC):
         # Updates with field diffs
         for doc_id, old_doc, new_doc in update_diffs:
             field_changes = self._compute_field_changes(old_doc, new_doc)
+            display_name = self._get_display_name(new_doc)
             prop_store.add_event(PropagationEvent(
                 mz_ts=str(timestamp),
                 index_name=index_name,
                 doc_id=doc_id,
                 operation="UPDATE",
                 field_changes=field_changes,
+                display_name=display_name,
             ))
 
         # Deletes

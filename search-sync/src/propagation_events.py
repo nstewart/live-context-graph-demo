@@ -16,6 +16,7 @@ class PropagationEvent:
     operation: str  # INSERT, UPDATE, or DELETE
     field_changes: dict[str, dict[str, str]] = field(default_factory=dict)  # {field: {old, new}}
     timestamp: float = field(default_factory=time.time)  # Unix timestamp when event was recorded
+    display_name: Optional[str] = None  # Human-readable name (e.g., product name, order number)
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
@@ -26,6 +27,7 @@ class PropagationEvent:
             "operation": self.operation,
             "field_changes": self.field_changes,
             "timestamp": self.timestamp,
+            "display_name": self.display_name,
         }
 
 
