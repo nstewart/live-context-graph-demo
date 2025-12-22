@@ -75,6 +75,14 @@ class CourierDispatchScenario:
             results["assignments_made"] = assignments["assigned"]
             results["picking_started"] = assignments["assigned"]
 
+            # Log summary at INFO level if anything happened
+            if results["tasks_advanced"] > 0 or results["assignments_made"] > 0:
+                logger.info(
+                    f"Dispatch: {results['assignments_made']} assigned, "
+                    f"{results['deliveries_started']} to delivery, "
+                    f"{results['deliveries_completed']} completed"
+                )
+
         except Exception as e:
             logger.error(f"Dispatch cycle error: {e}")
             results["errors"].append(str(e))
