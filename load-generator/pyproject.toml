@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "freshmart-loadgen"
@@ -26,3 +26,10 @@ dev = [
 
 [project.scripts]
 freshmart-loadgen = "loadgen.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+]

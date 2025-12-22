@@ -74,31 +74,34 @@ async def test_order_creation_scenario_execute(mock_api_client, data_generator):
 
 
 @pytest.mark.asyncio
-async def test_order_lifecycle_scenario_transition(mock_api_client, data_generator):
-    """Test order lifecycle scenario transition."""
+async def test_order_lifecycle_scenario_noop_without_cancellation(mock_api_client, data_generator):
+    """Test order lifecycle scenario returns noop when not cancelling.
+
+    With courier dispatch enabled, status transitions are handled automatically.
+    """
     scenario = OrderLifecycleScenario(mock_api_client, data_generator)
 
     result = await scenario.execute(force_cancellation=False)
 
-    # Result should indicate either success or no orders found
-    assert "success" in result
-    if result["success"]:
-        assert "action" in result
-        assert result["action"] in ["transitioned", "cancelled"]
-        mock_api_client.update_order_status.assert_called_once()
+    # Should return success with noop action
+    assert result["success"] is True
+    assert result["action"] == "noop"
 
 
 @pytest.mark.asyncio
 async def test_order_lifecycle_scenario_cancellation(mock_api_client, data_generator):
-    """Test order lifecycle scenario forced cancellation."""
+    """Test order lifecycle scenario forced cancellation.
+
+    Cancellations only apply to orders in CREATED status (before courier pickup).
+    """
     scenario = OrderLifecycleScenario(mock_api_client, data_generator)
 
     result = await scenario.execute(force_cancellation=True)
 
     # Result should indicate either success or no orders found
     assert "success" in result
-    if result["success"]:
-        assert result["action"] == "cancelled"
+    if result["success"] and result.get("action") == "cancelled":
+        assert result["old_status"] == "CREATED"
         assert result["new_status"] == "CANCELLED"
         mock_api_client.update_order_status.assert_called_once()
 
@@ -170,15 +173,19 @@ async def test_inventory_scenario_execute(mock_api_client, data_generator):
 
 
 @pytest.mark.asyncio
-async def test_order_lifecycle_scenario_no_orders(mock_api_client, data_generator):
-    """Test order lifecycle scenario with no orders available."""
-    # Mock empty order list
+async def test_order_lifecycle_scenario_no_orders_to_cancel(mock_api_client, data_generator):
+    """Test order lifecycle scenario with no orders to cancel.
+
+    When force_cancellation=True but no CREATED orders exist.
+    """
+    # Mock empty order list for CREATED status
     mock_api_client.get_orders = AsyncMock(return_value=[])
 
     scenario = OrderLifecycleScenario(mock_api_client, data_generator)
 
-    result = await scenario.execute()
+    result = await scenario.execute(force_cancellation=True)
 
-    # Should return failure when no orders found
+    # Should return failure when no orders found to cancel
     assert result["success"] is False
     assert "error" in result
+    assert "CREATED" in result["error"]
