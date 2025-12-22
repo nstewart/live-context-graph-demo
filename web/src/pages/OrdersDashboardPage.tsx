@@ -90,10 +90,12 @@ function OrdersTable({
   orders,
   onEdit,
   onDelete,
+  courierMap,
 }: {
   orders: OrderWithLines[];
   onEdit: (order: OrderWithLines) => void;
   onDelete: (order: OrderWithLines) => void;
+  courierMap: Map<string, string>;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -134,6 +136,9 @@ function OrdersTable({
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Items
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Courier
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -210,6 +215,20 @@ function OrdersTable({
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {order.assigned_courier_id ? (
+                      <div>
+                        <div className="text-sm text-gray-900">
+                          {courierMap.get(order.assigned_courier_id) || "Unknown"}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {order.assigned_courier_id}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-2">
                       <button
@@ -233,7 +252,7 @@ function OrdersTable({
                 {/* Expanded Row - Line Items */}
                 {expandedRows.has(order.order_id) && (
                   <tr key={`${order.order_id}-expanded`}>
-                    <td colSpan={9} className="px-0 py-0">
+                    <td colSpan={10} className="px-0 py-0">
                       <div className="bg-gray-50 border-t border-b border-gray-200">
                         <LineItemsTable lineItems={order.line_items || []} />
                       </div>
@@ -405,6 +424,18 @@ export default function OrdersDashboardPage() {
 
   // Get stores for filter dropdown
   const [storesData] = useQuery(z.query.stores_mv.orderBy("store_name", "asc"));
+
+  // Get couriers for name lookup
+  const [couriersData] = useQuery(z.query.courier_schedule_mv);
+  const courierMap = useMemo(() => {
+    const map = new Map<string, string>();
+    couriersData.forEach((c) => {
+      if (c.courier_id && c.courier_name) {
+        map.set(c.courier_id, c.courier_name);
+      }
+    });
+    return map;
+  }, [couriersData]);
 
   // Build filtered query with related data (joins orders_with_lines_mv with orders_search_source_mv)
   let ordersQuery = z.query.orders_with_lines_mv.related("searchData");
@@ -848,6 +879,7 @@ export default function OrdersDashboardPage() {
             orders={paginatedOrders}
             onEdit={handleEdit}
             onDelete={handleDelete}
+            courierMap={courierMap}
           />
 
           {/* Pagination Controls */}
