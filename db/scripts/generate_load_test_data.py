@@ -945,7 +945,7 @@ class DataGenerator:
                 self.store_couriers[store_id].append(courier_id)
 
                 self.add_triple(courier_id, "courier_name", fake.name(), "string")
-                self.add_triple(courier_id, "home_store", store_id, "entity_ref")
+                self.add_triple(courier_id, "courier_home_store", store_id, "entity_ref")
                 self.add_triple(courier_id, "vehicle_type", random.choice(VEHICLE_TYPES), "string")
                 self.add_triple(courier_id, "courier_status", random.choice(COURIER_STATUSES), "string")
 

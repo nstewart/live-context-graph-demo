@@ -301,7 +301,7 @@ CREATE VIEW IF NOT EXISTS couriers_flat AS
 SELECT
     subject_id AS courier_id,
     MAX(CASE WHEN predicate = 'courier_name' THEN object_value END) AS courier_name,
-    MAX(CASE WHEN predicate = 'home_store' THEN object_value END) AS home_store_id,
+    MAX(CASE WHEN predicate = 'courier_home_store' THEN object_value END) AS home_store_id,
     MAX(CASE WHEN predicate = 'vehicle_type' THEN object_value END) AS vehicle_type,
     MAX(CASE WHEN predicate = 'courier_status' THEN object_value END) AS courier_status,
     MAX(updated_at) AS effective_updated_at
