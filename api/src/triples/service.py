@@ -174,7 +174,7 @@ class TripleService:
 
     async def create_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
         """Create multiple triples in a batch."""
-        logger.info(f"🔵 [TRANSACTION START] Creating {len(triples)} new triples")
+        logger.info(f"[BATCH INSERT] Creating {len(triples)} new triples")
 
         # Log transaction start with summary of what's being written
         subjects = {}  # subject_id -> list of predicates
@@ -205,7 +205,7 @@ class TripleService:
 
         MAX_PREDICATES_TO_LOG = 3
         logger.info(
-            f"  📝 [BATCH INSERT] Writing {len(triples)} triples → {entity_summary}"
+            f"  Writing {len(triples)} triples -> {entity_summary}"
         )
         for subject_id, predicates in subjects.items():
             logger.info(f"     • {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")
@@ -280,41 +280,45 @@ class TripleService:
             if not prefix:
                 raise ValueError(f"Invalid subject_id format: '{triple.subject_id}'. Prefix cannot be empty")
 
-        logger.info(f"🔵 [TRANSACTION START] Upserting {len(triples)} triples")
+        # Fetch existing values first for logging old -> new
+        existing_values = {}
+        if triples:
+            select_conditions = []
+            select_params = {}
+            for i, triple in enumerate(triples):
+                select_conditions.append(
+                    f"(subject_id = :sel_subject_{i} AND predicate = :sel_predicate_{i})"
+                )
+                select_params[f"sel_subject_{i}"] = triple.subject_id
+                select_params[f"sel_predicate_{i}"] = triple.predicate
 
-        # Log transaction start
+            if select_conditions:
+                select_query = f"""
+                    SELECT subject_id, predicate, object_value
+                    FROM triples
+                    WHERE {' OR '.join(select_conditions)}
+                """
+                result = await self.session.execute(text(select_query), select_params)
+                for row in result.fetchall():
+                    existing_values[(row.subject_id, row.predicate)] = row.object_value
+
+        # Group triples by subject for logging
         subjects = {}
         for triple in triples:
             if triple.subject_id not in subjects:
                 subjects[triple.subject_id] = []
-            subjects[triple.subject_id].append(triple.predicate)
+            old_value = existing_values.get((triple.subject_id, triple.predicate))
+            subjects[triple.subject_id].append((triple.predicate, old_value, triple.object_value))
 
-        # Determine which entity types are affected and count triples per type
-        entity_types_affected = {}
-        entity_triples_count = {}
-        for subject_id in subjects.keys():
-            prefix = subject_id.split(":", 1)[0]
-            if prefix not in entity_types_affected:
-                entity_types_affected[prefix] = set()
-            entity_types_affected[prefix].add(subject_id)
-
-        # Count triples per entity type
-        for triple in triples:
-            prefix = triple.subject_id.split(":", 1)[0]
-            entity_triples_count[prefix] = entity_triples_count.get(prefix, 0) + 1
-
-        # Create summary showing entity types with triple counts (e.g., "1 order (5 triples), 2 orderlines (6 triples)")
-        entity_summary = ", ".join([
-            f"{len(docs)} {entity_type}{'s' if len(docs) != 1 else ''} ({entity_triples_count[entity_type]} triples)"
-            for entity_type, docs in sorted(entity_types_affected.items())
-        ])
-
-        MAX_PREDICATES_TO_LOG = 3
-        logger.info(
-            f"  📝 [BATCH UPSERT] Upserting {len(triples)} triples → {entity_summary}"
-        )
-        for subject_id, predicates in subjects.items():
-            logger.info(f"     • {subject_id}: {len(predicates)} properties ({', '.join(predicates[:MAX_PREDICATES_TO_LOG])}{'...' if len(predicates) > MAX_PREDICATES_TO_LOG else ''})")
+        # Log with old -> new values
+        logger.info(f"[BATCH UPSERT] Upserting {len(triples)} triples")
+        for subject_id, changes in subjects.items():
+            logger.info(f"  {subject_id}")
+            for predicate, old_val, new_val in changes:
+                if old_val is not None:
+                    logger.info(f"      {predicate}: {old_val} -> {new_val}")
+                else:
+                    logger.info(f"      {predicate}: {new_val} (new)")
 
         # Validate if needed
         if self.validate:
@@ -396,12 +400,9 @@ class TripleService:
         if not existing:
             return None
 
-        # Log transaction start for single update
+        # Log the update
         logger.info(
-            f"🔵 PG_TXN_START: Writing 1 triple (update)"
-        )
-        logger.info(
-            f"  📝 {existing.subject_id}: updating {existing.predicate} "
+            f"{existing.subject_id}: updating {existing.predicate} "
             f"from '{existing.object_value}' to '{data.object_value}'"
         )
 

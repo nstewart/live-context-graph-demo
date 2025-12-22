@@ -343,7 +343,7 @@ class BaseSubscribeWorker(ABC):
                     if errors > 0:
                         logger.warning(f"Initial hydration completed with {errors} errors")
                     else:
-                        logger.info(f"✅ Initial hydration complete: {success} documents loaded")
+                        logger.info(f"Initial hydration complete: {success} documents loaded")
 
                     self.events_processed += success
                 else:
@@ -403,8 +403,8 @@ class BaseSubscribeWorker(ABC):
                 if self.subscribe_client:
                     try:
                         await self.subscribe_client.close()
-                    except:
-                        pass
+                    except Exception as close_error:
+                        logger.debug(f"Error closing client during cleanup: {close_error}")
                     self.subscribe_client = None
 
                 # Exponential backoff
@@ -498,9 +498,9 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
 
         if insert_ids:
-            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(insert_ids)} docs {insert_ids}")
+            logger.info(f"  Inserts @ mz_ts={timestamp} -> {index_name}: {len(insert_ids)} docs {insert_ids}")
         if delete_ids:
-            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
+            logger.info(f"  Deletes @ mz_ts={timestamp} -> {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _handle_events_with_consolidation(self, events: list[SubscribeEvent]):
         """Complex event processing: consolidate DELETE + INSERT = UPDATE.
@@ -568,77 +568,132 @@ class BaseSubscribeWorker(ABC):
         index_name = self.get_index_name()
 
         if upsert_ids:
-            logger.info(f"  ➕ Inserts @ mz_ts={timestamp} → {index_name}: {len(upsert_ids)} docs {upsert_ids}")
+            logger.info(f"  Inserts @ mz_ts={timestamp} -> {index_name}: {len(upsert_ids)} docs {upsert_ids}")
         if update_diffs:
-            for doc_id, old_doc, new_doc in update_diffs:
-                # Compute actual diff between old and new documents
-                diffs = []
-                if old_doc and new_doc:
-                    def summarize_array_diff(old_list, new_list, id_key='id'):
-                        """Summarize changes between two lists of dicts."""
-                        if not old_list or not new_list:
-                            return f"{len(old_list or [])} items → {len(new_list or [])} items"
+            # Maximum number of items to show in log summaries to prevent noise
+            MAX_ITEMS_TO_LOG = 3
 
-                        # Try to match items by common ID keys
-                        id_keys = ['line_id', 'id', 'inventory_id', 'product_id']
-                        matched_key = None
-                        for k in id_keys:
-                            if old_list[0].get(k) and new_list[0].get(k):
-                                matched_key = k
-                                break
+            def summarize_array_diff(old_list, new_list, id_key='id'):
+                """Summarize changes between two lists of dicts."""
+                if not old_list or not new_list:
+                    return f"{len(old_list or [])} items -> {len(new_list or [])} items"
 
-                        if not matched_key:
-                            return f"{len(old_list)} items → {len(new_list)} items"
+                # Try to match items by common ID keys
+                id_keys = ['line_id', 'id', 'inventory_id', 'product_id']
+                matched_key = None
+                for k in id_keys:
+                    if old_list[0].get(k) and new_list[0].get(k):
+                        matched_key = k
+                        break
 
-                        # Build lookup by ID
-                        old_by_id = {item.get(matched_key): item for item in old_list}
-                        new_by_id = {item.get(matched_key): item for item in new_list}
+                if not matched_key:
+                    return f"{len(old_list)} items -> {len(new_list)} items"
 
-                        changes = []
-                        for item_id, new_item in new_by_id.items():
-                            old_item = old_by_id.get(item_id)
-                            if old_item:
-                                # Find changed fields within this item
-                                item_changes = []
-                                for field in new_item:
-                                    if field in (matched_key,) or field.endswith('_at'):
-                                        continue
-                                    if old_item.get(field) != new_item.get(field):
-                                        item_changes.append(f"{field}: {old_item.get(field)} → {new_item.get(field)}")
-                                if item_changes:
-                                    short_id = item_id.split(':')[-1] if ':' in str(item_id) else item_id
-                                    changes.append(f"[{short_id}] {', '.join(item_changes[:3])}")
+                # Build lookup by ID
+                old_by_id = {item.get(matched_key): item for item in old_list}
+                new_by_id = {item.get(matched_key): item for item in new_list}
 
-                        if changes:
-                            return '; '.join(changes[:3])  # Limit to 3 item changes
-                        return f"{len(new_list)} items (no field changes)"
-
-                    for key in new_doc:
-                        old_val = old_doc.get(key)
-                        new_val = new_doc.get(key)
-                        if old_val != new_val:
-                            # Skip timestamp fields and id
-                            if key.endswith('_at') or key in ('id',):
+                changes = []
+                for item_id, new_item in new_by_id.items():
+                    old_item = old_by_id.get(item_id)
+                    if old_item:
+                        # Find changed fields within this item
+                        item_changes = []
+                        for field in new_item:
+                            if field in (matched_key,) or field.endswith('_at'):
                                 continue
-                            # Summarize arrays
-                            if isinstance(old_val, list) and isinstance(new_val, list):
-                                summary = summarize_array_diff(old_val, new_val)
-                                diffs.append(f"{key}: {summary}")
+                            if old_item.get(field) != new_item.get(field):
+                                item_changes.append(f"  {field}: {old_item.get(field)} -> {new_item.get(field)}")
+                        if item_changes:
+                            # Get product name if available, build full ID with prefix
+                            product_name = new_item.get('product_name')
+                            # Add prefix based on matched key type
+                            if matched_key == 'line_id' and not str(item_id).startswith('orderline:'):
+                                full_id = f"orderline:{item_id}"
                             else:
-                                old_str = str(old_val) if old_val is not None else 'null'
-                                new_str = str(new_val) if new_val is not None else 'null'
-                                diffs.append(f"{key}: {old_str} → {new_str}")
-                if diffs:
-                    diffs_str = ', '.join(diffs)
-                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [{diffs_str}]")
-                elif not old_doc:
-                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [no previous state available]")
+                                full_id = item_id
+                            if product_name:
+                                header = f"{product_name} ({full_id})"
+                            else:
+                                header = f"({full_id})"
+                            # Add item header followed by each field change as separate entries
+                            changes.append(header)
+                            changes.extend(item_changes[:MAX_ITEMS_TO_LOG])
+
+                if changes:
+                    return ' | '.join(changes)
+                return f"{len(new_list)} items (no field changes)"
+
+            def compute_diff_signature(old_doc, new_doc):
+                """Compute a diff string for grouping similar updates."""
+                if not old_doc or not new_doc:
+                    return None
+                diffs = []
+                for key in new_doc:
+                    old_val = old_doc.get(key)
+                    new_val = new_doc.get(key)
+                    if old_val != new_val:
+                        if key.endswith('_at') or key in ('id',):
+                            continue
+                        if isinstance(old_val, list) and isinstance(new_val, list):
+                            summary = summarize_array_diff(old_val, new_val)
+                            diffs.append(f"{key}: {summary}")
+                        else:
+                            old_str = str(old_val) if old_val is not None else 'null'
+                            new_str = str(new_val) if new_val is not None else 'null'
+                            diffs.append(f"{key}: {old_str} -> {new_str}")
+                return ' | '.join(diffs) if diffs else None
+
+            # Group updates by their diff signature
+            from collections import defaultdict
+            signature_groups = defaultdict(list)
+            no_old_doc = []
+
+            for doc_id, old_doc, new_doc in update_diffs:
+                if not old_doc:
+                    no_old_doc.append(doc_id)
                 else:
-                    # Debug: show what keys were checked
-                    changed_keys = [k for k in new_doc if old_doc.get(k) != new_doc.get(k)]
-                    logger.info(f"  🔄 Update @ mz_ts={timestamp} → {index_name}: {doc_id} [changed keys: {changed_keys}]")
+                    sig = compute_diff_signature(old_doc, new_doc)
+                    if sig:
+                        # Store doc_id and product_name (if available) for display
+                        product_name = new_doc.get('product_name') if new_doc else None
+                        signature_groups[sig].append((doc_id, product_name))
+
+            # Log grouped updates in table format
+            if signature_groups:
+                logger.info(f"  Updates @ mz_ts={timestamp} -> {index_name}:")
+                for sig, doc_info_list in signature_groups.items():
+                    # Parse the signature into individual field changes
+                    field_changes = sig.split(' | ')
+
+                    if len(doc_info_list) == 1:
+                        doc_id, product_name = doc_info_list[0]
+                        if product_name:
+                            logger.info(f"      {product_name} ({doc_id})")
+                        else:
+                            logger.info(f"      {doc_id}")
+                    else:
+                        # Show first few items with product names, summarize rest
+                        items_display = []
+                        for doc_id, product_name in doc_info_list[:MAX_ITEMS_TO_LOG]:
+                            if product_name:
+                                items_display.append(f"{product_name} ({doc_id})")
+                            else:
+                                items_display.append(doc_id)
+                        ids_str = ', '.join(items_display)
+                        if len(doc_info_list) > MAX_ITEMS_TO_LOG:
+                            ids_str += f", +{len(doc_info_list) - MAX_ITEMS_TO_LOG} more"
+                        logger.info(f"      {len(doc_info_list)} items: {ids_str}")
+
+                    # Log each field change on its own line
+                    for change in field_changes:
+                        logger.info(f"          {change}")
+
+            if no_old_doc:
+                for doc_id in no_old_doc:
+                    logger.info(f"  Update @ mz_ts={timestamp} -> {index_name}: {doc_id} [no previous state available]")
         if delete_ids:
-            logger.info(f"  ❌ Deletes @ mz_ts={timestamp} → {index_name}: {len(delete_ids)} docs {delete_ids}")
+            logger.info(f"  Deletes @ mz_ts={timestamp} -> {index_name}: {len(delete_ids)} docs {delete_ids}")
 
     async def _flush_batch(self, timestamp=None):
         """Flush pending upserts and deletes to OpenSearch with retry logic.
@@ -660,7 +715,7 @@ class BaseSubscribeWorker(ABC):
         if delete_count:
             ops.append(f"{delete_count} deletes")
         ts_str = f"mz_ts={timestamp} " if timestamp else ""
-        logger.info(f"  📦 Bulk request @ {ts_str}→ {index_name}: {', '.join(ops)} (1 HTTP call)")
+        logger.debug(f"  Bulk request @ {ts_str}-> {index_name}: {', '.join(ops)} (1 HTTP call)")
 
         # Capture pending lists for retry
         upserts_to_flush = self.pending_upserts
@@ -698,7 +753,7 @@ class BaseSubscribeWorker(ABC):
                 self.events_processed += upsert_count + delete_count
                 self.flush_count += 1
 
-                logger.info(
+                logger.debug(
                     f"Flush #{self.flush_count} complete. "
                     f"Total events processed: {self.events_processed}"
                 )

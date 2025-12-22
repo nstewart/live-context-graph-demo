@@ -73,6 +73,8 @@ INVENTORY_INDEX_MAPPING = {
             "scarcity_adjustment": {"type": "float"},
             "demand_multiplier": {"type": "float"},
             "demand_premium": {"type": "float"},
+            "product_sale_count": {"type": "integer"},
+            "product_total_stock": {"type": "integer"},
             "store_name": {
                 "type": "text",
                 "copy_to": "search_text",
@@ -254,6 +256,8 @@ class InventorySyncWorker(BaseSubscribeWorker):
                 "scarcity_adjustment": float(data["scarcity_adjustment"]) if data.get("scarcity_adjustment") else None,
                 "demand_multiplier": float(data["demand_multiplier"]) if data.get("demand_multiplier") else None,
                 "demand_premium": float(data["demand_premium"]) if data.get("demand_premium") else None,
+                "product_sale_count": data.get("product_sale_count"),
+                "product_total_stock": data.get("product_total_stock"),
                 # Store details (denormalized from stores_flat)
                 "store_name": data.get("store_name"),
                 "store_zone": data.get("store_zone"),

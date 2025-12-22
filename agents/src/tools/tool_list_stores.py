@@ -47,17 +47,17 @@ async def list_stores(zone: str = None) -> list[dict]:
             response.raise_for_status()
             stores = response.json()
 
-            # Filter by zone if provided
+            # Filter by zone if provided (API uses store_zone)
             if zone:
-                stores = [s for s in stores if s.get("zone") == zone]
+                stores = [s for s in stores if s.get("store_zone") == zone]
 
             # Return simplified store info
             return [
                 {
                     "store_id": store.get("store_id"),
                     "store_name": store.get("store_name"),
-                    "zone": store.get("zone"),
-                    "address": store.get("address"),
+                    "zone": store.get("store_zone"),
+                    "address": store.get("store_address"),
                 }
                 for store in stores
             ]

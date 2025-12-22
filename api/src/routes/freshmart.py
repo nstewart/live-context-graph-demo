@@ -69,13 +69,13 @@ async def get_pg_write_session() -> AsyncSession:
 
     factory = get_pg_session_factory()
     async with factory() as session:
-        logger.info("🔵 [TRANSACTION START] PostgreSQL write transaction started")
+        logger.debug("[TRANSACTION START] PostgreSQL write transaction started")
         try:
             yield session
             await session.commit()
-            logger.info("✅ [TRANSACTION END] PostgreSQL transaction committed successfully")
+            logger.debug("[TRANSACTION END] PostgreSQL transaction committed successfully")
         except Exception as e:
-            logger.error(f"❌ [TRANSACTION] PostgreSQL transaction failed, rolling back: {e}")
+            logger.error(f"[TRANSACTION] PostgreSQL transaction failed, rolling back: {e}")
             await session.rollback()
             raise
 

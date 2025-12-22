@@ -591,8 +591,9 @@ SELECT
 
 FROM store_inventory_mv inv
 LEFT JOIN pricing_factors pf ON pf.product_id = inv.product_id
-WHERE inv.availability_status != 'OUT_OF_STOCK'
-  AND inv.unit_price IS NOT NULL;"
+-- Note: Previously filtered out OUT_OF_STOCK items, but now includes all items with unit_price
+-- to allow agents and search to see complete inventory state including out-of-stock items
+WHERE inv.unit_price IS NOT NULL;"
 
 # Orders with aggregated line items and search fields (customer, store, delivery info)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
@@ -643,8 +644,6 @@ SELECT
                 'scarcity_adjustment', inv.scarcity_adjustment,
                 'demand_multiplier', inv.demand_multiplier,
                 'demand_premium', inv.demand_premium,
-                'product_sale_count', inv.product_sale_count,
-                'product_total_stock', inv.product_total_stock,
                 'current_stock_level', inv.available_quantity
             ) ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.line_id IS NOT NULL),

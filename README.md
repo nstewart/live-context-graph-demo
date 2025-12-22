@@ -219,9 +219,8 @@ make down
 docker-compose logs -f api
 docker-compose logs -f search-sync
 
-# Track write propagation (see writes flow through the system)
-# 🔵 transaction start → 📝 triple writes → ✅ commit → 📦 batch → ➕🔄❌ search index ops
-docker-compose logs -f api search-sync | grep -E "🔵|📝|✅|📦|➕|🔄|❌|💾"
+# Track write propagation (clean output, strips timestamps)
+docker-compose logs -f api search-sync | sed 's/.*INFO - //'
 
 # Restart a service
 docker-compose restart api

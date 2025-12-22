@@ -360,9 +360,7 @@ class MaterializeSubscribeClient:
                                 is_snapshot = False
                                 pending_events = []  # Discard snapshot
                             elif pending_events:
-                                logger.info(
-                                    f"Broadcasting {len(pending_events)} changes for {view_name}"
-                                )
+                                logger.debug(f"Broadcasting changes for {view_name}")
                                 await callback(pending_events)
                                 pending_events = []
 
@@ -384,9 +382,7 @@ class MaterializeSubscribeClient:
                             is_snapshot = False
                             pending_events = []  # Discard snapshot
                         elif pending_events:
-                            logger.info(
-                                f"Broadcasting {len(pending_events)} changes from PREVIOUS timestamp for {view_name}"
-                            )
+                            logger.debug(f"Broadcasting changes for {view_name}")
                             await callback(pending_events)
                             pending_events = []
 

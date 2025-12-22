@@ -18,6 +18,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce opensearch client logging verbosity (bulk request logs)
+logging.getLogger("opensearch").setLevel(logging.WARNING)
+
 
 async def main():
     """Main entry point."""

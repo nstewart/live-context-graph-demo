@@ -115,7 +115,7 @@ def _setup_query_logging(engine, db_name: str):
                     parameters,
                 )
             else:
-                logger.info(
+                logger.debug(
                     "[%s] [%s] %.2fms: %s | params=%s",
                     db_name,
                     op_type,

@@ -425,7 +425,7 @@ class OrderLineService:
 
         # Log summary of changes
         if changes:
-            logger.info(f"📝 [LINE ITEM UPDATE] {line_id} ({triples_written} triples): {', '.join(changes)}")
+            logger.info(f"[LINE ITEM UPDATE] {line_id} ({triples_written} triples): {', '.join(changes)}")
 
         # Return updated item
         return await self.get_line_item(line_id)
@@ -512,7 +512,7 @@ class OrderLineService:
         Raises:
             ValueError: If order not found or validation fails
         """
-        logger.info(f"🔵 [TRANSACTION START] Starting atomic update for {order_id} with {len(line_items) if line_items else 0} line items")
+        logger.info(f"[ATOMIC UPDATE] Starting update for {order_id} with {len(line_items) if line_items else 0} line items")
 
         # Build order field triples to upsert
         order_triples: list[TripleCreate] = []
@@ -642,7 +642,7 @@ class OrderLineService:
         ])
         line_item_count = len(line_items) if line_items is not None else 0
         logger.info(
-            f"🔵 [TRANSACTION START] Patching {order_id}: "
+            f"[PATCH] {order_id}: "
             f"{field_count} field(s), {line_item_count} line item(s)"
         )
 
@@ -701,7 +701,7 @@ class OrderLineService:
 
         # Only upsert if there are fields to update
         if order_triples:
-            logger.info(f"📝 [PARTIAL UPDATE] Updating {len(order_triples)} order field(s) for {order_id}")
+            logger.info(f"[PARTIAL UPDATE] Updating {len(order_triples)} order field(s) for {order_id}")
             await self.triple_service.upsert_triples_batch(order_triples)
 
         # Smart line item patching (if provided)
@@ -813,14 +813,14 @@ class OrderLineService:
 
                     # Only update if something actually changed
                     if changed_triples:
-                        logger.info(f"  📝 Updating {len(changed_triples)} triple(s) for line item seq={line_sequence}")
+                        logger.info(f"  Updating {len(changed_triples)} triple(s) for line item seq={line_sequence}")
                         await self.triple_service.upsert_triples_batch(changed_triples)
 
                 else:
                     # New line item - create it
                     line_id = self._generate_line_id()
                     line_ids_to_keep.add(line_id)
-                    logger.info(f"  ➕ Creating new line item seq={line_sequence}")
+                    logger.info(f"  Creating new line item seq={line_sequence}")
                     await self._create_single_line_item(order_id, line_id, new_item)
 
             # Delete line items that are no longer in the new list

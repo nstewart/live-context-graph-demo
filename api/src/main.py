@@ -20,6 +20,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Suppress uvicorn access logs (they add noise without value)
+class AccessLogFilter(logging.Filter):
+    """Suppress all HTTP access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return False
+
+
+# Apply filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
