@@ -50,6 +50,47 @@ All subjects use the format `prefix:id`:
 | courier | Courier | courier:C01 |
 | task | DeliveryTask | task:T1001 |
 
+### Order Status Lifecycle
+
+Orders progress through these states:
+
+| Status | Description |
+|--------|-------------|
+| `CREATED` | Order placed, awaiting courier assignment |
+| `PICKING` | Courier assigned, picking items at store |
+| `OUT_FOR_DELIVERY` | Items picked, courier en route to customer |
+| `DELIVERED` | Order successfully delivered |
+| `CANCELLED` | Order cancelled |
+
+**State Transitions:**
+```
+CREATED → PICKING → OUT_FOR_DELIVERY → DELIVERED
+    ↓
+CANCELLED
+```
+
+**Note:** Seed data only creates orders in `CREATED`, `DELIVERED`, or `CANCELLED` states. The `PICKING` and `OUT_FOR_DELIVERY` states are set by the load generator when couriers are assigned and progress through deliveries. This prevents data inconsistencies where orders appear in-progress without corresponding delivery tasks.
+
+### Courier Status Lifecycle
+
+Couriers have these operational states:
+
+| Status | Description |
+|--------|-------------|
+| `AVAILABLE` | Ready for assignment |
+| `PICKING` | Assigned to order, picking items at store |
+| `ON_DELIVERY` | Items picked, delivering to customer |
+| `OFF_SHIFT` | Not currently working |
+
+**State Transitions:**
+```
+AVAILABLE → PICKING → ON_DELIVERY → AVAILABLE
+     ↑                                  ↓
+     ←──────────────────────────────────
+```
+
+**Note:** Seed data creates all couriers in `AVAILABLE` state. The load generator manages transitions through `PICKING` and `ON_DELIVERY` as orders are fulfilled.
+
 ### Object Types
 
 | Type | Description | Storage | Example |
