@@ -67,8 +67,8 @@ class LoadOrchestrator:
         self.running = False
         self.stop_requested = False
 
-        # Dispatch configuration
-        self.dispatch_interval_seconds = 2.0  # Run dispatch every 2 seconds
+        # Dispatch configuration - run frequently to keep up with order creation
+        self.dispatch_interval_seconds = 1.0  # Run dispatch every 1 second
 
     async def initialize(self):
         """Initialize orchestrator and scenarios."""

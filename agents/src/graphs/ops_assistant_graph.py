@@ -1,5 +1,6 @@
 """FreshMart Operations Assistant - LangGraph implementation."""
 
+import asyncio
 import json
 import operator
 from typing import Annotated, Literal, Optional, TypedDict
@@ -297,6 +298,63 @@ def create_workflow() -> StateGraph:
     return workflow
 
 
+# Cache for compiled graph and checkpointer to avoid recreation on every call
+_cached_checkpointer = None
+_cached_graph = None
+_checkpointer_context = None
+_init_lock = asyncio.Lock()
+
+
+async def _get_graph_and_checkpointer():
+    """Get or create the compiled graph with checkpointer (cached for reuse)."""
+    global _cached_checkpointer, _cached_graph, _checkpointer_context
+
+    # Thread-safe initialization with lock
+    async with _init_lock:
+        if _cached_graph is None:
+            settings = get_settings()
+            try:
+                # from_conn_string returns a context manager, need to enter it
+                _checkpointer_context = AsyncPostgresSaver.from_conn_string(settings.pg_dsn)
+                _cached_checkpointer = await _checkpointer_context.__aenter__()
+
+                workflow = create_workflow()
+                _cached_graph = workflow.compile(checkpointer=_cached_checkpointer)
+            except Exception:
+                # Clean up partial state on initialization failure
+                if _checkpointer_context and _cached_checkpointer:
+                    try:
+                        await _checkpointer_context.__aexit__(None, None, None)
+                    except Exception:
+                        pass  # Best effort cleanup
+                _cached_graph = None
+                _cached_checkpointer = None
+                _checkpointer_context = None
+                raise
+
+    return _cached_graph
+
+
+async def cleanup_graph_resources():
+    """
+    Clean up cached graph resources and exit the checkpointer context.
+
+    Call this on application shutdown to properly close database connections.
+    """
+    global _cached_checkpointer, _cached_graph, _checkpointer_context
+
+    async with _init_lock:
+        if _checkpointer_context and _cached_checkpointer:
+            try:
+                await _checkpointer_context.__aexit__(None, None, None)
+            except Exception:
+                pass  # Best effort cleanup
+
+        _cached_graph = None
+        _cached_checkpointer = None
+        _checkpointer_context = None
+
+
 async def run_assistant(user_message: str, thread_id: str = "default", stream_events: bool = False):
     """
     Run the ops assistant with a user message.
@@ -313,92 +371,87 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
             - "error": {"message": str} - An error occurred during execution
             - "response": str - Final response text (always emitted last)
     """
-    settings = get_settings()
+    # Use cached graph (avoids recreating workflow and reconnecting to postgres each call)
+    graph = await _get_graph_and_checkpointer()
 
-    # Use async checkpointer as a context manager
-    async with AsyncPostgresSaver.from_conn_string(settings.pg_dsn) as checkpointer:
-        # Create workflow and compile with checkpointer
-        workflow = create_workflow()
-        graph = workflow.compile(checkpointer=checkpointer)
+    # Config with thread_id for conversation memory
+    config = {"configurable": {"thread_id": thread_id}}
 
-        # Config with thread_id for conversation memory
-        config = {"configurable": {"thread_id": thread_id}}
+    initial_state: AgentState = {
+        "messages": [HumanMessage(content=user_message)],
+        "iteration": 0,
+    }
 
-        initial_state: AgentState = {
-            "messages": [HumanMessage(content=user_message)],
-            "iteration": 0,
-        }
+    if stream_events:
+        # Stream events to show what's happening
+        final_response = None
+        try:
+            async for event in graph.astream(initial_state, config):
+                # Agent node processing
+                if "agent" in event:
+                    agent_data = event["agent"]
+                    if "messages" in agent_data and agent_data["messages"]:
+                        last_msg = agent_data["messages"][-1]
+                        if isinstance(last_msg, AIMessage):
+                            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                                # Agent decided to call tools
+                                for tool_call in last_msg.tool_calls:
+                                    # Handle both dict and object formats
+                                    tool_name = getattr(tool_call, 'name', tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown")
+                                    tool_args = getattr(tool_call, 'args', tool_call.get("args", {}) if isinstance(tool_call, dict) else {})
+                                    yield ("tool_call", {"name": tool_name, "args": tool_args})
+                            elif last_msg.content:
+                                # Agent produced a response
+                                final_response = last_msg.content
 
-        if stream_events:
-            # Stream events to show what's happening
-            final_response = None
-            try:
-                async for event in graph.astream(initial_state, config):
-                    # Agent node processing
-                    if "agent" in event:
-                        agent_data = event["agent"]
-                        if "messages" in agent_data and agent_data["messages"]:
-                            last_msg = agent_data["messages"][-1]
-                            if isinstance(last_msg, AIMessage):
-                                if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                                    # Agent decided to call tools
-                                    for tool_call in last_msg.tool_calls:
-                                        # Handle both dict and object formats
-                                        tool_name = getattr(tool_call, 'name', tool_call.get("name", "unknown") if isinstance(tool_call, dict) else "unknown")
-                                        tool_args = getattr(tool_call, 'args', tool_call.get("args", {}) if isinstance(tool_call, dict) else {})
-                                        yield ("tool_call", {"name": tool_name, "args": tool_args})
-                                elif last_msg.content:
-                                    # Agent produced a response
-                                    final_response = last_msg.content
+                # Tool node processing
+                elif "tools" in event:
+                    tools_data = event["tools"]
+                    if "messages" in tools_data and tools_data["messages"]:
+                        for msg in tools_data["messages"]:
+                            if isinstance(msg, ToolMessage):
+                                # Extract tool name from the message
+                                content_preview = str(msg.content)[:100]
+                                yield ("tool_result", {"content": content_preview})
 
-                    # Tool node processing
-                    elif "tools" in event:
-                        tools_data = event["tools"]
-                        if "messages" in tools_data and tools_data["messages"]:
-                            for msg in tools_data["messages"]:
-                                if isinstance(msg, ToolMessage):
-                                    # Extract tool name from the message
-                                    content_preview = str(msg.content)[:100]
-                                    yield ("tool_result", {"content": content_preview})
+            # Yield final response
+            if final_response:
+                yield ("response", final_response)
+            else:
+                yield ("response", "I couldn't complete that request.")
+        except Exception as e:
+            # If an error occurs during streaming, yield error event and helpful response
+            error_msg = str(e)
+            yield ("error", {"message": error_msg})
 
-                # Yield final response
-                if final_response:
-                    yield ("response", final_response)
-                else:
-                    yield ("response", "I couldn't complete that request.")
-            except Exception as e:
-                # If an error occurs during streaming, yield error event and helpful response
-                error_msg = str(e)
-                yield ("error", {"message": error_msg})
+            # Provide helpful message for common configuration errors
+            if "API key" in error_msg or "api_key" in error_msg.lower():
+                yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
+            else:
+                yield ("response", f"An error occurred: {error_msg}")
+    else:
+        # Non-streaming: just get result and yield final response
+        try:
+            final_state = await graph.ainvoke(initial_state, config)
 
-                # Provide helpful message for common configuration errors
-                if "API key" in error_msg or "api_key" in error_msg.lower():
-                    yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
-                else:
-                    yield ("response", f"An error occurred: {error_msg}")
-        else:
-            # Non-streaming: just get result and yield final response
-            try:
-                final_state = await graph.ainvoke(initial_state, config)
+            # Get final AI response
+            response = None
+            for msg in reversed(final_state["messages"]):
+                if isinstance(msg, AIMessage) and msg.content:
+                    response = msg.content
+                    break
 
-                # Get final AI response
-                response = None
-                for msg in reversed(final_state["messages"]):
-                    if isinstance(msg, AIMessage) and msg.content:
-                        response = msg.content
-                        break
+            if response:
+                yield ("response", response)
+            else:
+                yield ("response", "I couldn't complete that request.")
+        except Exception as e:
+            # If an error occurs, yield error event and helpful response
+            error_msg = str(e)
+            yield ("error", {"message": error_msg})
 
-                if response:
-                    yield ("response", response)
-                else:
-                    yield ("response", "I couldn't complete that request.")
-            except Exception as e:
-                # If an error occurs, yield error event and helpful response
-                error_msg = str(e)
-                yield ("error", {"message": error_msg})
-
-                # Provide helpful message for common configuration errors
-                if "API key" in error_msg or "api_key" in error_msg.lower():
-                    yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
-                else:
-                    yield ("response", f"An error occurred: {error_msg}")
+            # Provide helpful message for common configuration errors
+            if "API key" in error_msg or "api_key" in error_msg.lower():
+                yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
+            else:
+                yield ("response", f"An error occurred: {error_msg}")

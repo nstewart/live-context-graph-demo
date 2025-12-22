@@ -15,12 +15,12 @@ class LoadProfile:
     duration_minutes: Optional[int] = None
 
     # Activity mix (should sum to 1.0)
-    # Balanced for ~70-80% store utilization (strained but not critical)
-    new_order_weight: float = 0.25
-    status_transition_weight: float = 0.45
+    # Balanced so courier capacity can keep up with order creation
+    new_order_weight: float = 0.15  # Reduced to let couriers keep up
+    status_transition_weight: float = 0.50  # Helps process existing orders
     order_modification_weight: float = 0.10
     customer_creation_weight: float = 0.05
-    inventory_update_weight: float = 0.10
+    inventory_update_weight: float = 0.15
     order_cancellation_weight: float = 0.05
 
     def __post_init__(self):

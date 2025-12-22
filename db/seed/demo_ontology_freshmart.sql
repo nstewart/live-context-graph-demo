@@ -216,6 +216,16 @@ SELECT 'order_total_amount', id, 'float', NULL, FALSE, TRUE, 'Total order amount
 FROM ontology_classes WHERE class_name = 'Order'
 ON CONFLICT (prop_name) DO NOTHING;
 
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
+SELECT 'order_created_at', id, 'timestamp', NULL, FALSE, TRUE, 'Timestamp when the order was created'
+FROM ontology_classes WHERE class_name = 'Order'
+ON CONFLICT (prop_name) DO NOTHING;
+
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
+SELECT 'delivered_at', id, 'timestamp', NULL, FALSE, FALSE, 'Timestamp when the order was delivered'
+FROM ontology_classes WHERE class_name = 'Order'
+ON CONFLICT (prop_name) DO NOTHING;
+
 -- OrderLine properties
 INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
 SELECT 'line_of_order', ol.id, 'entity_ref', o.id, FALSE, TRUE, 'Parent order'

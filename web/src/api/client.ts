@@ -102,7 +102,8 @@ export interface CourierSchedule {
     task_status: string
     order_id: string
     eta: string | null
-    route_sequence: number | null
+    wait_time_minutes: number | null
+    order_created_at: string | null
   }>
 }
 

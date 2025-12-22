@@ -11,7 +11,27 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.config import get_settings
-from src.graphs.ops_assistant_graph import run_assistant
+
+# Lazy import for heavy graph module - only import when actually needed
+# This avoids loading langchain/langgraph on every CLI invocation
+run_assistant = None
+cleanup_graph_resources = None
+
+def _get_run_assistant():
+    """Lazy load the run_assistant function."""
+    global run_assistant
+    if run_assistant is None:
+        from src.graphs.ops_assistant_graph import run_assistant as _run_assistant
+        run_assistant = _run_assistant
+    return run_assistant
+
+def _get_cleanup_function():
+    """Lazy load the cleanup_graph_resources function."""
+    global cleanup_graph_resources
+    if cleanup_graph_resources is None:
+        from src.graphs.ops_assistant_graph import cleanup_graph_resources as _cleanup
+        cleanup_graph_resources = _cleanup
+    return cleanup_graph_resources
 
 # Configure logging
 settings = get_settings()
@@ -64,6 +84,10 @@ def chat(
             title="Welcome",
         ))
 
+        # Pre-load heavy imports while user sees the welcome message
+        with console.status("[dim]Loading agent...[/dim]"):
+            _get_run_assistant()
+
         async def interactive_loop():
             while True:
                 try:
@@ -78,7 +102,7 @@ def chat(
                     # Stream events to show what the agent is doing
                     console.print()  # Blank line before thinking output
                     final_response = None
-                    async for event_type, data in run_assistant(user_input, thread_id=session_thread_id, stream_events=True):
+                    async for event_type, data in _get_run_assistant()(user_input, thread_id=session_thread_id, stream_events=True):
                         if event_type == "tool_call":
                             tool_name = data.get("name", "unknown")
                             args_str = ", ".join(f"{k}={repr(v)}" for k, v in data.get("args", {}).items())
@@ -111,15 +135,23 @@ def chat(
             asyncio.run(interactive_loop())
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
+        finally:
+            # Clean up graph resources on exit
+            if run_assistant is not None:
+                asyncio.run(_get_cleanup_function()())
     else:
         # Single message mode
         # Use provided thread_id or generate a one-time ID
         msg_thread_id = thread_id or f"oneshot-{uuid.uuid4().hex[:8]}"
 
+        # Pre-load heavy imports with loading indicator
+        with console.status("[dim]Loading agent...[/dim]"):
+            _get_run_assistant()
+
         async def run_once():
             console.print()
             final_response = None
-            async for event_type, data in run_assistant(message, thread_id=msg_thread_id, stream_events=True):
+            async for event_type, data in _get_run_assistant()(message, thread_id=msg_thread_id, stream_events=True):
                 if event_type == "tool_call":
                     tool_name = data.get("name", "unknown")
                     args_str = ", ".join(f"{k}={repr(v)}" for k, v in data.get("args", {}).items())
@@ -145,6 +177,10 @@ def chat(
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             sys.exit(1)
+        finally:
+            # Clean up graph resources on exit
+            if run_assistant is not None:
+                asyncio.run(_get_cleanup_function()())
 
 
 @app.command()
@@ -212,7 +248,7 @@ def serve(
 
                     # Handle the new generator pattern from run_assistant
                     async def get_response():
-                        async for event_type, data in run_assistant(message, thread_id=thread_id, stream_events=False):
+                        async for event_type, data in _get_run_assistant()(message, thread_id=thread_id, stream_events=False):
                             if event_type == "response":
                                 return data
                         return "I couldn't complete that request."
@@ -248,6 +284,11 @@ def serve(
     except KeyboardInterrupt:
         console.print("\n[yellow]Shutting down...[/yellow]")
         server.shutdown()
+    finally:
+        # Clean up graph resources on server shutdown
+        if run_assistant is not None:
+            asyncio.run(_get_cleanup_function()())
+            console.print("[dim]Cleaned up database connections[/dim]")
 
 
 if __name__ == "__main__":

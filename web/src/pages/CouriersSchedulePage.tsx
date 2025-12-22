@@ -613,10 +613,17 @@ export default function CouriersSchedulePage() {
                             <span className="ml-2 text-gray-900">{task.eta.slice(0, 16).replace('T', ' ')}</span>
                           </div>
                         )}
-                        {task.route_sequence !== undefined && task.route_sequence !== null && (
+                        {task.wait_time_minutes !== undefined && task.wait_time_minutes !== null ? (
                           <div>
-                            <span className="text-gray-500">Sequence:</span>
-                            <span className="ml-2 text-gray-900">#{task.route_sequence}</span>
+                            <span className="text-gray-500">Wait:</span>
+                            <span className="ml-2 text-gray-900">{Math.round(task.wait_time_minutes)}m</span>
+                          </div>
+                        ) : task.order_created_at && (
+                          <div>
+                            <span className="text-gray-500">Wait:</span>
+                            <span className="ml-2 text-gray-900">
+                              {Math.round((Date.now() - new Date(task.order_created_at).getTime()) / 60000)}m
+                            </span>
                           </div>
                         )}
                       </div>

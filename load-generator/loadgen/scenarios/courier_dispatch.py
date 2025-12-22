@@ -16,8 +16,9 @@ from loadgen.api_client import FreshMartAPIClient
 logger = logging.getLogger(__name__)
 
 # Task timing configuration (in seconds)
-PICKING_DURATION_SECONDS = 5  # 5 seconds
-DELIVERY_DURATION_SECONDS = 5  # 5 seconds
+# Keep these short to ensure couriers keep up with order creation rate
+PICKING_DURATION_SECONDS = 3  # 3 seconds
+DELIVERY_DURATION_SECONDS = 3  # 3 seconds
 
 
 class CourierDispatchScenario:
@@ -179,6 +180,12 @@ class CourierDispatchScenario:
                 "predicate": "order_status",
                 "object_value": "DELIVERED",
                 "object_type": "string",
+            },
+            {
+                "subject_id": order_id,
+                "predicate": "delivered_at",
+                "object_value": datetime.now(timezone.utc).isoformat(),
+                "object_type": "timestamp",
             },
             {
                 "subject_id": courier_id,

@@ -176,6 +176,16 @@ LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
 LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id;
 
+-- Order timestamps view for joining with tasks
+CREATE VIEW IF NOT EXISTS order_timestamps AS
+SELECT
+    subject_id AS order_id,
+    MAX(CASE WHEN predicate = 'order_created_at' THEN object_value END) AS order_created_at,
+    MAX(CASE WHEN predicate = 'delivered_at' THEN object_value END) AS delivered_at
+FROM triples
+WHERE subject_id LIKE 'order:%'
+GROUP BY subject_id;
+
 -- Courier tasks intermediate view
 CREATE VIEW IF NOT EXISTS courier_tasks_flat AS
 SELECT
@@ -190,6 +200,25 @@ JOIN triples t_task ON t_task.subject_id = t_assigned.subject_id
 WHERE t_assigned.predicate = 'assigned_to'
     AND t_assigned.object_type = 'entity_ref'
 GROUP BY t_assigned.object_value, t_task.subject_id;
+
+-- Courier tasks with order timestamps
+CREATE VIEW IF NOT EXISTS courier_tasks_with_timestamps AS
+SELECT
+    ct.courier_id,
+    ct.task_id,
+    ct.task_status,
+    ct.order_id,
+    ct.eta,
+    ct.route_sequence,
+    ot.order_created_at,
+    ot.delivered_at,
+    CASE
+        WHEN ot.delivered_at IS NOT NULL AND ot.order_created_at IS NOT NULL
+        THEN EXTRACT(EPOCH FROM (ot.delivered_at::TIMESTAMPTZ - ot.order_created_at::TIMESTAMPTZ)) / 60
+        ELSE NULL
+    END AS wait_time_minutes
+FROM courier_tasks_flat ct
+LEFT JOIN order_timestamps ot ON ot.order_id = ct.order_id;
 
 -- Couriers flat intermediate view
 CREATE VIEW IF NOT EXISTS couriers_flat AS
@@ -218,14 +247,15 @@ SELECT
                 'task_status', ct.task_status,
                 'order_id', ct.order_id,
                 'eta', ct.eta,
-                'route_sequence', ct.route_sequence
+                'wait_time_minutes', ct.wait_time_minutes,
+                'order_created_at', ct.order_created_at
             )
         ) FILTER (WHERE ct.task_id IS NOT NULL),
         '[]'::jsonb
     ) AS tasks,
     cf.effective_updated_at
 FROM couriers_flat cf
-LEFT JOIN courier_tasks_flat ct ON ct.courier_id = cf.courier_id
+LEFT JOIN courier_tasks_with_timestamps ct ON ct.courier_id = cf.courier_id
 GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.effective_updated_at;
 
 -- Materialized view for stores (for direct store queries)
