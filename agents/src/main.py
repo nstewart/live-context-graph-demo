@@ -15,6 +15,7 @@ from src.config import get_settings
 # Lazy import for heavy graph module - only import when actually needed
 # This avoids loading langchain/langgraph on every CLI invocation
 run_assistant = None
+cleanup_graph_resources = None
 
 def _get_run_assistant():
     """Lazy load the run_assistant function."""
@@ -23,6 +24,14 @@ def _get_run_assistant():
         from src.graphs.ops_assistant_graph import run_assistant as _run_assistant
         run_assistant = _run_assistant
     return run_assistant
+
+def _get_cleanup_function():
+    """Lazy load the cleanup_graph_resources function."""
+    global cleanup_graph_resources
+    if cleanup_graph_resources is None:
+        from src.graphs.ops_assistant_graph import cleanup_graph_resources as _cleanup
+        cleanup_graph_resources = _cleanup
+    return cleanup_graph_resources
 
 # Configure logging
 settings = get_settings()
@@ -126,6 +135,10 @@ def chat(
             asyncio.run(interactive_loop())
         except KeyboardInterrupt:
             console.print("\n[yellow]Goodbye![/yellow]")
+        finally:
+            # Clean up graph resources on exit
+            if run_assistant is not None:
+                asyncio.run(_get_cleanup_function()())
     else:
         # Single message mode
         # Use provided thread_id or generate a one-time ID
@@ -164,6 +177,10 @@ def chat(
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             sys.exit(1)
+        finally:
+            # Clean up graph resources on exit
+            if run_assistant is not None:
+                asyncio.run(_get_cleanup_function()())
 
 
 @app.command()
@@ -267,6 +284,11 @@ def serve(
     except KeyboardInterrupt:
         console.print("\n[yellow]Shutting down...[/yellow]")
         server.shutdown()
+    finally:
+        # Clean up graph resources on server shutdown
+        if run_assistant is not None:
+            asyncio.run(_get_cleanup_function()())
+            console.print("[dim]Cleaned up database connections[/dim]")
 
 
 if __name__ == "__main__":
