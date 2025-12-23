@@ -34,6 +34,8 @@ class PropagationEvent:
 class PropagationEventStore:
     """Thread-safe in-memory store for propagation events with TTL-based expiration."""
 
+    MAX_EVENTS = 10000  # Maximum number of events to keep in memory
+
     def __init__(self, ttl_seconds: float = 300.0):
         """Initialize the store.
 
@@ -121,6 +123,9 @@ class PropagationEventStore:
         """Remove events older than TTL. Must be called with lock held."""
         cutoff = time.time() - self._ttl_seconds
         self._events = [e for e in self._events if e.timestamp > cutoff]
+        # Evict oldest if over limit
+        if len(self._events) > self.MAX_EVENTS:
+            self._events = self._events[-self.MAX_EVENTS:]
 
     def __len__(self) -> int:
         """Return the number of events in the store."""

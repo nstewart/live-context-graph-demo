@@ -71,6 +71,13 @@ def create_app() -> web.Application:
     app = web.Application()
 
     # Add CORS middleware
+    # Allow specific origins for security (localhost development ports)
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ]
+
     @web.middleware
     async def cors_middleware(request: web.Request, handler):
         if request.method == "OPTIONS":
@@ -78,7 +85,9 @@ def create_app() -> web.Application:
         else:
             response = await handler(request)
 
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        origin = request.headers.get("Origin", "")
+        if origin in ALLOWED_ORIGINS:
+            response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return response
