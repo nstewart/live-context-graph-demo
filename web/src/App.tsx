@@ -27,7 +27,7 @@ import ChatWidget from './components/ChatWidget'
 
 const navItems = [
   { path: '/', icon: TrendingUp, label: 'Live Metrics' },
-  { path: '/query-stats', icon: BarChart3, label: 'Query Stats' },
+  { path: '/query-stats', icon: BarChart3, label: 'IVM Demo' },
   { path: '/orders', icon: ShoppingCart, label: 'Orders' },
   { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },

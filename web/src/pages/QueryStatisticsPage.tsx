@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -27,6 +27,8 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
+import { useZero, useQuery } from "@rocicorp/zero/react";
+import { Schema } from "../schema";
 import {
   queryStatsApi,
   QueryStatsResponse,
@@ -234,6 +236,86 @@ export default function QueryStatisticsPage() {
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
+  // Zero for real-time Materialize data
+  const z = useZero<Schema>();
+
+  // Query the selected order from Zero (real-time sync from Materialize)
+  const orderQuery = useMemo(() => {
+    const baseQuery = z.query.orders_with_lines_mv.related("searchData");
+    if (!selectedOrderId) return baseQuery.where("order_id", "=", "__none__");
+    return baseQuery.where("order_id", "=", selectedOrderId);
+  }, [z, selectedOrderId]);
+
+  const [zeroOrderData] = useQuery(orderQuery);
+  const zeroOrder = zeroOrderData?.[0];
+
+  // Query inventory pricing for the store (real-time from Materialize)
+  const storeId = zeroOrder?.searchData?.store_id || zeroOrder?.store_id;
+  const pricingQuery = useMemo(() => {
+    if (!storeId) return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", "__none__");
+    return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", storeId);
+  }, [z, storeId]);
+
+  const [zeroPricingData] = useQuery(pricingQuery);
+
+  // Transform Zero data to match OrderWithLinesData format for the Materialize card
+  const zeroMaterializeOrder: OrderWithLinesData | null = useMemo(() => {
+    if (!zeroOrder) return null;
+
+    // Build pricing lookup by product_id
+    const pricingByProduct = new Map<string, { live_price: number | null; base_price: number | null; price_change: number | null; stock_level: number | null }>();
+
+    for (const p of zeroPricingData || []) {
+      if (p.product_id) {
+        pricingByProduct.set(p.product_id, {
+          live_price: p.live_price ?? null,
+          base_price: p.base_price ?? null,
+          price_change: p.price_change ?? null,
+          stock_level: p.stock_level ?? null,
+        });
+      }
+    }
+
+    // Enrich line items with live pricing
+    const lineItems = (zeroOrder.line_items || []).map((item) => ({
+      ...item,
+      live_price: pricingByProduct.get(item.product_id)?.live_price ?? null,
+      base_price: pricingByProduct.get(item.product_id)?.base_price ?? null,
+      price_change: pricingByProduct.get(item.product_id)?.price_change ?? null,
+      current_stock: pricingByProduct.get(item.product_id)?.stock_level ?? null,
+    }));
+
+    const searchData = zeroOrder.searchData;
+
+    return {
+      order_id: zeroOrder.order_id,
+      order_number: zeroOrder.order_number ?? null,
+      order_status: zeroOrder.order_status ?? null,
+      store_id: zeroOrder.store_id ?? null,
+      customer_id: zeroOrder.customer_id ?? null,
+      delivery_window_start: zeroOrder.delivery_window_start ?? null,
+      delivery_window_end: zeroOrder.delivery_window_end ?? null,
+      order_total_amount: zeroOrder.order_total_amount ?? null,
+      customer_name: searchData?.customer_name ?? null,
+      customer_email: searchData?.customer_email ?? null,
+      customer_address: searchData?.customer_address ?? null,
+      store_name: searchData?.store_name ?? null,
+      store_zone: searchData?.store_zone ?? null,
+      store_address: searchData?.store_address ?? null,
+      delivery_task_id: null,
+      assigned_courier_id: searchData?.assigned_courier_id ?? null,
+      delivery_task_status: searchData?.delivery_task_status ?? null,
+      delivery_eta: searchData?.delivery_eta ?? null,
+      line_items: lineItems,
+      line_item_count: zeroOrder.line_item_count ?? lineItems.length,
+      computed_total: zeroOrder.computed_total ?? null,
+      has_perishable_items: zeroOrder.has_perishable_items ?? false,
+      effective_updated_at: zeroOrder.effective_updated_at
+        ? new Date(zeroOrder.effective_updated_at).toISOString()
+        : new Date().toISOString(),
+    };
+  }, [zeroOrder, zeroPricingData]);
+
   // Triple writer state
   const [tripleSubject, setTripleSubject] = useState("");
   const [triplePredicate, setTriplePredicate] = useState("order_status");
@@ -405,7 +487,7 @@ export default function QueryStatisticsPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Query Statistics</h1>
+            <h1 className="text-2xl font-bold text-gray-900">IVM Demo</h1>
             {isPolling ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -424,7 +506,7 @@ export default function QueryStatisticsPage() {
             )}
           </div>
           <p className="text-gray-600">
-            Compare order view performance: PostgreSQL VIEW vs Batch MATERIALIZED VIEW vs Materialize
+            Incremental View Maintenance: PostgreSQL VIEW vs Batch Refresh vs Materialize IVM
           </p>
         </div>
       </div>
@@ -562,13 +644,13 @@ export default function QueryStatisticsPage() {
           isLoading={isPolling}
         />
         <OrderCard
-          title="Materialize"
-          subtitle="Fast AND Fresh (incremental via CDC)"
+          title="Materialize (via Zero)"
+          subtitle="Real-time sync - updates instantly"
           icon={<Zap className="h-5 w-5" />}
           iconColor="text-blue-500"
           bgColor="border-blue-500"
-          order={orderData?.materialize || null}
-          isLoading={isPolling}
+          order={zeroMaterializeOrder}
+          isLoading={false}
         />
       </div>
 
