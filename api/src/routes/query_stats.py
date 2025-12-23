@@ -79,6 +79,17 @@ latest_order_data: dict[str, Optional[dict]] = {
     "materialize": None,
 }
 
+# Lock for protecting global state access
+state_lock: Optional[asyncio.Lock] = None
+
+
+def get_state_lock() -> asyncio.Lock:
+    """Get or create the state lock (lazy initialization for async context)."""
+    global state_lock
+    if state_lock is None:
+        state_lock = asyncio.Lock()
+    return state_lock
+
 
 @dataclass
 class SourceMetrics:
@@ -304,6 +315,7 @@ async def heartbeat_loop():
                             """),
                             {"store_id": current_store_id},
                         )
+                        await session.commit()
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -369,10 +381,11 @@ async def batch_refresh_loop():
                             )
                             pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
 
-                    # Store in batch cache
-                    batch_cache_data["order"] = dict(order_row) if order_row else None
-                    batch_cache_data["pricing"] = pricing_rows
-                    batch_cache_data["last_refresh"] = datetime.now(timezone.utc)
+                    # Store in batch cache with lock protection
+                    async with get_state_lock():
+                        batch_cache_data["order"] = dict(order_row) if order_row else None
+                        batch_cache_data["pricing"] = pricing_rows
+                        batch_cache_data["last_refresh"] = datetime.now(timezone.utc)
 
                     duration_ms = (time.perf_counter() - start) * 1000
                     logger.info(f"Batch cache refreshed for {current_order_id} in {duration_ms:.1f}ms")
@@ -412,7 +425,14 @@ async def continuous_load_generator(source: str, query_func):
                 await query_func(current_order_id, current_store_id)
 
     try:
-        while current_order_id:
+        while True:
+            # Check if we should continue (with lock protection)
+            async with get_state_lock():
+                should_continue = current_order_id is not None
+
+            if not should_continue:
+                break
+
             # Fire queries up to concurrency limit
             tasks = [asyncio.create_task(run_query()) for _ in range(concurrency_limit)]
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -496,7 +516,10 @@ async def measure_pg_view_query(order_id: str, store_id: Optional[str]):
         # Merge order with live pricing
         if order_row:
             merged = merge_order_with_pricing(dict(order_row), pricing_rows)
-            latest_order_data["postgresql_view"] = merged
+
+            # Update global state with lock protection
+            async with get_state_lock():
+                latest_order_data["postgresql_view"] = merged
 
             # Reaction time = now - effective_updated_at
             effective_updated = merged.get("effective_updated_at")
@@ -533,17 +556,21 @@ async def measure_batch_query(order_id: str, store_id: Optional[str]):
     start = time.perf_counter()
 
     try:
-        # Read from in-memory batch cache (instant)
-        order_row = batch_cache_data.get("order")
-        pricing_rows = batch_cache_data.get("pricing", [])
-        last_refresh = batch_cache_data.get("last_refresh")
+        # Read from in-memory batch cache (instant) with lock protection
+        async with get_state_lock():
+            order_row = batch_cache_data.get("order")
+            pricing_rows = batch_cache_data.get("pricing", [])
+            last_refresh = batch_cache_data.get("last_refresh")
 
         response_ms = (time.perf_counter() - start) * 1000
 
         # Merge order with pricing
         if order_row:
             merged = merge_order_with_pricing(order_row.copy(), pricing_rows)
-            latest_order_data["batch_cache"] = merged
+
+            # Update global state with lock protection
+            async with get_state_lock():
+                latest_order_data["batch_cache"] = merged
 
             # Reaction time = now - effective_updated_at (same as PostgreSQL/Materialize)
             # Use merged data's effective_updated_at which is MAX(order, pricing) timestamps
@@ -617,7 +644,10 @@ async def measure_mz_query(order_id: str, store_id: Optional[str]):
         # Merge order with pricing
         if order_row:
             merged = merge_order_with_pricing(dict(order_row), pricing_rows)
-            latest_order_data["materialize"] = merged
+
+            # Update global state with lock protection
+            async with get_state_lock():
+                latest_order_data["materialize"] = merged
 
             # Reaction time = now - effective_updated_at (includes replication lag)
             effective_updated = merged.get("effective_updated_at")
@@ -753,6 +783,7 @@ async def start_polling(order_id: str):
     await stop_all_tasks()
 
     # Get the store_id for this order
+    store_id = None
     try:
         async with get_mz_session() as session:
             await session.execute(text("SET CLUSTER = serving"))
@@ -761,32 +792,33 @@ async def start_polling(order_id: str):
                 {"order_id": order_id}
             )
             row = result.mappings().fetchone()
-            current_store_id = row["store_id"] if row else None
+            store_id = row["store_id"] if row else None
     except Exception as e:
         logger.warning(f"Failed to get store_id: {e}")
-        current_store_id = None
 
-    # Set current order
-    current_order_id = order_id
-    is_polling = True
+    # Update global state with lock protection
+    async with get_state_lock():
+        current_order_id = order_id
+        current_store_id = store_id
+        is_polling = True
 
-    # Reset metrics and order data
-    for m in metrics_store.values():
-        m.clear()
-    for key in latest_order_data:
-        latest_order_data[key] = None
+        # Reset metrics and order data
+        for m in metrics_store.values():
+            m.clear()
+        for key in latest_order_data:
+            latest_order_data[key] = None
 
-    # Reset batch cache
-    batch_cache_data["order"] = None
-    batch_cache_data["pricing"] = []
-    batch_cache_data["last_refresh"] = None
+        # Reset batch cache
+        batch_cache_data["order"] = None
+        batch_cache_data["pricing"] = []
+        batch_cache_data["last_refresh"] = None
 
     # Start background tasks
     heartbeat_task = asyncio.create_task(heartbeat_loop())
     polling_task = asyncio.create_task(continuous_query_loop())
     batch_refresh_task = asyncio.create_task(batch_refresh_loop())
 
-    logger.info(f"Started polling for order {order_id} (store: {current_store_id})")
+    logger.info(f"Started polling for order {order_id} (store: {store_id})")
     return StartPollingResponse(status="started", order_id=order_id)
 
 
@@ -829,7 +861,7 @@ async def get_metrics():
         "postgresql_view": metrics_store["postgresql_view"].stats(),
         "batch_cache": metrics_store["batch_cache"].stats(),
         "materialize": metrics_store["materialize"].stats(),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -861,13 +893,15 @@ async def get_order_data():
     allowing the UI to display three order cards side-by-side.
     Each order includes line items enriched with live pricing data.
     """
-    return {
-        "order_id": current_order_id,
-        "is_polling": is_polling,
-        "postgresql_view": latest_order_data["postgresql_view"],
-        "batch_cache": latest_order_data["batch_cache"],
-        "materialize": latest_order_data["materialize"],
-    }
+    # Read global state with lock protection
+    async with get_state_lock():
+        return {
+            "order_id": current_order_id,
+            "is_polling": is_polling,
+            "postgresql_view": latest_order_data["postgresql_view"],
+            "batch_cache": latest_order_data["batch_cache"],
+            "materialize": latest_order_data["materialize"],
+        }
 
 
 @router.post("/write-triple")
@@ -899,8 +933,9 @@ async def write_triple(data: TripleWrite):
                     status_code=404,
                     detail=f"Triple not found: {data.subject_id} / {data.predicate}",
                 )
+            await session.commit()
 
-        return {"status": "written", "timestamp": datetime.utcnow().isoformat()}
+        return {"status": "written", "timestamp": datetime.now(timezone.utc).isoformat()}
     except HTTPException:
         raise
     except Exception as e:
