@@ -44,6 +44,11 @@ QPS_WINDOW_SIZE = 1.0  # 1 second rolling window for QPS calculation
 # Concurrency limits per source (Freshmart approach)
 # PostgreSQL VIEW is slow, so limit to 1 concurrent query
 # Batch cache and Materialize are fast, allow more concurrency
+#
+# NOTE: Connection Pool Management
+# Total concurrent connections = sum of concurrency limits across all sources
+# PostgreSQL (1) + Batch queries (5) + Materialize (5) + Batch refresh (1) + Heartbeat (1) = 13 connections
+# Ensure your database connection pools are sized accordingly (e.g., pg_pool_size >= 15, mz_pool_size >= 10)
 CONCURRENCY_LIMITS = {
     "postgresql_view": 1,   # Slow query - 1 at a time
     "batch_cache": 5,       # Memory read - up to 5 concurrent
@@ -83,8 +88,8 @@ class SourceMetrics:
     reaction_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     # Timestamps for each sample (for time-based chart display)
     sample_timestamps: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
-    # Timestamps for QPS calculation (rolling window)
-    query_timestamps: list = field(default_factory=list)
+    # Timestamps for QPS calculation (rolling window) - use deque for O(1) popleft
+    query_timestamps: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     query_count: int = 0
     last_query_time: float = 0
 
@@ -108,9 +113,9 @@ class SourceMetrics:
         current_time = time.time()
         cutoff_time = current_time - QPS_WINDOW_SIZE
 
-        # Remove old timestamps outside the window
+        # Remove old timestamps outside the window (O(1) with deque)
         while self.query_timestamps and self.query_timestamps[0] < cutoff_time:
-            self.query_timestamps.pop(0)
+            self.query_timestamps.popleft()
 
         # Calculate QPS
         if len(self.query_timestamps) < 2:
@@ -159,6 +164,21 @@ metrics_store = {
     "batch_cache": SourceMetrics(),
     "materialize": SourceMetrics(),
 }
+
+
+def parse_effective_updated_at(effective_updated: Any) -> datetime:
+    """Parse effective_updated_at into a timezone-aware datetime.
+
+    Handles both string ISO format and datetime objects.
+    Returns a UTC datetime object.
+    """
+    if isinstance(effective_updated, str):
+        updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
+    else:
+        updated_at = effective_updated
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return updated_at
 
 
 def serialize_value(value: Any) -> Any:
@@ -284,8 +304,10 @@ async def heartbeat_loop():
                             """),
                             {"store_id": current_store_id},
                         )
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
-                    logger.warning(f"Heartbeat update failed: {e}")
+                    logger.warning(f"Heartbeat update failed: {e}", exc_info=True)
             await asyncio.sleep(HEARTBEAT_INTERVAL)
     except asyncio.CancelledError:
         logger.info("Heartbeat loop stopped")
@@ -354,8 +376,10 @@ async def batch_refresh_loop():
 
                     duration_ms = (time.perf_counter() - start) * 1000
                     logger.info(f"Batch cache refreshed for {current_order_id} in {duration_ms:.1f}ms")
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
-                    logger.warning(f"Batch refresh failed: {e}")
+                    logger.warning(f"Batch refresh failed: {e}", exc_info=True)
     except asyncio.CancelledError:
         logger.info("Batch refresh loop stopped")
         raise
@@ -477,21 +501,23 @@ async def measure_pg_view_query(order_id: str, store_id: Optional[str]):
             # Reaction time = now - effective_updated_at
             effective_updated = merged.get("effective_updated_at")
             if effective_updated:
-                if isinstance(effective_updated, str):
-                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
-                else:
-                    updated_at = effective_updated
-                if updated_at.tzinfo is None:
-                    updated_at = updated_at.replace(tzinfo=timezone.utc)
-                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                try:
+                    updated_at = parse_effective_updated_at(effective_updated)
+                    reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Failed to parse timestamp for reaction time: {e}")
+                    reaction_ms = response_ms
             else:
                 reaction_ms = response_ms
         else:
             reaction_ms = response_ms
 
         metrics_store["postgresql_view"].record(response_ms, reaction_ms)
+    except asyncio.CancelledError:
+        # Re-raise cancellation to properly stop the task
+        raise
     except Exception as e:
-        logger.warning(f"PostgreSQL view query failed: {e}")
+        logger.warning(f"PostgreSQL view query failed: {e}", exc_info=True)
 
 
 async def measure_batch_query(order_id: str, store_id: Optional[str]):
@@ -523,21 +549,23 @@ async def measure_batch_query(order_id: str, store_id: Optional[str]):
             # Use merged data's effective_updated_at which is MAX(order, pricing) timestamps
             effective_updated = merged.get("effective_updated_at")
             if effective_updated:
-                if isinstance(effective_updated, str):
-                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
-                else:
-                    updated_at = effective_updated
-                if updated_at.tzinfo is None:
-                    updated_at = updated_at.replace(tzinfo=timezone.utc)
-                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                try:
+                    updated_at = parse_effective_updated_at(effective_updated)
+                    reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Failed to parse timestamp for reaction time: {e}")
+                    reaction_ms = BATCH_REFRESH_INTERVAL * 1000
             else:
                 reaction_ms = BATCH_REFRESH_INTERVAL * 1000  # Fallback if no timestamp
         else:
             reaction_ms = BATCH_REFRESH_INTERVAL * 1000  # No data yet
 
         metrics_store["batch_cache"].record(response_ms, reaction_ms)
+    except asyncio.CancelledError:
+        # Re-raise cancellation to properly stop the task
+        raise
     except Exception as e:
-        logger.warning(f"Batch query failed: {e}")
+        logger.warning(f"Batch query failed: {e}", exc_info=True)
 
 
 async def measure_mz_query(order_id: str, store_id: Optional[str]):
@@ -594,21 +622,23 @@ async def measure_mz_query(order_id: str, store_id: Optional[str]):
             # Reaction time = now - effective_updated_at (includes replication lag)
             effective_updated = merged.get("effective_updated_at")
             if effective_updated:
-                if isinstance(effective_updated, str):
-                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
-                else:
-                    updated_at = effective_updated
-                if updated_at.tzinfo is None:
-                    updated_at = updated_at.replace(tzinfo=timezone.utc)
-                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                try:
+                    updated_at = parse_effective_updated_at(effective_updated)
+                    reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Failed to parse timestamp for reaction time: {e}")
+                    reaction_ms = response_ms
             else:
                 reaction_ms = response_ms
         else:
             reaction_ms = response_ms
 
         metrics_store["materialize"].record(response_ms, reaction_ms)
+    except asyncio.CancelledError:
+        # Re-raise cancellation to properly stop the task
+        raise
     except Exception as e:
-        logger.warning(f"Materialize query failed: {e}")
+        logger.warning(f"Materialize query failed: {e}", exc_info=True)
 
 
 # --- Pydantic Models ---

@@ -1,6 +1,16 @@
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// Validate and provide fallback for API URL
+const getApiUrl = (): string => {
+  const url = import.meta.env.VITE_API_URL;
+  if (url && typeof url === 'string' && url.trim() !== '') {
+    return url;
+  }
+  // Fallback to localhost in development
+  return 'http://localhost:8080';
+};
+
+const API_URL = getApiUrl();
 
 export const apiClient = axios.create({
   baseURL: API_URL,

@@ -239,10 +239,13 @@ export default function QueryStatisticsPage() {
   // Zero for real-time Materialize data
   const z = useZero<Schema>();
 
+  // Sentinel value for empty queries (must be a value that will never match real data)
+  const EMPTY_QUERY_SENTINEL = "$$EMPTY_QUERY$$";
+
   // Query the selected order from Zero (real-time sync from Materialize)
   const orderQuery = useMemo(() => {
     const baseQuery = z.query.orders_with_lines_mv.related("searchData");
-    if (!selectedOrderId) return baseQuery.where("order_id", "=", "__none__");
+    if (!selectedOrderId) return baseQuery.where("order_id", "=", EMPTY_QUERY_SENTINEL);
     return baseQuery.where("order_id", "=", selectedOrderId);
   }, [z, selectedOrderId]);
 
@@ -252,7 +255,7 @@ export default function QueryStatisticsPage() {
   // Query inventory pricing for the store (real-time from Materialize)
   const storeId = zeroOrder?.searchData?.store_id || zeroOrder?.store_id;
   const pricingQuery = useMemo(() => {
-    if (!storeId) return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", "__none__");
+    if (!storeId) return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", EMPTY_QUERY_SENTINEL);
     return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", storeId);
   }, [z, storeId]);
 
