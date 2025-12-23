@@ -421,31 +421,35 @@ WITH
     WHERE o.order_status = 'DELIVERED'
   ),
 
-  -- Calculate average price from last 10 sales per product
-  recent_prices AS (
+  -- Sales velocity: Compare recent sales (last 5 orders) to prior sales (orders 6-15)
+  -- This measures whether demand is accelerating or decelerating (by units sold)
+  sales_velocity AS (
     SELECT
       product_id,
-      AVG(unit_price) AS avg_recent_price,
-      COUNT(*) AS recent_sale_count
+      -- Units sold in the most recent 5 orders per product
+      SUM(quantity) FILTER (WHERE rn <= 5) AS recent_sales,
+      -- Units sold in orders 6-15 per product (prior period)
+      SUM(quantity) FILTER (WHERE rn > 5 AND rn <= 15) AS prior_sales,
+      -- Total units sold for reference
+      SUM(quantity) AS total_sales
     FROM (
       SELECT
         product_id,
-        unit_price,
-        effective_updated_at,
+        quantity,
         ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY effective_updated_at DESC) AS rn
       FROM delivered_order_lines
     ) ranked_sales
-    WHERE rn <= 10
+    WHERE rn <= 15
     GROUP BY product_id
   ),
 
-  -- Rank products by popularity (sales frequency) within category
+  -- Rank products by popularity (units sold) within category
   popularity_score AS (
     SELECT
       product_id,
       category,
-      COUNT(*) AS sale_count,
-      RANK() OVER (PARTITION BY category ORDER BY COUNT(*) DESC) AS popularity_rank
+      SUM(quantity) AS sale_count,
+      RANK() OVER (PARTITION BY category ORDER BY SUM(quantity) DESC) AS popularity_rank
     FROM delivered_order_lines
     GROUP BY product_id, category
   ),
@@ -495,10 +499,17 @@ WITH
         ELSE 0.95
       END AS scarcity_adjustment,
 
-      -- Demand multiplier: Compare current base price to recent avg
+      -- Demand multiplier: Based on sales velocity (recent vs prior sales)
+      -- If recent_sales > prior_sales, demand is accelerating -> higher multiplier
+      -- If recent_sales < prior_sales, demand is decelerating -> lower multiplier
+      -- Capped between 0.85 and 1.25 to prevent extreme swings
       CASE
-        WHEN rp.avg_recent_price IS NOT NULL THEN
-          1.0 + ((rp.avg_recent_price - ol_sample.sample_base_price) / NULLIF(ol_sample.sample_base_price, 0)) * 0.5
+        WHEN sv.prior_sales > 0 THEN
+          LEAST(GREATEST(
+            1.0 + ((sv.recent_sales::numeric / sv.prior_sales) - 1.0) * 0.25,
+            0.85
+          ), 1.25)
+        WHEN sv.recent_sales > 0 THEN 1.10  -- New demand with no prior history
         ELSE 1.0
       END AS demand_multiplier,
 
@@ -506,27 +517,14 @@ WITH
       CASE WHEN hd.is_high_demand THEN 1.05 ELSE 1.0 END AS demand_premium,
 
       inv.total_stock,
-      rp.avg_recent_price,
-      rp.recent_sale_count
+      sv.recent_sales,
+      sv.prior_sales,
+      sv.total_sales
 
     FROM popularity_score ps
     LEFT JOIN inventory_status inv ON inv.product_id = ps.product_id
-    LEFT JOIN recent_prices rp ON rp.product_id = ps.product_id
+    LEFT JOIN sales_velocity sv ON sv.product_id = ps.product_id
     LEFT JOIN high_demand_products hd ON hd.product_id = ps.product_id
-    LEFT JOIN (
-      -- Sample to get most recent base price per product
-      SELECT
-        product_id,
-        unit_price AS sample_base_price
-      FROM (
-        SELECT
-          product_id,
-          unit_price,
-          ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY effective_updated_at DESC) AS rn
-        FROM order_lines_flat_mv
-      ) ranked
-      WHERE rn = 1
-    ) ol_sample ON ol_sample.product_id = ps.product_id
   )
 
 -- Final SELECT: Apply all adjustments to each inventory item
@@ -577,7 +575,7 @@ SELECT
 
   -- Computed dynamic price with all factors (using available quantity, not total stock)
   ROUND(
-    COALESCE(inv.unit_price, 0) *
+    (COALESCE(inv.unit_price, 0) *
     CASE WHEN inv.store_zone = 'MAN' THEN 1.15
          WHEN inv.store_zone = 'BK' THEN 1.05
          WHEN inv.store_zone = 'QNS' THEN 1.00
@@ -591,13 +589,13 @@ SELECT
     COALESCE(pf.popularity_adjustment, 1.0) *
     COALESCE(pf.scarcity_adjustment, 1.0) *
     COALESCE(pf.demand_multiplier, 1.0) *
-    COALESCE(pf.demand_premium, 1.0),
+    COALESCE(pf.demand_premium, 1.0))::numeric,
     2
   ) AS live_price,
 
   -- Price difference for easy comparison
   ROUND(
-    (COALESCE(inv.unit_price, 0) *
+    ((COALESCE(inv.unit_price, 0) *
       CASE WHEN inv.store_zone = 'MAN' THEN 1.15
            WHEN inv.store_zone = 'BK' THEN 1.05
            WHEN inv.store_zone = 'QNS' THEN 1.00
@@ -612,7 +610,7 @@ SELECT
       COALESCE(pf.scarcity_adjustment, 1.0) *
       COALESCE(pf.demand_multiplier, 1.0) *
       COALESCE(pf.demand_premium, 1.0)
-    ) - COALESCE(inv.unit_price, 0),
+    ) - COALESCE(inv.unit_price, 0))::numeric,
     2
   ) AS price_change,
 
