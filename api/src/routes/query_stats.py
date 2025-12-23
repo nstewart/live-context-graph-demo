@@ -36,10 +36,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/query-stats", tags=["Query Statistics"])
 
 # Configuration
-MAX_SAMPLES = 1800  # Keep last 1800 samples (3 minutes at 100ms intervals)
+MAX_SAMPLES = 100  # Keep last 100 samples for statistics
 BATCH_REFRESH_INTERVAL = 60  # seconds
-POLLING_INTERVAL = 0.1  # 100ms
 HEARTBEAT_INTERVAL = 1.0  # 1 second
+QPS_WINDOW_SIZE = 1.0  # 1 second rolling window for QPS calculation
+
+# Concurrency limits per source (Freshmart approach)
+# PostgreSQL VIEW is slow, so limit to 1 concurrent query
+# Batch cache and Materialize are fast, allow more concurrency
+CONCURRENCY_LIMITS = {
+    "postgresql_view": 1,   # Slow query - 1 at a time
+    "batch_cache": 5,       # Fast query - up to 5 concurrent
+    "materialize": 5,       # Fast query - up to 5 concurrent
+}
 
 
 # Global state
@@ -60,10 +69,12 @@ latest_order_data: dict[str, Optional[dict]] = {
 
 @dataclass
 class SourceMetrics:
-    """Metrics for a single data source."""
+    """Metrics for a single data source with QPS tracking (Freshmart approach)."""
 
     response_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     reaction_times: deque = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
+    # Timestamps for QPS calculation (rolling window)
+    query_timestamps: list = field(default_factory=list)
     query_count: int = 0
     last_query_time: float = 0
 
@@ -73,6 +84,32 @@ class SourceMetrics:
         self.reaction_times.append(reaction_ms)
         self.query_count += 1
         self.last_query_time = time.time()
+        # Record timestamp for QPS calculation
+        self.query_timestamps.append(time.time())
+
+    def calculate_qps(self) -> float:
+        """Calculate queries per second using a rolling window (Freshmart approach).
+
+        Uses a 1-second sliding window to count how many queries were executed.
+        This measures throughput - how many queries/second each source can handle.
+        """
+        current_time = time.time()
+        cutoff_time = current_time - QPS_WINDOW_SIZE
+
+        # Remove old timestamps outside the window
+        while self.query_timestamps and self.query_timestamps[0] < cutoff_time:
+            self.query_timestamps.pop(0)
+
+        # Calculate QPS
+        if len(self.query_timestamps) < 2:
+            return len(self.query_timestamps) / QPS_WINDOW_SIZE
+
+        # Time span of measurements in the window
+        time_span = current_time - self.query_timestamps[0]
+        if time_span <= 0:
+            return 0.0
+
+        return len(self.query_timestamps) / time_span
 
     def stats(self) -> dict:
         """Calculate statistics from recorded samples."""
@@ -92,12 +129,14 @@ class SourceMetrics:
             "response_time": calc_stats(list(self.response_times)),
             "reaction_time": calc_stats(list(self.reaction_times)),
             "sample_count": len(self.response_times),
+            "qps": round(self.calculate_qps(), 1),
         }
 
     def clear(self):
         """Clear all recorded samples."""
         self.response_times.clear()
         self.reaction_times.clear()
+        self.query_timestamps.clear()
         self.query_count = 0
 
 
@@ -270,21 +309,64 @@ async def batch_refresh_loop():
         raise
 
 
-async def continuous_query_loop():
-    """Background task that continuously queries all three sources."""
-    global current_order_id, current_store_id
-    logger.info(f"Starting continuous query loop for order {current_order_id}")
+# Semaphores for concurrency control (Freshmart approach)
+source_semaphores: dict[str, asyncio.Semaphore] = {}
+
+
+async def continuous_load_generator(source: str, query_func):
+    """Generate continuous query load for a single source (Freshmart approach).
+
+    This fires queries as fast as possible up to the concurrency limit.
+    Unlike fixed polling, this measures actual throughput capacity.
+    """
+    global current_order_id, current_store_id, source_semaphores
+
+    # Create semaphore for this source's concurrency limit
+    concurrency_limit = CONCURRENCY_LIMITS.get(source, 1)
+    semaphore = asyncio.Semaphore(concurrency_limit)
+    source_semaphores[source] = semaphore
+
+    logger.info(f"Starting load generator for {source} (concurrency: {concurrency_limit})")
+
+    async def run_query():
+        """Execute a single query with semaphore control."""
+        async with semaphore:
+            if current_order_id:
+                await query_func(current_order_id, current_store_id)
+
     try:
         while current_order_id:
-            order_id = current_order_id
-            store_id = current_store_id
-            await asyncio.gather(
-                measure_pg_view_query(order_id, store_id),
-                measure_batch_query(order_id, store_id),
-                measure_mz_query(order_id, store_id),
-                return_exceptions=True,
-            )
-            await asyncio.sleep(POLLING_INTERVAL)
+            # Fire queries up to concurrency limit without waiting
+            tasks = [asyncio.create_task(run_query()) for _ in range(concurrency_limit)]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            # Small yield to allow other tasks to run
+            await asyncio.sleep(0.001)
+    except asyncio.CancelledError:
+        logger.info(f"Load generator stopped for {source}")
+        raise
+
+
+async def continuous_query_loop():
+    """Background task that generates continuous query load (Freshmart approach).
+
+    Instead of polling at fixed intervals, this fires queries as fast as possible
+    with per-source concurrency limits. This measures actual throughput:
+    - PostgreSQL VIEW: Limited to 1 concurrent (slow queries)
+    - Batch Cache: Up to 5 concurrent (fast queries)
+    - Materialize: Up to 5 concurrent (fast queries)
+
+    The QPS metric shows how many queries/second each source can sustain.
+    """
+    global current_order_id, current_store_id
+    logger.info(f"Starting continuous load generation for order {current_order_id}")
+    try:
+        # Run load generators for all three sources concurrently
+        await asyncio.gather(
+            continuous_load_generator("postgresql_view", measure_pg_view_query),
+            continuous_load_generator("batch_cache", measure_batch_query),
+            continuous_load_generator("materialize", measure_mz_query),
+            return_exceptions=True,
+        )
     except asyncio.CancelledError:
         logger.info("Continuous query loop stopped")
         raise

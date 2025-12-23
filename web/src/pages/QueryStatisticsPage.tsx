@@ -563,7 +563,7 @@ export default function QueryStatisticsPage() {
             Query Statistics - Orders with Lines View
           </h3>
           <p className="text-xs text-gray-500 mt-1">
-            Response Time = query latency, Reaction Time = freshness (NOW - effective_updated_at)
+            Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -592,6 +592,12 @@ export default function QueryStatisticsPage() {
                   </div>
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
+                  <div className="flex items-center justify-center gap-1">
+                    <Zap className="h-3 w-3" />
+                    QPS
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
                   Samples
                 </th>
               </tr>
@@ -607,6 +613,7 @@ export default function QueryStatisticsPage() {
                 </th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
+                <th className="border-l"></th>
                 <th className="border-l"></th>
               </tr>
             </thead>
@@ -639,6 +646,9 @@ export default function QueryStatisticsPage() {
                 </td>
                 <td className="px-2 py-3 text-center font-mono">
                   {formatMs(metrics?.postgresql_view?.reaction_time?.max)}
+                </td>
+                <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
+                  {metrics?.postgresql_view?.qps?.toFixed(1) || 0}
                 </td>
                 <td className="px-2 py-3 text-center border-l text-gray-500">
                   {metrics?.postgresql_view?.sample_count || 0}
@@ -673,6 +683,9 @@ export default function QueryStatisticsPage() {
                 </td>
                 <td className="px-2 py-3 text-center font-mono text-green-600">
                   {formatMs(metrics?.batch_cache?.reaction_time?.max)}
+                </td>
+                <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
+                  {metrics?.batch_cache?.qps?.toFixed(1) || 0}
                 </td>
                 <td className="px-2 py-3 text-center border-l text-gray-500">
                   {metrics?.batch_cache?.sample_count || 0}
@@ -710,6 +723,9 @@ export default function QueryStatisticsPage() {
                 </td>
                 <td className="px-2 py-3 text-center font-mono text-blue-600 font-semibold">
                   {formatMs(metrics?.materialize?.reaction_time?.max)}
+                </td>
+                <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
+                  {metrics?.materialize?.qps?.toFixed(1) || 0}
                 </td>
                 <td className="px-2 py-3 text-center border-l text-gray-500">
                   {metrics?.materialize?.sample_count || 0}
