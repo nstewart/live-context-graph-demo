@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { OrderFormModal, OrderFormData, OrderWithLines } from './OrderFormModal'
+import { OrderFormModal, OrderWithLines } from './OrderFormModal'
 
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
@@ -86,12 +86,16 @@ const mockOrder: OrderWithLines = {
   delivery_window_end: '2024-01-15T16:00:00',
   line_items: [
     {
+      line_id: 'orderline:TEST-001-1',
       product_id: 'product:EXISTING-001',
       product_name: 'Existing Product',
+      category: 'Test Category',
       quantity: 2,
       unit_price: 10.0,
       line_amount: 20.0,
+      line_sequence: 1,
       perishable_flag: false,
+      unit_weight_grams: 500,
     },
   ],
 }

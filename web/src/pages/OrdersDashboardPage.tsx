@@ -5,6 +5,7 @@ import {
   triplesApi,
   TripleCreate,
 } from "../api/client";
+import { useTrackedTriplesApi } from "../hooks/useTrackedApi";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema, OrderLineItem } from "../schema";
 import { formatAmount } from "../test/utils";
@@ -254,7 +255,7 @@ function OrdersTable({
                   <tr key={`${order.order_id}-expanded`}>
                     <td colSpan={10} className="px-0 py-0">
                       <div className="bg-gray-50 border-t border-b border-gray-200">
-                        <LineItemsTable lineItems={order.line_items || []} />
+                        <LineItemsTable lineItems={order.line_items || []} storeId={order.store_id || null} />
                       </div>
                     </td>
                   </tr>
@@ -268,7 +269,30 @@ function OrdersTable({
   );
 }
 
-function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
+function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; storeId: string | null }) {
+  const z = useZero<Schema>();
+
+  // Query current inventory for this store to get live prices
+  const inventoryQuery = storeId
+    ? z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', storeId)
+    : z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', '__none__');
+  const [inventoryData] = useQuery(inventoryQuery);
+
+  // Build lookup map for current prices by product_id
+  const pricesByProduct = useMemo(() => {
+    const map = new Map<string, { base_price: number | null; live_price: number | null; price_change: number | null }>();
+    inventoryData.forEach(inv => {
+      if (inv.product_id) {
+        map.set(inv.product_id, {
+          base_price: inv.base_price ?? null,
+          live_price: inv.live_price ?? null,
+          price_change: inv.price_change ?? null,
+        });
+      }
+    });
+    return map;
+  }, [inventoryData]);
+
   if (lineItems.length === 0) {
     return (
       <div className="px-8 py-6 text-center">
@@ -305,13 +329,13 @@ function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
               <div className="flex items-center justify-end gap-1">
                 <span>Base Price</span>
-                <InfoTooltip text="Product's static catalog price - no dynamic adjustments applied" />
+                <InfoTooltip text="Product's current static catalog price - no dynamic adjustments applied" />
               </div>
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
               <div className="flex items-center justify-end gap-1">
                 <span>Live Price</span>
-                <InfoTooltip text="Current dynamically-calculated price. Formula: Base Price × Zone Adjustment × Perishable Adjustment × Local Stock Adjustment (affected by pending orders) × Popularity Adjustment (delivered orders) × Scarcity Adjustment (delivered orders) × Demand Multiplier (delivered orders) × Demand Premium (delivered orders)" />
+                <InfoTooltip text="Current dynamically-calculated price based on demand, stock levels, and other factors" />
               </div>
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
@@ -323,64 +347,67 @@ function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-100">
-          {lineItems.map((item) => (
-            <tr key={item.line_id} className="hover:bg-gray-50">
-              <td className="px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900">
-                    {item.product_name || item.product_id}
-                  </span>
-                  {item.perishable_flag && (
-                    <span title="Perishable - requires cold chain">
-                      <Snowflake className="h-4 w-4 text-blue-600" />
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  {item.line_id}
-                </div>
-              </td>
-              <td className="px-3 py-2 text-center text-gray-900">
-                {item.quantity}
-              </td>
-              <td className="px-3 py-2 text-right text-gray-900">
-                ${formatAmount(item.unit_price)}
-              </td>
-              <td className="px-3 py-2 text-right text-gray-700">
-                {item.base_price != null ? (
-                  <span>${formatAmount(item.base_price)}</span>
-                ) : (
-                  <span className="text-gray-400">-</span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-right">
-                {item.live_price != null ? (
-                  <div className="flex flex-col items-end">
+          {lineItems.map((item) => {
+            const currentPrices = pricesByProduct.get(item.product_id);
+            return (
+              <tr key={item.line_id} className="hover:bg-gray-50">
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-900">
-                      ${formatAmount(item.live_price)}
+                      {item.product_name || item.product_id}
                     </span>
-                    {item.price_change != null && item.price_change !== 0 && (
-                      <span className={`text-xs ${item.price_change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {item.price_change > 0 ? '+' : ''}${formatAmount(item.price_change)}
+                    {item.perishable_flag && (
+                      <span title="Perishable - requires cold chain">
+                        <Snowflake className="h-4 w-4 text-blue-600" />
                       </span>
                     )}
                   </div>
-                ) : (
-                  <span className="text-gray-400">-</span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-right font-medium text-gray-900">
-                ${formatAmount(item.line_amount)}
-              </td>
-              <td className="px-3 py-2 text-center">
-                {item.perishable_flag ? (
-                  <Snowflake className="h-4 w-4 inline-block text-blue-600" />
-                ) : (
-                  <span className="text-gray-400">-</span>
-                )}
-              </td>
-            </tr>
-          ))}
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {item.line_id}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-center text-gray-900">
+                  {item.quantity}
+                </td>
+                <td className="px-3 py-2 text-right text-gray-900">
+                  ${formatAmount(item.unit_price)}
+                </td>
+                <td className="px-3 py-2 text-right text-gray-700">
+                  {currentPrices?.base_price != null ? (
+                    <span>${formatAmount(currentPrices.base_price)}</span>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {currentPrices?.live_price != null ? (
+                    <div className="flex flex-col items-end">
+                      <span className="font-medium text-gray-900">
+                        ${formatAmount(currentPrices.live_price)}
+                      </span>
+                      {currentPrices.price_change != null && currentPrices.price_change !== 0 && (
+                        <span className={`text-xs ${currentPrices.price_change > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {currentPrices.price_change > 0 ? '+' : ''}${formatAmount(currentPrices.price_change)}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-gray-900">
+                  ${formatAmount(item.line_amount)}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {item.perishable_flag ? (
+                    <Snowflake className="h-4 w-4 inline-block text-blue-600" />
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
         <tfoot>
           <tr className="bg-gray-50 font-semibold">
@@ -404,6 +431,7 @@ function LineItemsTable({ lineItems }: { lineItems: OrderLineItem[] }) {
 
 export default function OrdersDashboardPage() {
   const queryClient = useQueryClient();
+  const trackedTriplesApi = useTrackedTriplesApi();
   const [showModal, setShowModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<
     OrderWithLines | undefined
@@ -604,7 +632,7 @@ export default function OrdersDashboardPage() {
       }
 
       // Create order and all line items in a single transactional batch
-      await triplesApi.createBatch(triples);
+      await trackedTriplesApi.createBatch(triples);
 
       return { orderId };
     },
@@ -617,7 +645,7 @@ export default function OrdersDashboardPage() {
 
   // Helper function to check if line items have changed
   const hasLineItemsChanged = (
-    originalItems: OrderLineItem[] | undefined,
+    originalItems: OrderLineItem[] | null | undefined,
     newItems: CartLineItem[]
   ): boolean => {
     if (!originalItems && newItems.length === 0) return false;

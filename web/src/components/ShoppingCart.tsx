@@ -112,8 +112,8 @@ export function ShoppingCart({
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                 Quantity
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                Unit Price
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                Price
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                 Line Total
@@ -173,8 +173,13 @@ export function ShoppingCart({
                     {item.available_stock} available
                   </div>
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900">
-                  ${formatAmount(item.unit_price)}
+                <td className="px-4 py-3 text-right">
+                  <div className="text-gray-900">${formatAmount(item.unit_price)}</div>
+                  {item.base_price !== undefined && item.base_price !== item.unit_price && (
+                    <div className="text-xs text-gray-500">
+                      Base: ${formatAmount(item.base_price)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900">
                   ${formatAmount(item.line_amount)}
@@ -252,6 +257,9 @@ export function ShoppingCart({
 
               <div className="text-right">
                 <div className="text-sm text-gray-500">${formatAmount(item.unit_price)} each</div>
+                {item.base_price !== undefined && item.base_price !== item.unit_price && (
+                  <div className="text-xs text-gray-400">Base: ${formatAmount(item.base_price)}</div>
+                )}
                 <div className="font-semibold text-gray-900">${formatAmount(item.line_amount)}</div>
               </div>
             </div>

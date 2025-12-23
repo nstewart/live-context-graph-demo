@@ -225,6 +225,8 @@ services:
       - POLL_INTERVAL=${SYNC_POLL_INTERVAL:-5}
       - BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${PROPAGATION_API_PORT:-8083}:8083"
     depends_on:
       mz:
         condition: service_healthy

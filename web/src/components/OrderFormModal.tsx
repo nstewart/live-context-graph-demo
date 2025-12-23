@@ -71,6 +71,12 @@ export function OrderFormModal({
     z.query.customers_mv.orderBy("customer_id", "asc")
   );
 
+  // Query inventory for the selected store (needed for accurate stock levels when editing)
+  const inventoryQuery = formData.store_id
+    ? z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', formData.store_id)
+    : z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', '__none__');
+  const [inventoryData] = useQuery(inventoryQuery);
+
   // Calculate total from line items
   const getTotal = useCallback(() => {
     return lineItems.reduce((sum, item) => sum + item.line_amount, 0);
@@ -88,32 +94,48 @@ export function OrderFormModal({
         delivery_window_start: order.delivery_window_start?.slice(0, 16) || "",
         delivery_window_end: order.delivery_window_end?.slice(0, 16) || "",
       });
+    } else {
+      setFormData(initialFormData);
+      setLineItems([]);
+    }
+  }, [order, initialFormData]);
 
-      // Load line items from order
+  // Load line items when order and inventory data are available
+  useEffect(() => {
+    if (order && order.order_id && formData.store_id && inventoryData.length > 0) {
+      // Build a lookup map for inventory by product_id
+      const inventoryByProduct = new Map(
+        inventoryData.map(inv => [inv.product_id, inv])
+      );
+
+      // Load line items from order with actual inventory data
       const items = order.line_items || [];
       const cartItems: CartLineItem[] = items.map((item) => {
         const lineAmount = item.line_amount || 0;
         const quantity = item.quantity || 0;
         const unitPrice =
           Number(item.unit_price) || (quantity > 0 ? lineAmount / quantity : 0);
+
+        // Look up actual inventory for this product
+        const inventory = inventoryByProduct.get(item.product_id);
+        const actualStockLevel = inventory?.stock_level ?? 0;
+
         return {
           product_id: item.product_id,
           product_name: item.product_name || "Unknown Product",
           quantity: quantity,
           unit_price: unitPrice,
+          base_price: inventory?.base_price ?? undefined,
           perishable_flag: item.perishable_flag || false,
-          // For editing: add back current quantity since available_quantity already deducted it
-          available_stock: (item.current_stock_level ?? 0) + quantity,
+          // Use actual stock level from inventory + add back current quantity since it's already reserved
+          available_stock: actualStockLevel + quantity,
           category: item.category || undefined,
           line_amount: lineAmount,
         };
       });
       setLineItems(cartItems);
-    } else {
-      setFormData(initialFormData);
-      setLineItems([]);
     }
-  }, [order]);
+  }, [order, formData.store_id, inventoryData]);
 
   // Clear state when modal closes
   useEffect(() => {

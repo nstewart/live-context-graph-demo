@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit import generate_batch_id
 from src.db.client import get_mz_session_factory
 from src.freshmart.models import OrderLineCreate, OrderLineFlat, OrderLineUpdate
 from src.triples.models import TripleCreate
@@ -646,6 +647,9 @@ class OrderLineService:
             f"{field_count} field(s), {line_item_count} line item(s)"
         )
 
+        # Generate a single batch_id for all writes in this transaction
+        batch_id = generate_batch_id()
+
         order_triples = []
 
         # Build list of triples to upsert (only for provided fields)
@@ -702,7 +706,7 @@ class OrderLineService:
         # Only upsert if there are fields to update
         if order_triples:
             logger.info(f"[PARTIAL UPDATE] Updating {len(order_triples)} order field(s) for {order_id}")
-            await self.triple_service.upsert_triples_batch(order_triples)
+            await self.triple_service.upsert_triples_batch(order_triples, batch_id=batch_id)
 
         # Smart line item patching (if provided)
         if line_items is not None:
@@ -814,14 +818,14 @@ class OrderLineService:
                     # Only update if something actually changed
                     if changed_triples:
                         logger.info(f"  Updating {len(changed_triples)} triple(s) for line item seq={line_sequence}")
-                        await self.triple_service.upsert_triples_batch(changed_triples)
+                        await self.triple_service.upsert_triples_batch(changed_triples, batch_id=batch_id)
 
                 else:
                     # New line item - create it
                     line_id = self._generate_line_id()
                     line_ids_to_keep.add(line_id)
                     logger.info(f"  Creating new line item seq={line_sequence}")
-                    await self._create_single_line_item(order_id, line_id, new_item)
+                    await self._create_single_line_item(order_id, line_id, new_item, batch_id=batch_id)
 
             # Delete line items that are no longer in the new list
             line_ids_to_delete = existing_line_ids - line_ids_to_keep
@@ -835,7 +839,7 @@ class OrderLineService:
         return None
 
     async def _create_single_line_item(
-        self, order_id: str, line_id: str, line_item: OrderLineCreate
+        self, order_id: str, line_id: str, line_item: OrderLineCreate, batch_id: Optional[str] = None
     ) -> None:
         """Helper to create a single line item.
 
@@ -843,6 +847,7 @@ class OrderLineService:
             order_id: Parent order ID
             line_id: Generated line item ID
             line_item: Line item data
+            batch_id: Optional batch ID for audit grouping
         """
         triples = self._create_line_item_triples(line_id, order_id, line_item)
-        await self.triple_service.create_triples_batch(triples)
+        await self.triple_service.create_triples_batch(triples, batch_id=batch_id)

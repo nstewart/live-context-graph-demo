@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit.write_store import WriteEvent, generate_batch_id, get_write_store
 from src.ontology.service import OntologyService
 from src.triples.models import (
     SubjectInfo,
@@ -172,8 +173,15 @@ class TripleService:
             updated_at=row.updated_at,
         )
 
-    async def create_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
-        """Create multiple triples in a batch."""
+    async def create_triples_batch(
+        self, triples: list[TripleCreate], batch_id: Optional[str] = None
+    ) -> list[Triple]:
+        """Create multiple triples in a batch.
+
+        Args:
+            triples: List of triples to create
+            batch_id: Optional batch ID for audit grouping. If not provided, generates a new one.
+        """
         logger.info(f"[BATCH INSERT] Creating {len(triples)} new triples")
 
         # Log transaction start with summary of what's being written
@@ -257,13 +265,27 @@ class TripleService:
             for row in rows
         ]
 
-        # logger.info(
-        #     f"  ✅ [BATCH INSERT] Successfully wrote {len(created)} triples"
-        # )
+        # Emit write events to audit store
+        write_store = get_write_store()
+        effective_batch_id = batch_id if batch_id else generate_batch_id()
+        write_events = []
+        for triple in triples:
+            write_events.append(WriteEvent(
+                subject_id=triple.subject_id,
+                predicate=triple.predicate,
+                old_value=None,  # INSERT - no old value
+                new_value=triple.object_value,
+                operation="INSERT",
+                batch_id=effective_batch_id,
+            ))
+        if write_events:
+            write_store.add_events(write_events)
 
         return created
 
-    async def upsert_triples_batch(self, triples: list[TripleCreate]) -> list[Triple]:
+    async def upsert_triples_batch(
+        self, triples: list[TripleCreate], batch_id: Optional[str] = None
+    ) -> list[Triple]:
         """Upsert multiple triples in a batch - deletes old values and inserts new ones atomically.
 
         For each (subject_id, predicate) pair, this will:
@@ -271,6 +293,10 @@ class TripleService:
         2. Insert the new triple with the new object_value
 
         All operations happen in a single SQL transaction.
+
+        Args:
+            triples: List of triples to upsert
+            batch_id: Optional batch ID for audit grouping. If not provided, generates a new one.
         """
         # Validate subject_id format
         for triple in triples:
@@ -387,9 +413,23 @@ class TripleService:
             for row in rows
         ]
 
-        # logger.info(
-        #     f"  ✅ [BATCH UPSERT] Successfully upserted {len(upserted)} triples"
-        # )
+        # Emit write events to audit store
+        write_store = get_write_store()
+        effective_batch_id = batch_id if batch_id else generate_batch_id()
+        write_events = []
+        for triple in triples:
+            old_value = existing_values.get((triple.subject_id, triple.predicate))
+            operation = "UPDATE" if old_value is not None else "INSERT"
+            write_events.append(WriteEvent(
+                subject_id=triple.subject_id,
+                predicate=triple.predicate,
+                old_value=old_value,
+                new_value=triple.object_value,
+                operation=operation,
+                batch_id=effective_batch_id,
+            ))
+        if write_events:
+            write_store.add_events(write_events)
 
         return upserted
 
@@ -444,23 +484,16 @@ class TripleService:
             updated_at=row.updated_at,
         )
 
-        # Determine likely index from subject prefix (order -> orders, inventory -> inventory, etc.)
-        prefix = triple.subject_id.split(":")[0]
-        # Map common prefixes to their likely OpenSearch index
-        index_map = {
-            "order": "orders",
-            "orderline": "orders",
-            "inventory": "inventory",
-            "product": "products",
-            "customer": "customers",
-            "store": "stores",
-            "courier": "couriers",
-        }
-        likely_index = index_map.get(prefix, prefix)
-
-        # logger.info(
-        #     f"✅ PG_TXN_END: Successfully updated 1 triple → will update {likely_index} index for {triple.subject_id}"
-        # )
+        # Emit write event to audit store
+        write_store = get_write_store()
+        write_store.add_event(WriteEvent(
+            subject_id=triple.subject_id,
+            predicate=triple.predicate,
+            old_value=existing.object_value,
+            new_value=triple.object_value,
+            operation="UPDATE",
+            batch_id=generate_batch_id(),
+        ))
 
         return triple
 
