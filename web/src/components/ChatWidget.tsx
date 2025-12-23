@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, Trash2, Minimize2, Send, ChevronDown, ChevronRight } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useChat, ChatMessage, ThinkingEvent } from '../contexts/ChatContext';
 
 // Format timestamp for display
@@ -91,7 +92,9 @@ function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStrea
         ) : message.status === 'error' ? (
           <span className="text-red-400">{message.content}</span>
         ) : (
-          <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+          <div className="text-sm prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2 prose-pre:bg-gray-900 prose-pre:text-gray-100">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
         )}
 
         {/* Timestamp */}
@@ -174,7 +177,7 @@ export default function ChatWidget() {
 
       {/* Chat overlay when open */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 w-96 h-[500px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col z-50">
+        <div className="fixed bottom-6 right-6 w-[500px] h-[650px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col z-50">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
             <div className="flex items-center gap-2">

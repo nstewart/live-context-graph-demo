@@ -99,10 +99,9 @@ up-agent:
 	@sleep 5
 	@echo "Running migrations..."
 	@$(MAKE) migrate
-	@echo "Initializing Materialize views..."
-	@$(MAKE) init-mz
-	@echo "Restarting Zero services to refresh subscriptions..."
-	@docker-compose restart materialize-zero zero-cache
+	@echo ""
+	@echo "Note: Materialize views are initialized automatically by the materialize-init container."
+	@echo "      Run 'make init-mz' manually only if you need to re-initialize views."
 	@sleep 3
 	@echo "Loading seed data..."
 	@$(MAKE) seed
