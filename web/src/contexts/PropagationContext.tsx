@@ -16,6 +16,17 @@ export interface PropagationEvent {
   display_name: string | null;
 }
 
+// Source write event - the actual triple written to PostgreSQL
+export interface SourceWriteEvent {
+  subject_id: string;
+  predicate: string;
+  old_value: string | null;
+  new_value: string | null;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  timestamp: number;
+  batch_id: string | null;  // Groups writes from the same transaction
+}
+
 // Simplified write record - just holds events now
 export interface WriteRecord {
   id: string;
@@ -29,7 +40,8 @@ export interface WriteRecord {
 
 interface PropagationContextValue {
   writes: WriteRecord[];
-  events: PropagationEvent[]; // All events from polling
+  events: PropagationEvent[]; // All propagation events from polling
+  sourceWrites: SourceWriteEvent[]; // Source writes from audit endpoint
   registerWrite: (subjectId: string, predicate: string, value: string) => void;
   registerBatchWrite: (writes: Array<{ subjectId: string; predicate: string; value: string }>) => void;
   clearWrites: () => void;
@@ -39,14 +51,17 @@ interface PropagationContextValue {
 
 const PropagationContext = createContext<PropagationContextValue | null>(null);
 
-// Propagation API base URL (search-sync service)
+// API URLs
 const PROPAGATION_API_URL = 'http://localhost:8083';
+const AUDIT_API_URL = 'http://localhost:8080';
 
 export function PropagationProvider({ children }: { children: React.ReactNode }) {
   const [writes, setWrites] = useState<WriteRecord[]>([]);
   const [events, setEvents] = useState<PropagationEvent[]>([]);
+  const [sourceWrites, setSourceWrites] = useState<SourceWriteEvent[]>([]);
   const [isPolling, setIsPolling] = useState(true); // Always polling
   const lastMzTs = useRef<string | null>(null);
+  const lastWriteTs = useRef<number | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Generate unique ID for write records
@@ -87,11 +102,55 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
   const clearWrites = useCallback(() => {
     setWrites([]);
     setEvents([]);
+    setSourceWrites([]);
     lastMzTs.current = null;
+    lastWriteTs.current = null;
   }, []);
 
   // Calculate total index updates from events
   const totalIndexUpdates = events.length;
+
+  // Poll for source writes from audit endpoint
+  const pollForSourceWrites = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (lastWriteTs.current) {
+        params.set('since_ts', lastWriteTs.current.toString());
+      }
+      params.set('limit', '100');
+
+      const response = await fetch(`${AUDIT_API_URL}/api/audit/writes?${params}`);
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      const newWrites: SourceWriteEvent[] = data.events || [];
+
+      if (newWrites.length > 0) {
+        // Update lastWriteTs to the most recent event
+        const maxTs = newWrites.reduce(
+          (max, e) => (e.timestamp > max ? e.timestamp : max),
+          lastWriteTs.current || 0
+        );
+        lastWriteTs.current = maxTs;
+
+        // Add new events (avoid duplicates by timestamp + subject + predicate)
+        setSourceWrites((prev) => {
+          const existingKeys = new Set(
+            prev.map((e) => `${e.timestamp}-${e.subject_id}-${e.predicate}`)
+          );
+          const uniqueNewWrites = newWrites.filter(
+            (e) => !existingKeys.has(`${e.timestamp}-${e.subject_id}-${e.predicate}`)
+          );
+          // Keep last 100 source writes
+          return [...uniqueNewWrites, ...prev].slice(0, 100);
+        });
+      }
+    } catch (error) {
+      // Silently ignore polling errors
+    }
+  }, []);
 
   // Poll for propagation events continuously
   const pollForEvents = useCallback(async () => {
@@ -146,22 +205,27 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     // Poll immediately on mount
     pollForEvents();
+    pollForSourceWrites();
 
     // Then poll every 500ms
-    pollIntervalRef.current = setInterval(pollForEvents, 500);
+    pollIntervalRef.current = setInterval(() => {
+      pollForEvents();
+      pollForSourceWrites();
+    }, 500);
 
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
     };
-  }, [pollForEvents]);
+  }, [pollForEvents, pollForSourceWrites]);
 
   // Auto-clear old events (older than 5 minutes)
   useEffect(() => {
     const cleanup = setInterval(() => {
       const cutoff = Date.now() / 1000 - 300; // 5 minutes in seconds
       setEvents((prev) => prev.filter((e) => e.timestamp > cutoff));
+      setSourceWrites((prev) => prev.filter((e) => e.timestamp > cutoff));
       // Also clear old writes
       const writeCutoff = Date.now() - 300000;
       setWrites((prev) => prev.filter((w) => w.timestamp > writeCutoff));
@@ -175,6 +239,7 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
       value={{
         writes,
         events,
+        sourceWrites,
         registerWrite,
         registerBatchWrite,
         clearWrites,

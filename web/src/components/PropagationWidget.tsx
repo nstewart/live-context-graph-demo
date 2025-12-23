@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { ChevronUp, ChevronDown, ChevronRight, Loader2, Trash2 } from 'lucide-react';
-import { usePropagation, PropagationEvent } from '../contexts/PropagationContext';
+import { ChevronUp, ChevronDown, ChevronRight, Loader2, Trash2, Database } from 'lucide-react';
+import { usePropagation, PropagationEvent, SourceWriteEvent } from '../contexts/PropagationContext';
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('en-US', {
@@ -228,11 +228,138 @@ function TimestampGroup({
   );
 }
 
+function SourceWriteItem({ write }: { write: SourceWriteEvent }) {
+  const oldFormatted = formatFieldValue(write.old_value);
+  const newFormatted = formatFieldValue(write.new_value);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 text-xs">
+      <span className="font-mono text-cyan-400">{write.subject_id}</span>
+      <span className="text-gray-500">.</span>
+      <span className="font-mono text-purple-400">{write.predicate}</span>
+      <span className="text-gray-500">:</span>
+      {write.old_value !== null && (
+        <span className="font-mono text-red-400">{oldFormatted}</span>
+      )}
+      <span className="text-gray-500">→</span>
+      <span className="font-mono text-green-400">{newFormatted}</span>
+    </div>
+  );
+}
+
+function SourceWriteBatch({
+  batchId,
+  writes,
+  isExpanded,
+  onToggle
+}: {
+  batchId: string;
+  writes: SourceWriteEvent[];
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  // Group by subject_id to show summary
+  const subjects = [...new Set(writes.map(w => w.subject_id))];
+  const firstWrite = writes[0];
+
+  return (
+    <div className="border-b border-gray-800 last:border-b-0">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 transition-colors text-left"
+      >
+        {writes.length > 1 ? (
+          isExpanded ? (
+            <ChevronDown className="h-3 w-3 text-gray-400 flex-shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+          )
+        ) : (
+          <Database className="h-3 w-3 text-blue-400 flex-shrink-0" />
+        )}
+        <span className="text-xs text-gray-500">{formatTime(firstWrite.timestamp * 1000)}</span>
+        {writes.length === 1 ? (
+          // Single write - show inline
+          <>
+            <span className="font-mono text-xs text-cyan-400">{firstWrite.subject_id}</span>
+            <span className="text-gray-500">.</span>
+            <span className="font-mono text-xs text-purple-400">{firstWrite.predicate}</span>
+            <span className="text-gray-500">:</span>
+            {firstWrite.old_value !== null && (
+              <span className="font-mono text-xs text-red-400">{formatFieldValue(firstWrite.old_value)}</span>
+            )}
+            <span className="text-gray-500">→</span>
+            <span className="font-mono text-xs text-green-400">{formatFieldValue(firstWrite.new_value)}</span>
+          </>
+        ) : (
+          // Multiple writes - show summary
+          <>
+            <span className="text-xs text-white">
+              {subjects.length} subject{subjects.length !== 1 ? 's' : ''}
+            </span>
+            <span className="text-xs text-gray-500">
+              ({writes.length} triple{writes.length !== 1 ? 's' : ''})
+            </span>
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                writes[0].operation === 'INSERT'
+                  ? 'bg-green-900 text-green-300'
+                  : 'bg-yellow-900 text-yellow-300'
+              }`}
+            >
+              {writes[0].operation}
+            </span>
+          </>
+        )}
+      </button>
+
+      {isExpanded && writes.length > 1 && (
+        <div className="ml-6 pb-2 border-l border-gray-700">
+          {writes.map((write, idx) => (
+            <SourceWriteItem key={`${write.subject_id}-${write.predicate}-${idx}`} write={write} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PropagationWidget() {
-  const { events, clearWrites, isPolling, totalIndexUpdates } = usePropagation();
+  const { events, sourceWrites, clearWrites, isPolling, totalIndexUpdates } = usePropagation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedTimestamps, setExpandedTimestamps] = useState<Set<string>>(new Set());
   const [expandedEntities, setExpandedEntities] = useState<Set<string>>(new Set());
+  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
+
+  // Group source writes by batch_id
+  const writesByBatch = useMemo(() => {
+    const grouped: Record<string, SourceWriteEvent[]> = {};
+
+    sourceWrites.forEach(write => {
+      const key = write.batch_id || `single-${write.timestamp}-${write.subject_id}`;
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(write);
+    });
+
+    // Sort by timestamp of first write in each batch (most recent first)
+    return Object.entries(grouped)
+      .sort(([, a], [, b]) => b[0].timestamp - a[0].timestamp)
+      .map(([batchId, writes]) => ({ batchId, writes }));
+  }, [sourceWrites]);
+
+  const toggleBatch = (batchId: string) => {
+    setExpandedBatches(prev => {
+      const next = new Set(prev);
+      if (next.has(batchId)) {
+        next.delete(batchId);
+      } else {
+        next.add(batchId);
+      }
+      return next;
+    });
+  };
 
   // Group events by mz_ts
   const eventsByMzTs = useMemo(() => {
@@ -307,8 +434,8 @@ export default function PropagationWidget() {
 
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-400">
-            Timestamps: <span className="text-white">{eventsByMzTs.length}</span>
-            <span className="mx-2 text-gray-600">|</span>
+            Transactions: <span className="text-white">{writesByBatch.length}</span>
+            <span className="mx-2 text-gray-600">→</span>
             Index updates: <span className="text-white">{totalIndexUpdates}</span>
           </span>
           {isExpanded && (
@@ -329,23 +456,70 @@ export default function PropagationWidget() {
       {/* Expanded content */}
       {isExpanded && (
         <div className="h-[calc(40vh-2.5rem)] overflow-y-auto">
-          {eventsByMzTs.length === 0 ? (
+          {sourceWrites.length === 0 && eventsByMzTs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-gray-500 text-sm">
               No propagation events yet - make a change to see updates flow through
             </div>
           ) : (
-            eventsByMzTs.map(({ mzTs, events, wallTime }) => (
-              <TimestampGroup
-                key={mzTs}
-                mzTs={mzTs}
-                events={events}
-                wallTime={wallTime}
-                isExpanded={expandedTimestamps.has(mzTs)}
-                onToggle={() => toggleTimestamp(mzTs)}
-                expandedEntities={expandedEntities}
-                onToggleEntity={toggleEntity}
-              />
-            ))
+            <>
+              {/* Source Writes Section */}
+              {sourceWrites.length > 0 && (
+                <div className="border-b border-gray-700">
+                  <div className="px-3 py-2 bg-gray-800/50 flex items-center gap-2">
+                    <Database className="h-4 w-4 text-blue-400" />
+                    <span className="text-xs font-medium text-blue-400 uppercase tracking-wide">
+                      PostgreSQL Writes
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      ({writesByBatch.length} transaction{writesByBatch.length !== 1 ? 's' : ''}, {sourceWrites.length} triple{sourceWrites.length !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto">
+                    {writesByBatch.slice(0, 10).map(({ batchId, writes }) => (
+                      <SourceWriteBatch
+                        key={batchId}
+                        batchId={batchId}
+                        writes={writes}
+                        isExpanded={expandedBatches.has(batchId)}
+                        onToggle={() => toggleBatch(batchId)}
+                      />
+                    ))}
+                    {writesByBatch.length > 10 && (
+                      <div className="px-3 py-1 text-xs text-gray-500">
+                        ... and {writesByBatch.length - 10} more transactions
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Propagation Events Section */}
+              {eventsByMzTs.length > 0 && (
+                <div>
+                  <div className="px-3 py-2 bg-gray-800/50 flex items-center gap-2">
+                    <ChevronRight className="h-4 w-4 text-green-400" />
+                    <span className="text-xs font-medium text-green-400 uppercase tracking-wide">
+                      Index Propagation
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      ({totalIndexUpdates} update{totalIndexUpdates !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  {eventsByMzTs.map(({ mzTs, events, wallTime }) => (
+                    <TimestampGroup
+                      key={mzTs}
+                      mzTs={mzTs}
+                      events={events}
+                      wallTime={wallTime}
+                      isExpanded={expandedTimestamps.has(mzTs)}
+                      onToggle={() => toggleTimestamp(mzTs)}
+                      expandedEntities={expandedEntities}
+                      onToggleEntity={toggleEntity}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
