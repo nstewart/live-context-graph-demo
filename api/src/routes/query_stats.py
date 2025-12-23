@@ -46,7 +46,7 @@ QPS_WINDOW_SIZE = 1.0  # 1 second rolling window for QPS calculation
 # Batch cache and Materialize are fast, allow more concurrency
 CONCURRENCY_LIMITS = {
     "postgresql_view": 1,   # Slow query - 1 at a time
-    "batch_cache": 1,       # Memory read - 1 at a time (throttled for chart readability)
+    "batch_cache": 5,       # Memory read - up to 5 concurrent
     "materialize": 5,       # Fast query - up to 5 concurrent
 }
 
@@ -54,8 +54,8 @@ CONCURRENCY_LIMITS = {
 # This controls how often we record metrics, not actual query capability
 THROTTLE_RATES = {
     "postgresql_view": 0.0,  # No throttle - already slow
-    "batch_cache": 0.1,      # 10 QPS - enough to show it's fast, but not overwhelm chart
-    "materialize": 0.0,      # No throttle - want to show actual throughput
+    "batch_cache": 0.0,      # No throttle - show actual throughput
+    "materialize": 0.0,      # No throttle - show actual throughput
 }
 
 
