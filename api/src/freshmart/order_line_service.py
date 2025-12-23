@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.audit import generate_batch_id
+from src.audit import WriteEvent, generate_batch_id, get_write_store
 from src.db.client import get_mz_session_factory
 from src.freshmart.models import OrderLineCreate, OrderLineFlat, OrderLineUpdate
 from src.triples.models import TripleCreate
@@ -374,6 +374,9 @@ class OrderLineService:
         # Track what's being updated for logging
         changes = []
         triples_written = 0
+        write_events = []
+        batch_id = generate_batch_id()
+
         if updates.quantity is not None and updates.quantity != current.quantity:
             changes.append(f"quantity: {current.quantity} → {updates.quantity}")
         if updates.unit_price is not None and updates.unit_price != current.unit_price:
@@ -401,6 +404,14 @@ class OrderLineService:
                 {"line_id": line_id, "value": str(new_quantity)},
             )
             triples_written += 1
+            write_events.append(WriteEvent(
+                subject_id=line_id,
+                predicate="quantity",
+                old_value=str(current.quantity) if current.quantity is not None else None,
+                new_value=str(new_quantity),
+                operation="UPDATE",
+                batch_id=batch_id,
+            ))
 
         if updates.unit_price is not None:
             await self.session.execute(
@@ -412,6 +423,14 @@ class OrderLineService:
                 {"line_id": line_id, "value": str(new_unit_price)},
             )
             triples_written += 1
+            write_events.append(WriteEvent(
+                subject_id=line_id,
+                predicate="order_line_unit_price",
+                old_value=str(current.unit_price) if current.unit_price is not None else None,
+                new_value=str(new_unit_price),
+                operation="UPDATE",
+                batch_id=batch_id,
+            ))
 
         if updates.line_sequence is not None:
             await self.session.execute(
@@ -423,6 +442,19 @@ class OrderLineService:
                 {"line_id": line_id, "value": str(new_sequence)},
             )
             triples_written += 1
+            write_events.append(WriteEvent(
+                subject_id=line_id,
+                predicate="line_sequence",
+                old_value=str(current.line_sequence) if current.line_sequence is not None else None,
+                new_value=str(new_sequence),
+                operation="UPDATE",
+                batch_id=batch_id,
+            ))
+
+        # Emit audit events
+        if write_events:
+            write_store = get_write_store()
+            write_store.add_events(write_events)
 
         # Log summary of changes
         if changes:
