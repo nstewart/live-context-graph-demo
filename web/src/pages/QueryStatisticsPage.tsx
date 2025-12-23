@@ -182,12 +182,28 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                         key={item.line_id}
                         className="flex justify-between text-xs py-1 px-2 bg-gray-50 rounded"
                       >
-                        <span className="truncate max-w-[120px]">
+                        <span className="truncate max-w-[100px]">
                           {item.product_name || item.product_id}
                         </span>
-                        <span className="text-gray-600">
-                          {item.quantity} x ${item.unit_price?.toFixed(2)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">
+                            {item.quantity} x
+                          </span>
+                          {item.live_price != null ? (
+                            <div className="flex flex-col items-end">
+                              <span className="font-medium text-blue-600">
+                                ${item.live_price.toFixed(2)}
+                              </span>
+                              {item.price_change != null && item.price_change !== 0 && (
+                                <span className={`text-[10px] ${item.price_change > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {item.price_change > 0 ? '+' : ''}${item.price_change.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">${item.unit_price?.toFixed(2)}</span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

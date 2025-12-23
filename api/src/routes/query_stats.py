@@ -1,15 +1,13 @@
 """Query Statistics API for comparing data access patterns.
 
 This module provides endpoints for measuring and comparing:
-1. PostgreSQL View (orders_with_lines_full) - On-demand computed view (fresh but SLOW)
-2. Batch MATERIALIZED VIEW (orders_with_lines_batch) - Refreshed every 60s (fast but stale)
-3. Materialize (orders_with_lines_mv) - Incrementally maintained view (fast AND fresh)
+1. PostgreSQL View (orders + inventory_items_with_dynamic_pricing) - On-demand computed (fresh but SLOW)
+2. Batch MATERIALIZED VIEW (orders + inventory_items_with_dynamic_pricing_batch) - Refreshed every 60s (fast but stale)
+3. Materialize (orders_with_lines_mv + inventory_items_with_dynamic_pricing_mv) - Incrementally maintained (fast AND fresh)
 
-The orders_with_lines view includes:
-- Order details (number, status, customer, store)
-- Customer and store denormalized info
-- Delivery task info
-- Aggregated line items as JSONB
+The comparison queries:
+- Order details (number, status, customer, store, line items)
+- Dynamic pricing for each line item's product (7 pricing factors)
 
 Key metrics:
 - Response Time: Query latency (time to execute the query)
@@ -46,6 +44,7 @@ HEARTBEAT_INTERVAL = 1.0  # 1 second
 
 # Global state
 current_order_id: Optional[str] = None
+current_store_id: Optional[str] = None  # Cache store_id for the selected order
 polling_task: Optional[asyncio.Task] = None
 batch_refresh_task: Optional[asyncio.Task] = None
 heartbeat_task: Optional[asyncio.Task] = None
@@ -110,54 +109,128 @@ metrics_store = {
 }
 
 
-def serialize_order_row(row: dict) -> dict:
-    """Convert a database row to JSON-serializable dict."""
-    result = {}
-    for key, value in row.items():
-        if isinstance(value, Decimal):
-            result[key] = float(value)
-        elif isinstance(value, datetime):
-            result[key] = value.isoformat()
-        elif isinstance(value, str) and key == "line_items":
-            # Parse JSONB string if needed
+def serialize_value(value: Any) -> Any:
+    """Convert a database value to JSON-serializable format."""
+    if isinstance(value, Decimal):
+        return float(value)
+    elif isinstance(value, datetime):
+        return value.isoformat()
+    elif isinstance(value, str):
+        # Try to parse as JSON if it looks like JSON
+        if value.startswith('[') or value.startswith('{'):
             try:
-                result[key] = json.loads(value) if value else []
+                return json.loads(value)
             except (json.JSONDecodeError, TypeError):
-                result[key] = value
-        else:
-            result[key] = value
-    return result
+                pass
+    return value
+
+
+def serialize_row(row: dict) -> dict:
+    """Convert a database row to JSON-serializable dict."""
+    return {key: serialize_value(value) for key, value in row.items()}
+
+
+def merge_order_with_pricing(order_row: dict, pricing_rows: list[dict]) -> dict:
+    """Merge order data with live pricing for line items."""
+    order = serialize_row(order_row)
+
+    # Build pricing lookup by product_id
+    pricing_by_product = {}
+    max_pricing_updated_at = None
+    for row in pricing_rows:
+        product_id = row.get("product_id")
+        if product_id:
+            pricing_by_product[product_id] = {
+                "live_price": float(row["live_price"]) if row.get("live_price") else None,
+                "base_price": float(row["base_price"]) if row.get("base_price") else None,
+                "price_change": float(row["price_change"]) if row.get("price_change") else None,
+                "stock_level": row.get("stock_level"),
+            }
+            # Track the most recent pricing update
+            if row.get("effective_updated_at"):
+                updated_at = row["effective_updated_at"]
+                if max_pricing_updated_at is None or updated_at > max_pricing_updated_at:
+                    max_pricing_updated_at = updated_at
+
+    # Enrich line items with live pricing
+    line_items = order.get("line_items", [])
+    if isinstance(line_items, str):
+        try:
+            line_items = json.loads(line_items)
+        except (json.JSONDecodeError, TypeError):
+            line_items = []
+
+    enriched_items = []
+    for item in line_items:
+        product_id = item.get("product_id")
+        pricing = pricing_by_product.get(product_id, {})
+        enriched_item = {
+            **item,
+            "live_price": pricing.get("live_price"),
+            "base_price": pricing.get("base_price"),
+            "price_change": pricing.get("price_change"),
+            "current_stock": pricing.get("stock_level"),
+        }
+        enriched_items.append(enriched_item)
+
+    order["line_items"] = enriched_items
+    order["pricing_data"] = pricing_by_product
+
+    # Use the most recent timestamp between order and pricing for effective_updated_at
+    order_updated = order.get("effective_updated_at")
+    if isinstance(order_updated, str):
+        try:
+            order_updated = datetime.fromisoformat(order_updated.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            order_updated = None
+
+    if max_pricing_updated_at and order_updated:
+        if max_pricing_updated_at.tzinfo is None:
+            max_pricing_updated_at = max_pricing_updated_at.replace(tzinfo=timezone.utc)
+        if order_updated.tzinfo is None:
+            order_updated = order_updated.replace(tzinfo=timezone.utc)
+        order["effective_updated_at"] = max(max_pricing_updated_at, order_updated).isoformat()
+    elif max_pricing_updated_at:
+        order["effective_updated_at"] = max_pricing_updated_at.isoformat() if isinstance(max_pricing_updated_at, datetime) else max_pricing_updated_at
+
+    return order
 
 
 # --- Background Tasks ---
 
 
 async def heartbeat_loop():
-    """Update the selected order's timestamp every second.
+    """Update the selected order's store inventory timestamp every second.
 
-    This continuously updates the `updated_at` on the order's order_status triple,
-    which propagates to `effective_updated_at` in the views. This allows us
+    This continuously updates the `updated_at` on an inventory item's stock_level triple,
+    which propagates to `effective_updated_at` in the dynamic pricing views. This allows us
     to measure how fresh each data source is:
-    - PostgreSQL View: sees update immediately (but query is SLOW due to complex joins)
+    - PostgreSQL View: sees update immediately (but query is SLOW due to complex pricing calc)
     - Batch MATERIALIZED VIEW: sees update after next refresh (up to 60s stale)
     - Materialize: sees update within ~100ms via CDC (AND query is fast)
     """
-    global current_order_id
-    logger.info("Starting heartbeat loop for order")
+    global current_order_id, current_store_id
+    logger.info("Starting heartbeat loop for order's store inventory")
     try:
         while True:
-            if current_order_id:
+            if current_store_id:
                 try:
                     async with get_pg_session() as session:
-                        # Update the order's order_status triple timestamp
-                        # This triggers the effective_updated_at to change
+                        # Update an inventory item's stock_level triple timestamp for this store
+                        # This triggers the effective_updated_at to change in the pricing view
                         await session.execute(
                             text("""
                                 UPDATE triples
                                 SET updated_at = NOW()
-                                WHERE subject_id = :order_id AND predicate = 'order_status'
+                                WHERE subject_id IN (
+                                    SELECT subject_id FROM triples
+                                    WHERE predicate = 'inventory_store'
+                                    AND object_value = :store_id
+                                    LIMIT 1
+                                )
+                                AND predicate = 'stock_level'
                             """),
-                            {"order_id": current_order_id},
+                            {"store_id": current_store_id},
                         )
                 except Exception as e:
                     logger.warning(f"Heartbeat update failed: {e}")
@@ -168,7 +241,7 @@ async def heartbeat_loop():
 
 
 async def batch_refresh_loop():
-    """Refresh the orders_with_lines_batch MATERIALIZED VIEW every 60 seconds."""
+    """Refresh the inventory_items_with_dynamic_pricing_batch MATERIALIZED VIEW every 60 seconds."""
     logger.info("Starting batch refresh loop")
     try:
         while True:
@@ -177,7 +250,7 @@ async def batch_refresh_loop():
                 start = time.perf_counter()
                 async with get_pg_session() as session:
                     await session.execute(
-                        text("REFRESH MATERIALIZED VIEW orders_with_lines_batch")
+                        text("REFRESH MATERIALIZED VIEW inventory_items_with_dynamic_pricing_batch")
                     )
                     # Update the refresh log
                     duration_ms = (time.perf_counter() - start) * 1000
@@ -185,7 +258,7 @@ async def batch_refresh_loop():
                         text("""
                             UPDATE materialized_view_refresh_log
                             SET last_refresh = NOW(), refresh_duration_ms = :duration
-                            WHERE view_name = 'orders_with_lines_batch'
+                            WHERE view_name = 'inventory_items_with_dynamic_pricing_batch'
                         """),
                         {"duration": duration_ms},
                     )
@@ -199,15 +272,16 @@ async def batch_refresh_loop():
 
 async def continuous_query_loop():
     """Background task that continuously queries all three sources."""
-    global current_order_id
+    global current_order_id, current_store_id
     logger.info(f"Starting continuous query loop for order {current_order_id}")
     try:
         while current_order_id:
             order_id = current_order_id
+            store_id = current_store_id
             await asyncio.gather(
-                measure_pg_view_query(order_id),
-                measure_batch_query(order_id),
-                measure_mz_query(order_id),
+                measure_pg_view_query(order_id, store_id),
+                measure_batch_query(order_id, store_id),
+                measure_mz_query(order_id, store_id),
                 return_exceptions=True,
             )
             await asyncio.sleep(POLLING_INTERVAL)
@@ -216,23 +290,25 @@ async def continuous_query_loop():
         raise
 
 
-async def measure_pg_view_query(order_id: str):
-    """Query PostgreSQL VIEW (orders_with_lines_full) and record metrics.
+async def measure_pg_view_query(order_id: str, store_id: Optional[str]):
+    """Query PostgreSQL VIEWs and record metrics.
 
-    This VIEW computes multiple joins and aggregations on-demand, including:
-    - Order base data from triples
-    - Customer denormalization
-    - Store denormalization
-    - Delivery task lookup
-    - Line items aggregation as JSONB
+    This queries:
+    1. orders_with_lines_full VIEW (order + line items)
+    2. inventory_items_with_dynamic_pricing VIEW (live pricing with 7 factors)
 
-    The query is SLOW because it computes everything fresh every time.
+    The dynamic pricing VIEW is SLOW because it computes complex pricing logic:
+    - Sales velocity calculations
+    - Popularity scoring with window functions
+    - Inventory scarcity rankings
+    - 7 pricing adjustment factors
     """
     start = time.perf_counter()
 
     try:
         async with get_pg_session() as session:
-            result = await session.execute(
+            # Query order with line items
+            order_result = await session.execute(
                 text("""
                     SELECT *
                     FROM orders_with_lines_full
@@ -240,32 +316,57 @@ async def measure_pg_view_query(order_id: str):
                 """),
                 {"order_id": order_id},
             )
-            row = result.mappings().fetchone()
+            order_row = order_result.mappings().fetchone()
+
+            # Query dynamic pricing for the store (THIS IS THE SLOW QUERY)
+            pricing_rows = []
+            if store_id:
+                pricing_result = await session.execute(
+                    text("""
+                        SELECT product_id, live_price, base_price, price_change,
+                               stock_level, effective_updated_at
+                        FROM inventory_items_with_dynamic_pricing
+                        WHERE store_id = :store_id
+                    """),
+                    {"store_id": store_id},
+                )
+                pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
 
         response_ms = (time.perf_counter() - start) * 1000
 
-        # Store latest order data
-        if row:
-            latest_order_data["postgresql_view"] = serialize_order_row(dict(row))
+        # Merge order with live pricing
+        if order_row:
+            merged = merge_order_with_pricing(dict(order_row), pricing_rows)
+            latest_order_data["postgresql_view"] = merged
 
-        # Reaction time = now - effective_updated_at
-        if row and row.get("effective_updated_at"):
-            updated_at = row["effective_updated_at"]
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            # Reaction time = now - effective_updated_at
+            effective_updated = merged.get("effective_updated_at")
+            if effective_updated:
+                if isinstance(effective_updated, str):
+                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
+                else:
+                    updated_at = effective_updated
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
+                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            else:
+                reaction_ms = response_ms
         else:
-            reaction_ms = response_ms  # Fallback
+            reaction_ms = response_ms
 
         metrics_store["postgresql_view"].record(response_ms, reaction_ms)
     except Exception as e:
         logger.warning(f"PostgreSQL view query failed: {e}")
 
 
-async def measure_batch_query(order_id: str):
-    """Query batch MATERIALIZED VIEW (orders_with_lines_batch) and record metrics.
+async def measure_batch_query(order_id: str, store_id: Optional[str]):
+    """Query batch MATERIALIZED VIEWs and record metrics.
 
-    This MATERIALIZED VIEW is pre-computed and refreshed every 60 seconds.
+    This queries:
+    1. orders_with_lines_batch MATERIALIZED VIEW (order + line items)
+    2. inventory_items_with_dynamic_pricing_batch MATERIALIZED VIEW (pre-computed pricing)
+
+    Both MATERIALIZED VIEWs are pre-computed and refreshed every 60 seconds.
     The query is FAST because it reads pre-computed results.
     But the data is STALE (up to 60 seconds old).
     """
@@ -273,7 +374,8 @@ async def measure_batch_query(order_id: str):
 
     try:
         async with get_pg_session() as session:
-            result = await session.execute(
+            # Query order with line items from batch cache
+            order_result = await session.execute(
                 text("""
                     SELECT *
                     FROM orders_with_lines_batch
@@ -281,33 +383,58 @@ async def measure_batch_query(order_id: str):
                 """),
                 {"order_id": order_id},
             )
-            row = result.mappings().fetchone()
+            order_row = order_result.mappings().fetchone()
+
+            # Query pre-computed pricing from batch cache
+            pricing_rows = []
+            if store_id:
+                pricing_result = await session.execute(
+                    text("""
+                        SELECT product_id, live_price, base_price, price_change,
+                               stock_level, effective_updated_at
+                        FROM inventory_items_with_dynamic_pricing_batch
+                        WHERE store_id = :store_id
+                    """),
+                    {"store_id": store_id},
+                )
+                pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
 
         response_ms = (time.perf_counter() - start) * 1000
 
-        # Store latest order data
-        if row:
-            latest_order_data["batch_cache"] = serialize_order_row(dict(row))
+        # Merge order with pricing
+        if order_row:
+            merged = merge_order_with_pricing(dict(order_row), pricing_rows)
+            latest_order_data["batch_cache"] = merged
 
-        # Reaction time = now - effective_updated_at (shows staleness)
-        if row and row.get("effective_updated_at"):
-            updated_at = row["effective_updated_at"]
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            # Reaction time = now - effective_updated_at (shows staleness)
+            effective_updated = merged.get("effective_updated_at")
+            if effective_updated:
+                if isinstance(effective_updated, str):
+                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
+                else:
+                    updated_at = effective_updated
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
+                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            else:
+                reaction_ms = 60000  # Assume max staleness if no data
         else:
-            reaction_ms = 60000  # Assume max staleness if no data
+            reaction_ms = 60000
 
         metrics_store["batch_cache"].record(response_ms, reaction_ms)
     except Exception as e:
         logger.warning(f"Batch query failed: {e}")
 
 
-async def measure_mz_query(order_id: str):
-    """Query Materialize (orders_with_lines_mv) and record metrics.
+async def measure_mz_query(order_id: str, store_id: Optional[str]):
+    """Query Materialize and record metrics.
 
-    This view is INCREMENTALLY MAINTAINED by Materialize via CDC.
-    The query is FAST (reads pre-computed results from an indexed view).
+    This queries:
+    1. orders_with_lines_mv (order + line items)
+    2. inventory_items_with_dynamic_pricing_mv (live pricing)
+
+    Both are INCREMENTALLY MAINTAINED by Materialize via CDC.
+    The query is FAST (reads pre-computed results from indexed views).
     The data is FRESH (typically ~100ms lag via streaming replication).
 
     This is the best of both worlds: fast queries AND fresh data.
@@ -317,7 +444,9 @@ async def measure_mz_query(order_id: str):
     try:
         async with get_mz_session() as session:
             await session.execute(text("SET CLUSTER = serving"))
-            result = await session.execute(
+
+            # Query order with line items
+            order_result = await session.execute(
                 text("""
                     SELECT *
                     FROM orders_with_lines_mv
@@ -325,20 +454,41 @@ async def measure_mz_query(order_id: str):
                 """),
                 {"order_id": order_id},
             )
-            row = result.mappings().fetchone()
+            order_row = order_result.mappings().fetchone()
+
+            # Query live pricing from Materialize
+            pricing_rows = []
+            if store_id:
+                pricing_result = await session.execute(
+                    text("""
+                        SELECT product_id, live_price, base_price, price_change,
+                               stock_level, effective_updated_at
+                        FROM inventory_items_with_dynamic_pricing_mv
+                        WHERE store_id = :store_id
+                    """),
+                    {"store_id": store_id},
+                )
+                pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
 
         response_ms = (time.perf_counter() - start) * 1000
 
-        # Store latest order data
-        if row:
-            latest_order_data["materialize"] = serialize_order_row(dict(row))
+        # Merge order with pricing
+        if order_row:
+            merged = merge_order_with_pricing(dict(order_row), pricing_rows)
+            latest_order_data["materialize"] = merged
 
-        # Reaction time = now - effective_updated_at (includes replication lag)
-        if row and row.get("effective_updated_at"):
-            updated_at = row["effective_updated_at"]
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            # Reaction time = now - effective_updated_at (includes replication lag)
+            effective_updated = merged.get("effective_updated_at")
+            if effective_updated:
+                if isinstance(effective_updated, str):
+                    updated_at = datetime.fromisoformat(effective_updated.replace('Z', '+00:00'))
+                else:
+                    updated_at = effective_updated
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
+                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            else:
+                reaction_ms = response_ms
         else:
             reaction_ms = response_ms
 
@@ -379,6 +529,7 @@ class OrderInfo(BaseModel):
     order_status: Optional[str]
     customer_name: Optional[str]
     store_name: Optional[str]
+    store_id: Optional[str]
 
 
 class OrderPredicate(BaseModel):
@@ -399,7 +550,7 @@ async def list_orders():
             await session.execute(text("SET CLUSTER = serving"))
             result = await session.execute(
                 text("""
-                    SELECT order_id, order_number, order_status, customer_name, store_name
+                    SELECT order_id, order_number, order_status, customer_name, store_name, store_id
                     FROM orders_with_lines_mv
                     ORDER BY effective_updated_at DESC
                     LIMIT 50
@@ -413,6 +564,7 @@ async def list_orders():
                     order_status=row.get("order_status"),
                     customer_name=row.get("customer_name"),
                     store_name=row.get("store_name"),
+                    store_id=row.get("store_id"),
                 )
                 for row in rows
             ]
@@ -451,10 +603,24 @@ async def list_order_predicates():
 @router.post("/start/{order_id}", response_model=StartPollingResponse)
 async def start_polling(order_id: str):
     """Start continuous polling for an order."""
-    global current_order_id, polling_task, batch_refresh_task, heartbeat_task, is_polling
+    global current_order_id, current_store_id, polling_task, batch_refresh_task, heartbeat_task, is_polling
 
     # Stop any existing tasks
     await stop_all_tasks()
+
+    # Get the store_id for this order
+    try:
+        async with get_mz_session() as session:
+            await session.execute(text("SET CLUSTER = serving"))
+            result = await session.execute(
+                text("SELECT store_id FROM orders_with_lines_mv WHERE order_id = :order_id"),
+                {"order_id": order_id}
+            )
+            row = result.mappings().fetchone()
+            current_store_id = row["store_id"] if row else None
+    except Exception as e:
+        logger.warning(f"Failed to get store_id: {e}")
+        current_store_id = None
 
     # Set current order
     current_order_id = order_id
@@ -471,7 +637,7 @@ async def start_polling(order_id: str):
     polling_task = asyncio.create_task(continuous_query_loop())
     batch_refresh_task = asyncio.create_task(batch_refresh_loop())
 
-    logger.info(f"Started polling for order {order_id}")
+    logger.info(f"Started polling for order {order_id} (store: {current_store_id})")
     return StartPollingResponse(status="started", order_id=order_id)
 
 
@@ -487,9 +653,10 @@ async def stop_polling():
 
 async def stop_all_tasks():
     """Stop all background tasks."""
-    global current_order_id, polling_task, batch_refresh_task, heartbeat_task
+    global current_order_id, current_store_id, polling_task, batch_refresh_task, heartbeat_task
 
     current_order_id = None
+    current_store_id = None
 
     for task in [polling_task, batch_refresh_task, heartbeat_task]:
         if task and not task.done():
@@ -536,6 +703,7 @@ async def get_order_data():
 
     Returns the most recent query results from each data source,
     allowing the UI to display three order cards side-by-side.
+    Each order includes line items enriched with live pricing data.
     """
     return {
         "order_id": current_order_id,

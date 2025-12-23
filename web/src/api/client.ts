@@ -324,6 +324,11 @@ export interface OrderLineItem {
   line_amount: number
   line_sequence: number
   perishable_flag: boolean
+  // Live pricing fields (from dynamic pricing view)
+  live_price: number | null
+  base_price: number | null
+  price_change: number | null
+  current_stock: number | null
 }
 
 export interface OrderWithLinesData {
