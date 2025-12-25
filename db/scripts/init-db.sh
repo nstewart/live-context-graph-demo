@@ -19,6 +19,10 @@ for migration in /docker-entrypoint-initdb.d/migrations/*.sql; do
     fi
 done
 
+# Add store_id index on pricing batch MV for efficient store-based queries
+echo "Creating additional indexes for batch materialized views..."
+psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_batch_store_idx ON inventory_items_with_dynamic_pricing_batch (store_id);"
+
 # Check if we should seed demo data
 if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
     echo "Seeding demo data..."

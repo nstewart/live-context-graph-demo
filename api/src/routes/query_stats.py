@@ -335,15 +335,19 @@ batch_cache_data: dict[str, Any] = {
 
 
 async def batch_refresh_loop():
-    """Refresh the batch cache for the selected order every 20 seconds.
+    """Refresh PostgreSQL MATERIALIZED VIEWs every 20 seconds.
 
-    Instead of refreshing entire MATERIALIZED VIEWs (which is very slow with large data),
-    this simulates a batch ETL process that periodically caches specific data.
-    The batch cache stores a snapshot of the selected order's data, demonstrating
-    how batch processes have stale data between refresh cycles.
+    This demonstrates the traditional batch/ETL approach:
+    - REFRESH MATERIALIZED VIEW recomputes the entire view (SLOW)
+    - Queries against the MV are fast (pre-computed, indexed)
+    - Data is stale between refreshes (up to 20 seconds old)
+
+    We refresh two materialized views:
+    1. orders_with_lines_batch - order data with line items
+    2. inventory_items_with_dynamic_pricing_batch - live pricing calculations
     """
-    global current_order_id, current_store_id, batch_cache_data
-    logger.info("Starting batch refresh loop")
+    global batch_cache_data
+    logger.info("Starting batch refresh loop (PostgreSQL MATERIALIZED VIEW)")
     first_run = True
     try:
         while True:
@@ -352,47 +356,35 @@ async def batch_refresh_loop():
                 await asyncio.sleep(BATCH_REFRESH_INTERVAL)
             first_run = False
 
-            if current_order_id:
-                try:
-                    start = time.perf_counter()
-                    async with get_pg_session() as session:
-                        # Query the PostgreSQL VIEW for just this order (same as live query)
-                        order_result = await session.execute(
-                            text("""
-                                SELECT *
-                                FROM orders_with_lines_full
-                                WHERE order_id = :order_id
-                            """),
-                            {"order_id": current_order_id},
-                        )
-                        order_row = order_result.mappings().fetchone()
+            try:
+                start = time.perf_counter()
+                async with get_pg_session() as session:
+                    # Refresh the orders batch materialized view
+                    await session.execute(text("REFRESH MATERIALIZED VIEW orders_with_lines_batch"))
 
-                        # Query dynamic pricing for the store
-                        pricing_rows = []
-                        if current_store_id:
-                            pricing_result = await session.execute(
-                                text("""
-                                    SELECT product_id, live_price, base_price, price_change,
-                                           stock_level, effective_updated_at
-                                    FROM inventory_items_with_dynamic_pricing
-                                    WHERE store_id = :store_id
-                                """),
-                                {"store_id": current_store_id},
-                            )
-                            pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
+                    # Refresh the pricing batch materialized view
+                    await session.execute(text("REFRESH MATERIALIZED VIEW inventory_items_with_dynamic_pricing_batch"))
 
-                    # Store in batch cache with lock protection
-                    async with get_state_lock():
-                        batch_cache_data["order"] = dict(order_row) if order_row else None
-                        batch_cache_data["pricing"] = pricing_rows
-                        batch_cache_data["last_refresh"] = datetime.now(timezone.utc)
+                    # Update the refresh log
+                    await session.execute(
+                        text("""
+                            UPDATE materialized_view_refresh_log
+                            SET last_refresh = NOW()
+                            WHERE view_name IN ('orders_with_lines_batch', 'inventory_items_with_dynamic_pricing_batch')
+                        """)
+                    )
+                    await session.commit()
 
-                    duration_ms = (time.perf_counter() - start) * 1000
-                    logger.info(f"Batch cache refreshed for {current_order_id} in {duration_ms:.1f}ms")
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning(f"Batch refresh failed: {e}", exc_info=True)
+                # Track last refresh time for metrics
+                async with get_state_lock():
+                    batch_cache_data["last_refresh"] = datetime.now(timezone.utc)
+
+                duration_ms = (time.perf_counter() - start) * 1000
+                logger.info(f"Batch MATERIALIZED VIEWs refreshed in {duration_ms:.1f}ms")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Batch refresh failed: {e}", exc_info=True)
     except asyncio.CancelledError:
         logger.info("Batch refresh loop stopped")
         raise
@@ -544,36 +536,56 @@ async def measure_pg_view_query(order_id: str, store_id: Optional[str]):
 
 
 async def measure_batch_query(order_id: str, store_id: Optional[str]):
-    """Read from in-memory batch cache and record metrics.
+    """Query PostgreSQL MATERIALIZED VIEWs and record metrics.
 
-    The batch cache is refreshed every 20 seconds by batch_refresh_loop().
-    This simulates a batch/ETL process where data is periodically cached.
+    This queries the batch materialized views which are refreshed every 20 seconds:
+    1. orders_with_lines_batch - pre-computed order with line items
+    2. inventory_items_with_dynamic_pricing_batch - pre-computed pricing
 
-    The query is INSTANT (just reading from memory).
-    But the data is STALE (up to 20 seconds old between refreshes).
+    The query is FAST (reads from pre-computed, indexed materialized view).
+    But the data is STALE (up to 20 seconds old between REFRESH operations).
     """
-    global batch_cache_data
     start = time.perf_counter()
 
     try:
-        # Read from in-memory batch cache (instant) with lock protection
-        async with get_state_lock():
-            order_row = batch_cache_data.get("order")
-            pricing_rows = batch_cache_data.get("pricing", [])
-            last_refresh = batch_cache_data.get("last_refresh")
+        async with get_pg_session() as session:
+            # Query the batch materialized view for the order
+            order_result = await session.execute(
+                text("""
+                    SELECT *
+                    FROM orders_with_lines_batch
+                    WHERE order_id = :order_id
+                """),
+                {"order_id": order_id},
+            )
+            order_row = order_result.mappings().fetchone()
+
+            # Query the batch materialized view for pricing
+            pricing_rows = []
+            if store_id:
+                pricing_result = await session.execute(
+                    text("""
+                        SELECT product_id, live_price, base_price, price_change,
+                               stock_level, effective_updated_at
+                        FROM inventory_items_with_dynamic_pricing_batch
+                        WHERE store_id = :store_id
+                    """),
+                    {"store_id": store_id},
+                )
+                pricing_rows = [dict(row) for row in pricing_result.mappings().fetchall()]
 
         response_ms = (time.perf_counter() - start) * 1000
 
         # Merge order with pricing
         if order_row:
-            merged = merge_order_with_pricing(order_row.copy(), pricing_rows)
+            merged = merge_order_with_pricing(dict(order_row), pricing_rows)
 
             # Update global state with lock protection
             async with get_state_lock():
                 latest_order_data["batch_cache"] = merged
 
-            # Reaction time = now - effective_updated_at (same as PostgreSQL/Materialize)
-            # Use merged data's effective_updated_at which is MAX(order, pricing) timestamps
+            # Reaction time = now - effective_updated_at
+            # This shows how stale the data is (up to 20 seconds between refreshes)
             effective_updated = merged.get("effective_updated_at")
             if effective_updated:
                 try:
