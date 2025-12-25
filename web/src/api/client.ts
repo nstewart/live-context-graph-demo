@@ -312,9 +312,9 @@ export interface QueryStatsResponse {
 
 export interface QueryStatsHistoryResponse {
   order_id: string | null
-  postgresql_view: { reaction_times: number[]; timestamps: number[] }
-  batch_cache: { reaction_times: number[]; timestamps: number[] }
-  materialize: { reaction_times: number[]; timestamps: number[] }
+  postgresql_view: { reaction_times: number[]; response_times: number[]; timestamps: number[] }
+  batch_cache: { reaction_times: number[]; response_times: number[]; timestamps: number[] }
+  materialize: { reaction_times: number[]; response_times: number[]; timestamps: number[] }
 }
 
 export interface QueryStatsOrder {

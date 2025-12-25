@@ -232,7 +232,11 @@ export default function QueryStatisticsPage() {
   const [metrics, setMetrics] = useState<QueryStatsResponse | null>(null);
   const [orderData, setOrderData] = useState<OrderDataResponse | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [responseTimeChartData, setResponseTimeChartData] = useState<ChartDataPoint[]>([]);
   const [useLogScale, setUseLogScale] = useState(true);
+  const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(true);
+  const [responseTimeGraphOpen, setResponseTimeGraphOpen] = useState(true);
+  const [reactionTimeGraphOpen, setReactionTimeGraphOpen] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
@@ -327,6 +331,7 @@ export default function QueryStatisticsPage() {
 
   const metricsIntervalRef = useRef<number | null>(null);
   const chartDataRef = useRef<ChartDataPoint[]>([]);
+  const responseTimeChartDataRef = useRef<ChartDataPoint[]>([]);
 
   // Load orders and predicates on mount
   useEffect(() => {
@@ -370,43 +375,68 @@ export default function QueryStatisticsPage() {
 
       // Build chart data from history using actual timestamps
       // Each source may have different sample rates, so we combine them all
-      const pgData = history.postgresql_view || { reaction_times: [], timestamps: [] };
-      const batchData = history.batch_cache || { reaction_times: [], timestamps: [] };
-      const mzData = history.materialize || { reaction_times: [], timestamps: [] };
+      const pgData = history.postgresql_view || { reaction_times: [], response_times: [], timestamps: [] };
+      const batchData = history.batch_cache || { reaction_times: [], response_times: [], timestamps: [] };
+      const mzData = history.materialize || { reaction_times: [], response_times: [], timestamps: [] };
 
-      // Create a map of time -> data point, using 1-second buckets for smoothing
-      const dataBySecond = new Map<number, ChartDataPoint>();
+      // Create maps of time -> data point, using 1-second buckets for smoothing
+      const reactionDataBySecond = new Map<number, ChartDataPoint>();
+      const responseDataBySecond = new Map<number, ChartDataPoint>();
 
       // Helper to add data point to the appropriate second bucket
-      const addToChart = (timestamp: number, value: number, source: 'postgresql' | 'batch' | 'materialize') => {
+      const addToChart = (
+        dataMap: Map<number, ChartDataPoint>,
+        timestamp: number,
+        value: number,
+        source: 'postgresql' | 'batch' | 'materialize'
+      ) => {
         if (timestamp < threeMinutesAgo) return; // Skip old data
         const bucket = Math.floor(timestamp / 1000) * 1000; // Round to nearest second
-        if (!dataBySecond.has(bucket)) {
-          dataBySecond.set(bucket, { time: bucket, postgresql: null, batch: null, materialize: null });
+        if (!dataMap.has(bucket)) {
+          dataMap.set(bucket, { time: bucket, postgresql: null, batch: null, materialize: null });
         }
-        const point = dataBySecond.get(bucket)!;
+        const point = dataMap.get(bucket)!;
         // Use latest value for this second (or average if preferred)
         point[source] = value;
       };
 
-      // Add all data points from each source
+      // Add all reaction time data points from each source
       for (let i = 0; i < pgData.reaction_times.length; i++) {
         const ts = pgData.timestamps[i];
-        if (ts) addToChart(ts, pgData.reaction_times[i], 'postgresql');
+        if (ts) addToChart(reactionDataBySecond, ts, pgData.reaction_times[i], 'postgresql');
       }
       for (let i = 0; i < batchData.reaction_times.length; i++) {
         const ts = batchData.timestamps[i];
-        if (ts) addToChart(ts, batchData.reaction_times[i], 'batch');
+        if (ts) addToChart(reactionDataBySecond, ts, batchData.reaction_times[i], 'batch');
       }
       for (let i = 0; i < mzData.reaction_times.length; i++) {
         const ts = mzData.timestamps[i];
-        if (ts) addToChart(ts, mzData.reaction_times[i], 'materialize');
+        if (ts) addToChart(reactionDataBySecond, ts, mzData.reaction_times[i], 'materialize');
       }
 
-      // Convert map to sorted array
-      const newChartData = Array.from(dataBySecond.values()).sort((a, b) => a.time - b.time);
+      // Add all response time data points from each source
+      for (let i = 0; i < pgData.response_times.length; i++) {
+        const ts = pgData.timestamps[i];
+        if (ts) addToChart(responseDataBySecond, ts, pgData.response_times[i], 'postgresql');
+      }
+      for (let i = 0; i < batchData.response_times.length; i++) {
+        const ts = batchData.timestamps[i];
+        if (ts) addToChart(responseDataBySecond, ts, batchData.response_times[i], 'batch');
+      }
+      for (let i = 0; i < mzData.response_times.length; i++) {
+        const ts = mzData.timestamps[i];
+        if (ts) addToChart(responseDataBySecond, ts, mzData.response_times[i], 'materialize');
+      }
+
+      // Convert maps to sorted arrays
+      const newChartData = Array.from(reactionDataBySecond.values()).sort((a, b) => a.time - b.time);
       chartDataRef.current = newChartData;
       setChartData(chartDataRef.current);
+
+      const newResponseTimeChartData = Array.from(responseDataBySecond.values()).sort((a, b) => a.time - b.time);
+      responseTimeChartDataRef.current = newResponseTimeChartData;
+      setResponseTimeChartData(responseTimeChartDataRef.current);
+
       setError(null);
     } catch (err) {
       console.error("Failed to fetch metrics:", err);
@@ -423,6 +453,8 @@ export default function QueryStatisticsPage() {
       setTripleSubject(selectedOrderId);
       chartDataRef.current = [];
       setChartData([]);
+      responseTimeChartDataRef.current = [];
+      setResponseTimeChartData([]);
       setOrderData(null);
 
       // Start fetching metrics every second
@@ -838,101 +870,228 @@ export default function QueryStatisticsPage() {
         </div>
       </div>
 
-      {/* Reaction Time Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Reaction Time Over Time</h3>
-            <p className="text-xs text-gray-500">
-              End-to-end latency: how fresh is the data when the query completes?
-            </p>
+      {/* Response Time Chart (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setResponseTimeGraphOpen(!responseTimeGraphOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {responseTimeGraphOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Response Time Over Time</h3>
+              <p className="text-xs text-gray-500">
+                Query latency: how long does each query take to execute?
+              </p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setUseLogScale(false)}
-              className={`px-3 py-1 text-sm rounded ${
-                !useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-              }`}
-            >
-              Linear
-            </button>
-            <button
-              onClick={() => setUseLogScale(true)}
-              className={`px-3 py-1 text-sm rounded ${
-                useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-              }`}
-            >
-              Logarithmic
-            </button>
+          {responseTimeGraphOpen && (
+            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setUseLogScaleResponseTime(false)}
+                className={`px-3 py-1 text-sm rounded ${
+                  !useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                Linear
+              </button>
+              <button
+                onClick={() => setUseLogScaleResponseTime(true)}
+                className={`px-3 py-1 text-sm rounded ${
+                  useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                Logarithmic
+              </button>
+            </div>
+          )}
+        </button>
+        {responseTimeGraphOpen && (
+          <div className="p-6 pt-0">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={responseTimeChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="time"
+                  tickFormatter={(t) => {
+                    const date = new Date(t);
+                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                  }}
+                  domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                  type="number"
+                  fontSize={12}
+                  tick={{ fill: "#6b7280" }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  scale={useLogScaleResponseTime ? "log" : "linear"}
+                  domain={useLogScaleResponseTime ? [1, "auto"] : [0, "auto"]}
+                  tickFormatter={(v) =>
+                    v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
+                  }
+                  fontSize={12}
+                  tick={{ fill: "#6b7280" }}
+                  allowDataOverflow={useLogScaleResponseTime}
+                />
+                <Tooltip
+                  formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
+                  labelFormatter={(t) => {
+                    const date = new Date(t as number);
+                    return date.toLocaleTimeString();
+                  }}
+                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="postgresql"
+                  name="PostgreSQL View"
+                  stroke="#f97316"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="batch"
+                  name="Batch Cache"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="materialize"
+                  name="Materialize"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-        </div>
+        )}
+      </div>
 
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="time"
-              tickFormatter={(t) => {
-                const date = new Date(t);
-                return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
-              }}
-              domain={[lastUpdateTime - 180000, lastUpdateTime]}
-              type="number"
-              fontSize={12}
-              tick={{ fill: "#6b7280" }}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              scale={useLogScale ? "log" : "linear"}
-              domain={useLogScale ? [1, "auto"] : [0, "auto"]}
-              tickFormatter={(v) =>
-                v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
-              }
-              fontSize={12}
-              tick={{ fill: "#6b7280" }}
-              allowDataOverflow={useLogScale}
-            />
-            <Tooltip
-              formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
-              labelFormatter={(t) => {
-                const date = new Date(t as number);
-                return date.toLocaleTimeString();
-              }}
-              contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
-            />
-            <Legend />
-            <Line
-              type="monotone"
-              dataKey="postgresql"
-              name="PostgreSQL View"
-              stroke="#f97316"
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="batch"
-              name="Batch Cache"
-              stroke="#22c55e"
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="materialize"
-              name="Materialize"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Reaction Time Chart (Collapsible) */}
+      <div className="bg-white rounded-lg shadow">
+        <button
+          onClick={() => setReactionTimeGraphOpen(!reactionTimeGraphOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {reactionTimeGraphOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Reaction Time Over Time</h3>
+              <p className="text-xs text-gray-500">
+                Data freshness: how stale is the data when the query completes?
+              </p>
+            </div>
+          </div>
+          {reactionTimeGraphOpen && (
+            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setUseLogScale(false)}
+                className={`px-3 py-1 text-sm rounded ${
+                  !useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                Linear
+              </button>
+              <button
+                onClick={() => setUseLogScale(true)}
+                className={`px-3 py-1 text-sm rounded ${
+                  useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                Logarithmic
+              </button>
+            </div>
+          )}
+        </button>
+        {reactionTimeGraphOpen && (
+          <div className="p-6 pt-0">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="time"
+                  tickFormatter={(t) => {
+                    const date = new Date(t);
+                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                  }}
+                  domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                  type="number"
+                  fontSize={12}
+                  tick={{ fill: "#6b7280" }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  scale={useLogScale ? "log" : "linear"}
+                  domain={useLogScale ? [1, "auto"] : [0, "auto"]}
+                  tickFormatter={(v) =>
+                    v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
+                  }
+                  fontSize={12}
+                  tick={{ fill: "#6b7280" }}
+                  allowDataOverflow={useLogScale}
+                />
+                <Tooltip
+                  formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
+                  labelFormatter={(t) => {
+                    const date = new Date(t as number);
+                    return date.toLocaleTimeString();
+                  }}
+                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="postgresql"
+                  name="PostgreSQL View"
+                  stroke="#f97316"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="batch"
+                  name="Batch Cache"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="materialize"
+                  name="Materialize"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   );

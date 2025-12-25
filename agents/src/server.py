@@ -91,7 +91,7 @@ async def event_generator(message: str, thread_id: str):
 
 @app.post("/chat/stream")
 @limiter.limit("10/minute")
-async def chat_stream(request: ChatRequest, req: Request):
+async def chat_stream(chat_request: ChatRequest, request: Request):
     """
     SSE streaming endpoint for chat.
 
@@ -100,13 +100,13 @@ async def chat_stream(request: ChatRequest, req: Request):
 
     Rate limit: 10 requests per minute per IP address.
     """
-    if not request.message.strip():
+    if not chat_request.message.strip():
         raise HTTPException(status_code=400, detail="message is required")
 
-    thread_id = request.thread_id or f"chat-{uuid.uuid4().hex[:8]}"
+    thread_id = chat_request.thread_id or f"chat-{uuid.uuid4().hex[:8]}"
 
     return StreamingResponse(
-        event_generator(request.message, thread_id),
+        event_generator(chat_request.message, thread_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -118,7 +118,7 @@ async def chat_stream(request: ChatRequest, req: Request):
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("10/minute")
-async def chat(request: ChatRequest, req: Request):
+async def chat(chat_request: ChatRequest, request: Request):
     """
     Non-streaming chat endpoint (backwards compatible).
 
@@ -126,13 +126,13 @@ async def chat(request: ChatRequest, req: Request):
 
     Rate limit: 10 requests per minute per IP address.
     """
-    if not request.message.strip():
+    if not chat_request.message.strip():
         raise HTTPException(status_code=400, detail="message is required")
 
-    thread_id = request.thread_id or f"api-{uuid.uuid4().hex[:8]}"
+    thread_id = chat_request.thread_id or f"api-{uuid.uuid4().hex[:8]}"
 
     response_text = None
-    async for event_type, data in run_assistant(request.message, thread_id=thread_id, stream_events=False):
+    async for event_type, data in run_assistant(chat_request.message, thread_id=thread_id, stream_events=False):
         if event_type == "response":
             response_text = data
             break

@@ -872,14 +872,17 @@ async def get_metrics_history():
         "order_id": current_order_id,
         "postgresql_view": {
             "reaction_times": list(metrics_store["postgresql_view"].reaction_times),
+            "response_times": list(metrics_store["postgresql_view"].response_times),
             "timestamps": list(metrics_store["postgresql_view"].sample_timestamps),
         },
         "batch_cache": {
             "reaction_times": list(metrics_store["batch_cache"].reaction_times),
+            "response_times": list(metrics_store["batch_cache"].response_times),
             "timestamps": list(metrics_store["batch_cache"].sample_timestamps),
         },
         "materialize": {
             "reaction_times": list(metrics_store["materialize"].reaction_times),
+            "response_times": list(metrics_store["materialize"].response_times),
             "timestamps": list(metrics_store["materialize"].sample_timestamps),
         },
     }
