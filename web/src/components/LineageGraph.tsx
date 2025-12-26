@@ -184,7 +184,6 @@ export function LineageGraph() {
           zoomOnPinch={false}
           zoomOnDoubleClick={false}
           preventScrolling={false}
-          proOptions={{ hideAttribution: true }}
         >
           <Background color="#e5e7eb" gap={16} />
         </ReactFlow>
