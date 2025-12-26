@@ -347,6 +347,7 @@ export default function QueryStatisticsPage() {
   const [triplePredicate, setTriplePredicate] = useState("quantity");
   const [tripleValue, setTripleValue] = useState("");
   const [writeStatus, setWriteStatus] = useState<string | null>(null);
+  const userSetSubjectRef = useRef(false);
 
   // View mode state
   const [viewMode, setViewMode] = useState<ViewMode>('query-offload');
@@ -367,10 +368,15 @@ export default function QueryStatisticsPage() {
       if (tripleSubject.startsWith('inventory_')) return predicatesBySubjectType.inventory;
       if (tripleSubject.startsWith('courier_')) return predicatesBySubjectType.courier;
       if (tripleSubject.startsWith('task_')) return predicatesBySubjectType.task;
-      return predicatesBySubjectType.orderline; // Default
+      // Unknown subject type - warn and default to orderline
+      console.warn(`Unknown subject type for ID: "${tripleSubject}", defaulting to orderline predicates`);
+      return predicatesBySubjectType.orderline;
     }
 
     const prefix = tripleSubject.slice(0, colonIndex).toLowerCase();
+    if (!predicatesBySubjectType[prefix]) {
+      console.warn(`Unknown subject type prefix: "${prefix}", defaulting to orderline predicates`);
+    }
     return predicatesBySubjectType[prefix] || predicatesBySubjectType.orderline;
   }, [tripleSubject]);
 
@@ -383,13 +389,13 @@ export default function QueryStatisticsPage() {
 
   // Default tripleSubject to first orderline when Zero data becomes available
   useEffect(() => {
-    if (zeroOrder?.line_items && zeroOrder.line_items.length > 0 && selectedOrderId) {
+    if (zeroOrder?.line_items && zeroOrder.line_items.length > 0 && selectedOrderId && !userSetSubjectRef.current) {
       // Only update if tripleSubject is still set to the order ID (not already an orderline)
       if (tripleSubject === selectedOrderId || !tripleSubject.startsWith('orderline_')) {
         setTripleSubject(zeroOrder.line_items[0].line_id);
       }
     }
-  }, [zeroOrder, selectedOrderId, tripleSubject]);
+  }, [zeroOrder, selectedOrderId]);
 
   const metricsIntervalRef = useRef<number | null>(null);
   const chartDataRef = useRef<ChartDataPoint[]>([]);
@@ -633,6 +639,7 @@ export default function QueryStatisticsPage() {
               onChange={(e) => {
                 setSelectedOrderId(e.target.value);
                 setTripleSubject(e.target.value);
+                userSetSubjectRef.current = false; // Reset flag when changing orders
               }}
               disabled={isPolling}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
@@ -683,7 +690,10 @@ export default function QueryStatisticsPage() {
             <input
               type="text"
               value={tripleSubject}
-              onChange={(e) => setTripleSubject(e.target.value)}
+              onChange={(e) => {
+                userSetSubjectRef.current = true;
+                setTripleSubject(e.target.value);
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
               placeholder="order:FM-1001"
             />
