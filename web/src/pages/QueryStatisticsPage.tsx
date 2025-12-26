@@ -39,6 +39,7 @@ import {
   OrderPredicate,
   OrderLineItem,
 } from "../api/client";
+import { LineageGraph } from "../components/LineageGraph";
 
 interface ChartDataPoint {
   time: number;
@@ -237,6 +238,7 @@ export default function QueryStatisticsPage() {
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(true);
   const [responseTimeGraphOpen, setResponseTimeGraphOpen] = useState(true);
   const [reactionTimeGraphOpen, setReactionTimeGraphOpen] = useState(true);
+  const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
@@ -656,6 +658,33 @@ export default function QueryStatisticsPage() {
             </span>
           )}
         </div>
+      </div>
+
+      {/* Live Data Products Lineage Graph (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setLineageGraphOpen(!lineageGraphOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {lineageGraphOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
+              <p className="text-xs text-gray-500">
+                View lineage from source to materialized views powering the Orders page
+              </p>
+            </div>
+          </div>
+        </button>
+        {lineageGraphOpen && (
+          <div className="p-6 pt-0">
+            <LineageGraph />
+          </div>
+        )}
       </div>
 
       {/* Three Order Cards */}
