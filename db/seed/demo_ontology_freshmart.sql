@@ -293,6 +293,11 @@ FROM ontology_classes WHERE class_name = 'Courier'
 ON CONFLICT (prop_name) DO NOTHING;
 
 INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
+SELECT 'courier_status_changed_at', id, 'timestamp', NULL, FALSE, FALSE, 'Timestamp when courier status last changed'
+FROM ontology_classes WHERE class_name = 'Courier'
+ON CONFLICT (prop_name) DO NOTHING;
+
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
 SELECT 'current_task', c.id, 'entity_ref', dt.id, FALSE, FALSE, 'Current delivery task the courier is working on'
 FROM ontology_classes c, ontology_classes dt
 WHERE c.class_name = 'Courier' AND dt.class_name = 'DeliveryTask'
@@ -318,6 +323,11 @@ ON CONFLICT (prop_name) DO NOTHING;
 
 INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
 SELECT 'task_started_at', id, 'timestamp', NULL, FALSE, FALSE, 'When the current task phase started (for timing task completion)'
+FROM ontology_classes WHERE class_name = 'DeliveryTask'
+ON CONFLICT (prop_name) DO NOTHING;
+
+INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
+SELECT 'task_completed_at', id, 'timestamp', NULL, FALSE, FALSE, 'Timestamp when the delivery task was completed'
 FROM ontology_classes WHERE class_name = 'DeliveryTask'
 ON CONFLICT (prop_name) DO NOTHING;
 

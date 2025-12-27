@@ -96,6 +96,7 @@ SELECT
     MAX(CASE WHEN predicate = 'assigned_to' THEN object_value END) AS assigned_courier_id,
     MAX(CASE WHEN predicate = 'task_status' THEN object_value END) AS task_status,
     MAX(CASE WHEN predicate = 'task_started_at' THEN object_value END)::TIMESTAMPTZ AS task_started_at,
+    MAX(CASE WHEN predicate = 'task_completed_at' THEN object_value END)::TIMESTAMPTZ AS task_completed_at,
     MAX(CASE WHEN predicate = 'eta' THEN object_value END) AS eta,
     MAX(updated_at) AS effective_updated_at
 FROM triples
@@ -317,13 +318,16 @@ SELECT
     ct.route_sequence,
     ot.order_created_at,
     ot.delivered_at,
+    dt.task_started_at,
+    dt.task_completed_at,
     CASE
         WHEN ot.delivered_at IS NOT NULL AND ot.order_created_at IS NOT NULL
         THEN EXTRACT(EPOCH FROM (ot.delivered_at::TIMESTAMPTZ - ot.order_created_at::TIMESTAMPTZ)) / 60
         ELSE NULL
     END AS wait_time_minutes
 FROM courier_tasks_flat ct
-LEFT JOIN order_timestamps ot ON ot.order_id = ct.order_id;"
+LEFT JOIN order_timestamps ot ON ot.order_id = ct.order_id
+LEFT JOIN delivery_tasks_flat dt ON dt.task_id = ct.task_id;"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS couriers_flat AS
 SELECT
@@ -332,6 +336,7 @@ SELECT
     MAX(CASE WHEN predicate = 'courier_home_store' THEN object_value END) AS home_store_id,
     MAX(CASE WHEN predicate = 'vehicle_type' THEN object_value END) AS vehicle_type,
     MAX(CASE WHEN predicate = 'courier_status' THEN object_value END) AS courier_status,
+    MAX(CASE WHEN predicate = 'courier_status_changed_at' THEN object_value END) AS status_changed_at,
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'courier:%'
@@ -344,6 +349,7 @@ SELECT
     cf.home_store_id,
     cf.vehicle_type,
     cf.courier_status,
+    cf.status_changed_at,
     COALESCE(
         jsonb_agg(
             jsonb_build_object(
@@ -352,7 +358,9 @@ SELECT
                 'order_id', ct.order_id,
                 'eta', ct.eta,
                 'wait_time_minutes', ct.wait_time_minutes,
-                'order_created_at', ct.order_created_at
+                'order_created_at', ct.order_created_at,
+                'task_started_at', ct.task_started_at,
+                'task_completed_at', ct.task_completed_at
             )
         ) FILTER (WHERE ct.task_id IS NOT NULL),
         '[]'::jsonb
@@ -360,7 +368,7 @@ SELECT
     cf.effective_updated_at
 FROM couriers_flat cf
 LEFT JOIN courier_tasks_with_timestamps ct ON ct.courier_id = cf.courier_id
-GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.effective_updated_at;"
+GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.status_changed_at, cf.effective_updated_at;"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS stores_mv IN CLUSTER compute AS
 SELECT

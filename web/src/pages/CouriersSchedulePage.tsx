@@ -19,6 +19,8 @@ type StoreMetrics = {
   orders_delivering: number
   utilization_pct: number
   health_status: 'HEALTHY' | 'WARNING' | 'CRITICAL'
+  avg_wait_minutes: number | null
+  orders_at_risk: number
 }
 
 const healthStatusColors = {
@@ -68,6 +70,8 @@ export default function CouriersSchedulePage() {
   const storeMetrics: StoreMetrics[] = useMemo(() => {
     if (storesData.length === 0) return []
 
+    const now = Date.now()
+
     return storesData.map((store) => {
       // Count couriers by status for this store
       const storeCouriers = couriersData.filter(c => c.home_store_id === store.store_id)
@@ -93,6 +97,33 @@ export default function CouriersSchedulePage() {
         health = 'WARNING'
       }
 
+      // Calculate avg wait time from tasks with order_created_at and task_started_at
+      const waitTimes: number[] = []
+      storeCouriers.forEach(courier => {
+        const tasks = (courier.tasks as any[]) || []
+        tasks.forEach(task => {
+          if (task.order_created_at && task.task_started_at) {
+            const created = new Date(task.order_created_at).getTime()
+            const started = new Date(task.task_started_at).getTime()
+            if (started > created) {
+              waitTimes.push((started - created) / 60000) // minutes
+            }
+          }
+        })
+      })
+      const avgWait = waitTimes.length > 0
+        ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length
+        : null
+
+      // Calculate orders at risk (within 30 min of delivery window end)
+      const atRisk = storeOrders.filter(o => {
+        if (o.order_status === 'DELIVERED' || o.order_status === 'CANCELLED') return false
+        if (!o.delivery_window_end) return false
+        const windowEnd = new Date(o.delivery_window_end).getTime()
+        const timeRemaining = windowEnd - now
+        return timeRemaining > 0 && timeRemaining <= 30 * 60 * 1000 // within 30 minutes
+      }).length
+
       return {
         store_id: store.store_id,
         store_name: store.store_name || store.store_id,
@@ -106,20 +137,48 @@ export default function CouriersSchedulePage() {
         orders_delivering: delivering,
         utilization_pct: utilization,
         health_status: health,
+        avg_wait_minutes: avgWait,
+        orders_at_risk: atRisk,
       }
     }).sort((a, b) => a.store_name.localeCompare(b.store_name))
   }, [storesData, couriersData, ordersData])
 
-  // Map couriers data (already sorted by Zero)
+  // Map couriers data (already sorted by Zero) with computed metrics
   const couriers = useMemo(() => {
-    return couriersData.map((courier) => ({
-      courier_id: courier.courier_id,
-      courier_name: courier.courier_name,
-      home_store_id: courier.home_store_id,
-      vehicle_type: courier.vehicle_type,
-      courier_status: courier.courier_status,
-      tasks: (courier.tasks as any[]) || [], // Tasks come as JSON array from courier_schedule_mv
-    }))
+    const now = Date.now()
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const todayStartMs = todayStart.getTime()
+
+    return couriersData.map((courier) => {
+      const tasks = (courier.tasks as any[]) || []
+
+      // Count deliveries completed today
+      const deliveriesToday = tasks.filter(task => {
+        if (task.task_status !== 'COMPLETED' || !task.task_completed_at) return false
+        const completedAt = new Date(task.task_completed_at).getTime()
+        return completedAt >= todayStartMs
+      }).length
+
+      // Calculate time in current status
+      let timeInStatusMinutes: number | null = null
+      if (courier.status_changed_at) {
+        const changedAt = new Date(courier.status_changed_at).getTime()
+        timeInStatusMinutes = (now - changedAt) / 60000
+      }
+
+      return {
+        courier_id: courier.courier_id,
+        courier_name: courier.courier_name,
+        home_store_id: courier.home_store_id,
+        vehicle_type: courier.vehicle_type,
+        courier_status: courier.courier_status,
+        status_changed_at: courier.status_changed_at,
+        tasks,
+        deliveries_today: deliveriesToday,
+        time_in_status_minutes: timeInStatusMinutes,
+      }
+    })
   }, [couriersData])
 
   const isLoading = couriersData.length === 0
@@ -311,6 +370,12 @@ export default function CouriersSchedulePage() {
                         Delivering
                       </span>
                     </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Avg Wait
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      At Risk
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -369,6 +434,18 @@ export default function CouriersSchedulePage() {
                         <td className="px-4 py-3 whitespace-nowrap text-right">
                           <span className={`text-sm font-medium ${metrics.orders_delivering > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
                             {metrics.orders_delivering}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${
+                            metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
+                          }`}>
+                            {metrics.orders_at_risk}
                           </span>
                         </td>
                       </tr>
@@ -444,6 +521,12 @@ export default function CouriersSchedulePage() {
                       Assigned Tasks
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Today
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      In Status
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -512,6 +595,20 @@ export default function CouriersSchedulePage() {
                               )}
                             </div>
                           )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${courier.deliveries_today > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                            {courier.deliveries_today}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className="text-sm text-gray-600">
+                            {courier.time_in_status_minutes !== null
+                              ? courier.time_in_status_minutes < 60
+                                ? `${Math.round(courier.time_in_status_minutes)}m`
+                                : `${Math.floor(courier.time_in_status_minutes / 60)}h ${Math.round(courier.time_in_status_minutes % 60)}m`
+                              : '-'}
+                          </span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex items-center justify-end gap-2">
