@@ -743,6 +743,34 @@ export default function QueryStatisticsPage() {
         </div>
       </div>
 
+
+      {/* Live Data Products Lineage Graph (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setLineageGraphOpen(!lineageGraphOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {lineageGraphOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
+              <p className="text-xs text-gray-500">
+                View lineage from source to materialized views powering the Orders page
+              </p>
+            </div>
+          </div>
+        </button>
+        {lineageGraphOpen && (
+          <div className="p-6 pt-0">
+            <LineageGraph />
+          </div>
+        )}
+      </div>
+
       {/* Write Triple Form (directly under selector) */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
@@ -805,33 +833,6 @@ export default function QueryStatisticsPage() {
             </span>
           )}
         </div>
-      </div>
-
-      {/* Live Data Products Lineage Graph (Collapsible) */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <button
-          onClick={() => setLineageGraphOpen(!lineageGraphOpen)}
-          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            {lineageGraphOpen ? (
-              <ChevronDown className="h-5 w-5 text-gray-500" />
-            ) : (
-              <ChevronRight className="h-5 w-5 text-gray-500" />
-            )}
-            <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
-              <p className="text-xs text-gray-500">
-                View lineage from source to materialized views powering the Orders page
-              </p>
-            </div>
-          </div>
-        </button>
-        {lineageGraphOpen && (
-          <div className="p-6 pt-0">
-            <LineageGraph />
-          </div>
-        )}
       </div>
 
       {/* Order Cards - conditional rendering based on view mode */}
@@ -1067,17 +1068,15 @@ export default function QueryStatisticsPage() {
             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => setUseLogScaleResponseTime(false)}
-                className={`px-3 py-1 text-sm rounded ${
-                  !useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                }`}
+                className={`px-3 py-1 text-sm rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                  }`}
               >
                 Linear
               </button>
               <button
                 onClick={() => setUseLogScaleResponseTime(true)}
-                className={`px-3 py-1 text-sm rounded ${
-                  useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                }`}
+                className={`px-3 py-1 text-sm rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                  }`}
               >
                 Logarithmic
               </button>
@@ -1186,17 +1185,15 @@ export default function QueryStatisticsPage() {
             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => setUseLogScale(false)}
-                className={`px-3 py-1 text-sm rounded ${
-                  !useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                }`}
+                className={`px-3 py-1 text-sm rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                  }`}
               >
                 Linear
               </button>
               <button
                 onClick={() => setUseLogScale(true)}
-                className={`px-3 py-1 text-sm rounded ${
-                  useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                }`}
+                className={`px-3 py-1 text-sm rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
+                  }`}
               >
                 Logarithmic
               </button>
