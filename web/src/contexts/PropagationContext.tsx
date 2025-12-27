@@ -64,6 +64,7 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
   const [propagationLimitHit, setPropagationLimitHit] = useState(false);
   const lastWriteTs = useRef<number | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const clearedAtTs = useRef<number | null>(null); // Filter out events before this timestamp
 
   // Generate unique ID for write records
   const generateId = () => `write-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -105,6 +106,8 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
     setEvents([]);
     setSourceWrites([]);
     lastWriteTs.current = null;
+    // Set cleared timestamp so polling ignores events before this time
+    clearedAtTs.current = Date.now() / 1000;
   }, []);
 
   // Calculate total index updates from events
@@ -135,12 +138,17 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
         );
         lastWriteTs.current = maxTs;
 
+        // Filter out events older than cleared timestamp
+        const filteredWrites = clearedAtTs.current
+          ? newWrites.filter((e) => e.timestamp > clearedAtTs.current!)
+          : newWrites;
+
         // Add new events (avoid duplicates by timestamp + subject + predicate)
         setSourceWrites((prev) => {
           const existingKeys = new Set(
             prev.map((e) => `${e.timestamp}-${e.subject_id}-${e.predicate}`)
           );
-          const uniqueNewWrites = newWrites.filter(
+          const uniqueNewWrites = filteredWrites.filter(
             (e) => !existingKeys.has(`${e.timestamp}-${e.subject_id}-${e.predicate}`)
           );
           // Keep last 100 source writes
@@ -172,12 +180,17 @@ export function PropagationProvider({ children }: { children: React.ReactNode })
       setPropagationLimitHit(newEvents.length >= 100);
 
       if (newEvents.length > 0) {
+        // Filter out events older than cleared timestamp
+        const filteredEvents = clearedAtTs.current
+          ? newEvents.filter((e) => e.timestamp > clearedAtTs.current!)
+          : newEvents;
+
         // Add new events (avoid duplicates by mz_ts + index + doc_id)
         setEvents((prev) => {
           const existingKeys = new Set(
             prev.map((e) => `${e.mz_ts}-${e.index_name}-${e.doc_id}`)
           );
-          const uniqueNewEvents = newEvents.filter(
+          const uniqueNewEvents = filteredEvents.filter(
             (e) => !existingKeys.has(`${e.mz_ts}-${e.index_name}-${e.doc_id}`)
           );
           // Merge and sort by mz_ts descending, keep last 1000
