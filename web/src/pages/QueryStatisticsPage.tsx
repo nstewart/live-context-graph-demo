@@ -1093,7 +1093,7 @@ export default function QueryStatisticsPage() {
                   dataKey="time"
                   tickFormatter={(t) => {
                     const date = new Date(t);
-                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                   }}
                   domain={[lastUpdateTime - 180000, lastUpdateTime]}
                   type="number"
@@ -1115,7 +1115,7 @@ export default function QueryStatisticsPage() {
                   formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
                   labelFormatter={(t) => {
                     const date = new Date(t as number);
-                    return date.toLocaleTimeString();
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
                   }}
                   contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
                 />
@@ -1212,7 +1212,7 @@ export default function QueryStatisticsPage() {
                   dataKey="time"
                   tickFormatter={(t) => {
                     const date = new Date(t);
-                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                   }}
                   domain={[lastUpdateTime - 180000, lastUpdateTime]}
                   type="number"
@@ -1234,7 +1234,7 @@ export default function QueryStatisticsPage() {
                   formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
                   labelFormatter={(t) => {
                     const date = new Date(t as number);
-                    return date.toLocaleTimeString();
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
                   }}
                   contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
                 />
