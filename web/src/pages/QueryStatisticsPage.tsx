@@ -874,9 +874,6 @@ export default function QueryStatisticsPage() {
                     QPS
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
-                  Samples
-                </th>
               </tr>
               <tr className="bg-gray-50">
                 <th></th>
@@ -890,7 +887,6 @@ export default function QueryStatisticsPage() {
                 </th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
-                <th className="border-l"></th>
                 <th className="border-l"></th>
               </tr>
             </thead>
@@ -927,9 +923,6 @@ export default function QueryStatisticsPage() {
                 <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
                   {metrics?.postgresql_view?.qps?.toFixed(1) || 0}
                 </td>
-                <td className="px-2 py-3 text-center border-l text-gray-500">
-                  {metrics?.postgresql_view?.sample_count || 0}
-                </td>
               </tr>
 
               {/* Batch Cache Row - shown in batch and materialize modes */}
@@ -964,9 +957,6 @@ export default function QueryStatisticsPage() {
                   </td>
                   <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
                     {metrics?.batch_cache?.qps?.toFixed(1) || 0}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l text-gray-500">
-                    {metrics?.batch_cache?.sample_count || 0}
                   </td>
                 </tr>
               )}
@@ -1006,9 +996,6 @@ export default function QueryStatisticsPage() {
                   </td>
                   <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
                     {metrics?.materialize?.qps?.toFixed(1) || 0}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l text-gray-500">
-                    {metrics?.materialize?.sample_count || 0}
                   </td>
                 </tr>
               )}
