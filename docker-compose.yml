@@ -24,6 +24,27 @@ services:
       timeout: 5s
       retries: 5
 
+  # Database Seeder Service
+  # Runs seed SQL files and generates demo data
+  db-seed:
+    build:
+      context: ./db/scripts
+      dockerfile: Dockerfile
+    environment:
+      - PG_HOST=db
+      - PG_PORT=5432
+      - PG_USER=${PG_USER:-postgres}
+      - PG_PASSWORD=${PG_PASSWORD:-postgres}
+      - PG_DATABASE=${PG_DATABASE:-freshmart}
+    volumes:
+      - ./db/seed:/seed:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    profiles:
+      - seed
+
   # Materialize Emulator (Real Materialize with admin console)
   mz:
     image: materialize/materialized:v26.0.0

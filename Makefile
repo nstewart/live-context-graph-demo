@@ -135,7 +135,8 @@ migrate:
 	./db/scripts/run_migrations.sh
 
 seed:
-	./db/scripts/seed_demo.sh
+	@echo "Running database seeder..."
+	docker-compose --profile seed run --rm db-seed
 
 reset-db:
 	@echo "WARNING: This will destroy all data!"
