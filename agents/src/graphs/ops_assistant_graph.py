@@ -359,6 +359,22 @@ async def cleanup_graph_resources():
         _checkpointer_context = None
 
 
+async def _reset_cached_graph():
+    """Reset the cached graph and checkpointer to force reconnection."""
+    global _cached_checkpointer, _cached_graph, _checkpointer_context
+
+    async with _init_lock:
+        if _checkpointer_context and _cached_checkpointer:
+            try:
+                await _checkpointer_context.__aexit__(None, None, None)
+            except Exception:
+                pass  # Best effort cleanup
+
+        _cached_graph = None
+        _cached_checkpointer = None
+        _checkpointer_context = None
+
+
 async def run_assistant(user_message: str, thread_id: str = "default", stream_events: bool = False):
     """
     Run the ops assistant with a user message.
@@ -377,7 +393,15 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
             - "response": str - Final response text (always emitted last)
     """
     # Use cached graph (avoids recreating workflow and reconnecting to postgres each call)
-    graph = await _get_graph_and_checkpointer()
+    # If connection is closed, reset and retry once
+    try:
+        graph = await _get_graph_and_checkpointer()
+    except Exception as e:
+        if "connection is closed" in str(e).lower():
+            await _reset_cached_graph()
+            graph = await _get_graph_and_checkpointer()
+        else:
+            raise
 
     # Config with thread_id for conversation memory
     config = {"configurable": {"thread_id": thread_id}}
@@ -425,14 +449,18 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
             else:
                 yield ("response", "I couldn't complete that request.")
         except Exception as e:
-            # If an error occurs during streaming, yield error event and helpful response
             error_msg = str(e)
-            yield ("error", {"message": error_msg})
-
+            # If connection closed, reset cache and inform user to retry
+            if "connection is closed" in error_msg.lower():
+                await _reset_cached_graph()
+                yield ("error", {"message": "Database connection was reset. Please try again."})
+                yield ("response", "The database connection was reset. Please try your request again.")
             # Provide helpful message for common configuration errors
-            if "API key" in error_msg or "api_key" in error_msg.lower():
+            elif "API key" in error_msg or "api_key" in error_msg.lower():
+                yield ("error", {"message": error_msg})
                 yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
             else:
+                yield ("error", {"message": error_msg})
                 yield ("response", f"An error occurred: {error_msg}")
     else:
         # Non-streaming: just get result and yield final response
@@ -451,12 +479,16 @@ async def run_assistant(user_message: str, thread_id: str = "default", stream_ev
             else:
                 yield ("response", "I couldn't complete that request.")
         except Exception as e:
-            # If an error occurs, yield error event and helpful response
             error_msg = str(e)
-            yield ("error", {"message": error_msg})
-
+            # If connection closed, reset cache and inform user to retry
+            if "connection is closed" in error_msg.lower():
+                await _reset_cached_graph()
+                yield ("error", {"message": "Database connection was reset. Please try again."})
+                yield ("response", "The database connection was reset. Please try your request again.")
             # Provide helpful message for common configuration errors
-            if "API key" in error_msg or "api_key" in error_msg.lower():
+            elif "API key" in error_msg or "api_key" in error_msg.lower():
+                yield ("error", {"message": error_msg})
                 yield ("response", f"Configuration error: {error_msg}\n\nAdd ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the agents container.")
             else:
+                yield ("error", {"message": error_msg})
                 yield ("response", f"An error occurred: {error_msg}")
