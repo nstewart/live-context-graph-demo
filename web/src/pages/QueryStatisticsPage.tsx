@@ -233,35 +233,37 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                   )}
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                  <div className="mt-2 space-y-1 max-h-[250px] overflow-y-auto">
+                    {/* Header row */}
+                    <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_50px_50px_50px] gap-1">
+                      <span>Product</span>
+                      <span className="text-right" title="Price when order was placed">Order</span>
+                      <span className="text-right" title="Product catalog price">Base</span>
+                      <span className="text-right" title="Current dynamic price">Live</span>
+                    </div>
                     {order.line_items.map((item: OrderLineItem) => (
                       <div
                         key={item.line_id}
-                        className="text-xs py-1 px-2 bg-gray-50 rounded"
+                        className="text-xs py-1.5 px-2 bg-gray-50 rounded"
                       >
-                        <div className="flex justify-between">
-                          <span className="truncate max-w-[100px]">
-                            {item.product_name || item.product_id}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-600">
-                              {item.quantity} x
+                        <div className="grid grid-cols-[1fr_50px_50px_50px] gap-1 items-center">
+                          <div className="min-w-0">
+                            <span className="truncate block font-medium">
+                              {item.product_name || item.product_id}
                             </span>
-                            {item.live_price != null ? (
-                              <div className="flex flex-col items-end">
-                                <span className="font-medium text-blue-600">
-                                  ${item.live_price.toFixed(2)}
-                                </span>
-                                {item.price_change != null && item.price_change !== 0 && (
-                                  <span className={`text-[10px] ${item.price_change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {item.price_change > 0 ? '+' : ''}${item.price_change.toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-gray-500">${item.unit_price?.toFixed(2)}</span>
-                            )}
+                            <span className="text-gray-500">
+                              Qty: {item.quantity}
+                            </span>
                           </div>
+                          <span className="text-right font-mono">
+                            ${item.unit_price?.toFixed(2) ?? '-'}
+                          </span>
+                          <span className="text-right font-mono text-gray-400">
+                            ${item.base_price?.toFixed(2) ?? '-'}
+                          </span>
+                          <span className="text-right font-mono text-blue-600">
+                            ${item.live_price?.toFixed(2) ?? '-'}
+                          </span>
                         </div>
                         <div className="text-[10px] text-gray-400 font-mono mt-0.5">
                           {item.line_id}
