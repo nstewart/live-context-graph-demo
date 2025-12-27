@@ -230,6 +230,9 @@ class OrderLineService:
         # Create all triples in batch (validates and inserts in single transaction)
         await self.triple_service.create_triples_batch(all_triples)
 
+        # Flush to ensure triples are visible to subsequent queries within the same transaction
+        await self.session.flush()
+
         # Return created line items
         return await self.list_order_lines(order_id)
 
