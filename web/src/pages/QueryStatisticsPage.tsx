@@ -52,13 +52,51 @@ type ViewMode = 'query-offload' | 'batch' | 'materialize';
 // Predicates available for each subject type
 const predicatesBySubjectType: Record<string, string[]> = {
   order: ['order_status', 'order_number', 'delivery_window_start', 'delivery_window_end'],
-  orderline: ['quantity', 'order_line_unit_price', 'line_sequence', 'perishable_flag'],
+  orderline: ['quantity', 'order_line_unit_price', 'line_sequence'],  // perishable_flag is derived from product
   customer: ['customer_name', 'customer_email', 'customer_address'],
   store: ['store_name', 'store_zone', 'store_address'],
   product: ['product_name', 'category', 'unit_price', 'perishable', 'unit_weight_grams'],
   inventory: ['stock_level', 'replenishment_eta'],
   courier: ['courier_name', 'courier_phone', 'courier_status'],
   task: ['task_status', 'assigned_to', 'eta'],
+};
+
+// Example placeholder values for each predicate
+const placeholdersByPredicate: Record<string, string> = {
+  // Order predicates
+  order_status: 'DELIVERED',
+  order_number: 'FM-1234',
+  delivery_window_start: '2025-01-15T10:00:00',
+  delivery_window_end: '2025-01-15T12:00:00',
+  // Order line predicates (perishable_flag is derived from product, not stored)
+  quantity: '5',
+  order_line_unit_price: '12.99',
+  line_sequence: '1',
+  // Customer predicates
+  customer_name: 'John Doe',
+  customer_email: 'john@example.com',
+  customer_address: '123 Main St',
+  // Store predicates
+  store_name: 'Downtown Market',
+  store_zone: 'MAN',
+  store_address: '456 Broadway',
+  // Product predicates
+  product_name: 'Organic Apples',
+  category: 'Produce',
+  unit_price: '4.99',
+  perishable: 'true',
+  unit_weight_grams: '500',
+  // Inventory predicates
+  stock_level: '100',
+  replenishment_eta: '2025-01-16T08:00:00',
+  // Courier predicates
+  courier_name: 'Alex Smith',
+  courier_phone: '555-0123',
+  courier_status: 'AVAILABLE',
+  // Task predicates
+  task_status: 'ASSIGNED',
+  assigned_to: 'courier:C-001',
+  eta: '2025-01-15T11:30:00',
 };
 
 // Status badge component
@@ -144,12 +182,15 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
           <>
             {/* Order Info */}
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-start">
                 <span className="text-gray-600 flex items-center gap-1">
                   <ShoppingCart className="h-3 w-3" />
                   Order
                 </span>
-                <span className="font-mono font-medium">{order.order_number || order.order_id}</span>
+                <div className="text-right">
+                  <div className="font-mono font-medium">{order.order_number || order.order_id}</div>
+                  <div className="text-[10px] text-gray-400 font-mono">{order.order_id}</div>
+                </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Status</span>
@@ -192,35 +233,37 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                   )}
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                  <div className="mt-2 space-y-1 max-h-[250px] overflow-y-auto">
+                    {/* Header row */}
+                    <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_50px_50px_50px] gap-1">
+                      <span>Product</span>
+                      <span className="text-right" title="Price when order was placed">Order</span>
+                      <span className="text-right" title="Product catalog price">Base</span>
+                      <span className="text-right" title="Current dynamic price">Live</span>
+                    </div>
                     {order.line_items.map((item: OrderLineItem) => (
                       <div
                         key={item.line_id}
-                        className="text-xs py-1 px-2 bg-gray-50 rounded"
+                        className="text-xs py-1.5 px-2 bg-gray-50 rounded"
                       >
-                        <div className="flex justify-between">
-                          <span className="truncate max-w-[100px]">
-                            {item.product_name || item.product_id}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-600">
-                              {item.quantity} x
+                        <div className="grid grid-cols-[1fr_50px_50px_50px] gap-1 items-center">
+                          <div className="min-w-0">
+                            <span className="truncate block font-medium">
+                              {item.product_name || item.product_id}
                             </span>
-                            {item.live_price != null ? (
-                              <div className="flex flex-col items-end">
-                                <span className="font-medium text-blue-600">
-                                  ${item.live_price.toFixed(2)}
-                                </span>
-                                {item.price_change != null && item.price_change !== 0 && (
-                                  <span className={`text-[10px] ${item.price_change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {item.price_change > 0 ? '+' : ''}${item.price_change.toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-gray-500">${item.unit_price?.toFixed(2)}</span>
-                            )}
+                            <span className="text-gray-500">
+                              Qty: {item.quantity}
+                            </span>
                           </div>
+                          <span className="text-right font-mono">
+                            ${item.unit_price?.toFixed(2) ?? '-'}
+                          </span>
+                          <span className="text-right font-mono text-gray-400">
+                            ${item.base_price?.toFixed(2) ?? '-'}
+                          </span>
+                          <span className="text-right font-mono text-blue-600">
+                            ${item.live_price?.toFixed(2) ?? '-'}
+                          </span>
                         </div>
                         <div className="text-[10px] text-gray-400 font-mono mt-0.5">
                           {item.line_id}
@@ -745,7 +788,7 @@ export default function QueryStatisticsPage() {
               value={tripleValue}
               onChange={(e) => setTripleValue(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-              placeholder="DELIVERED"
+              placeholder={placeholdersByPredicate[triplePredicate] || 'value'}
             />
           </div>
           <button
@@ -792,10 +835,7 @@ export default function QueryStatisticsPage() {
       </div>
 
       {/* Order Cards - conditional rendering based on view mode */}
-      <div className={`grid gap-4 mb-6 ${
-        viewMode === 'query-offload' ? 'grid-cols-1' :
-        viewMode === 'batch' ? 'grid-cols-2' : 'grid-cols-3'
-      }`}>
+      <div className="grid grid-cols-3 gap-4 mb-6">
         {/* PostgreSQL VIEW - shown in all modes */}
         <OrderCard
           title="PostgreSQL VIEW"
@@ -874,9 +914,6 @@ export default function QueryStatisticsPage() {
                     QPS
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
-                  Samples
-                </th>
               </tr>
               <tr className="bg-gray-50">
                 <th></th>
@@ -890,7 +927,6 @@ export default function QueryStatisticsPage() {
                 </th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
                 <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
-                <th className="border-l"></th>
                 <th className="border-l"></th>
               </tr>
             </thead>
@@ -927,9 +963,6 @@ export default function QueryStatisticsPage() {
                 <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
                   {metrics?.postgresql_view?.qps?.toFixed(1) || 0}
                 </td>
-                <td className="px-2 py-3 text-center border-l text-gray-500">
-                  {metrics?.postgresql_view?.sample_count || 0}
-                </td>
               </tr>
 
               {/* Batch Cache Row - shown in batch and materialize modes */}
@@ -964,9 +997,6 @@ export default function QueryStatisticsPage() {
                   </td>
                   <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
                     {metrics?.batch_cache?.qps?.toFixed(1) || 0}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l text-gray-500">
-                    {metrics?.batch_cache?.sample_count || 0}
                   </td>
                 </tr>
               )}
@@ -1006,9 +1036,6 @@ export default function QueryStatisticsPage() {
                   </td>
                   <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
                     {metrics?.materialize?.qps?.toFixed(1) || 0}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l text-gray-500">
-                    {metrics?.materialize?.sample_count || 0}
                   </td>
                 </tr>
               )}
@@ -1066,7 +1093,7 @@ export default function QueryStatisticsPage() {
                   dataKey="time"
                   tickFormatter={(t) => {
                     const date = new Date(t);
-                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                   }}
                   domain={[lastUpdateTime - 180000, lastUpdateTime]}
                   type="number"
@@ -1088,7 +1115,7 @@ export default function QueryStatisticsPage() {
                   formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
                   labelFormatter={(t) => {
                     const date = new Date(t as number);
-                    return date.toLocaleTimeString();
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
                   }}
                   contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
                 />
@@ -1185,7 +1212,7 @@ export default function QueryStatisticsPage() {
                   dataKey="time"
                   tickFormatter={(t) => {
                     const date = new Date(t);
-                    return `${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                   }}
                   domain={[lastUpdateTime - 180000, lastUpdateTime]}
                   type="number"
@@ -1207,7 +1234,7 @@ export default function QueryStatisticsPage() {
                   formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
                   labelFormatter={(t) => {
                     const date = new Date(t as number);
-                    return date.toLocaleTimeString();
+                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
                   }}
                   contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
                 />

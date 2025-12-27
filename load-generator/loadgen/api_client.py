@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -296,6 +296,7 @@ class FreshMartAPIClient:
         """
         # Calculate total
         total = sum(item["quantity"] * item["price"] for item in line_items)
+        now = datetime.now(timezone.utc).isoformat()
 
         # Create order triples
         order_triples = [
@@ -310,6 +311,12 @@ class FreshMartAPIClient:
                 "predicate": "order_status",
                 "object_value": "CREATED",
                 "object_type": "string",
+            },
+            {
+                "subject_id": order_id,
+                "predicate": "order_created_at",
+                "object_value": now,
+                "object_type": "timestamp",
             },
             {
                 "subject_id": order_id,

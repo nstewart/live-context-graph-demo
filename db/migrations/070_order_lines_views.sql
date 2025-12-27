@@ -4,6 +4,7 @@
 
 -- =============================================================================
 -- Tier 1: Base view for order lines (non-materialized for flexibility)
+-- Note: perishable_flag is NOT stored here - it is derived from products in Tier 2
 -- =============================================================================
 CREATE OR REPLACE VIEW order_lines_base AS
 SELECT
@@ -14,7 +15,6 @@ SELECT
     MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
     MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount,
     MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
-    MAX(CASE WHEN predicate = 'perishable_flag' THEN object_value END)::BOOLEAN AS perishable_flag,
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'orderline:%'
@@ -23,6 +23,7 @@ GROUP BY subject_id;
 -- =============================================================================
 -- Tier 2: Flattened order lines with product enrichment
 -- This view will be materialized in Materialize for fast queries
+-- perishable_flag is DERIVED from products_flat.perishable (not stored on order line)
 -- =============================================================================
 CREATE OR REPLACE VIEW order_lines_flat AS
 SELECT
@@ -33,11 +34,11 @@ SELECT
     ol.unit_price,
     ol.line_amount,
     ol.line_sequence,
-    ol.perishable_flag,
+    p.perishable AS perishable_flag,  -- Derived from product
     p.product_name,
     p.category,
     p.unit_price AS current_product_price,
-    ol.effective_updated_at
+    GREATEST(ol.effective_updated_at, p.effective_updated_at) AS effective_updated_at
 FROM order_lines_base ol
 LEFT JOIN products_flat p ON p.product_id = ol.product_id;
 

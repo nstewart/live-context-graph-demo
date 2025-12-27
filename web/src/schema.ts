@@ -78,6 +78,7 @@ const orders_with_lines_mv = table('orders_with_lines_mv')
     customer_id: string().optional(),
     delivery_window_start: string().optional(),
     delivery_window_end: string().optional(),
+    order_created_at: number().optional(),
     order_total_amount: number().optional(),
     effective_updated_at: number().optional(),
     line_items: json<OrderLineItem[]>(),
@@ -119,6 +120,7 @@ const courier_schedule_mv = table('courier_schedule_mv')
     home_store_id: string().optional(),
     vehicle_type: string().optional(),
     courier_status: string().optional(),
+    status_changed_at: string().optional(),
     tasks: json<Array<{
       task_id: string
       task_status: string
@@ -126,6 +128,8 @@ const courier_schedule_mv = table('courier_schedule_mv')
       eta: string | null
       wait_time_minutes: number | null
       order_created_at: string | null
+      task_started_at: string | null
+      task_completed_at: string | null
     }>>(),
   })
   .primaryKey('courier_id')

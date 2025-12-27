@@ -238,8 +238,8 @@ class TestCourierDispatchScenarioAssignments:
         assert result["assignments_made"] == 1
         assert result["picking_started"] == 1
 
-        # Verify create_triples_batch was called
-        mock_api_client.create_triples_batch.assert_called()
+        # Verify update_triples_batch was called
+        mock_api_client.update_triples_batch.assert_called()
 
     @pytest.mark.asyncio
     async def test_assign_multiple_couriers(
@@ -279,7 +279,7 @@ class TestCourierDispatchScenarioAssignments:
         result = await scenario.execute()
 
         assert result["assignments_made"] == 0
-        mock_api_client.create_triples_batch.assert_not_called()
+        mock_api_client.update_triples_batch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_assignment_without_orders(
@@ -314,11 +314,11 @@ class TestCourierDispatchScenarioAssignments:
         await scenario.execute()
 
         # Verify the triples created
-        call_args = mock_api_client.create_triples_batch.call_args
+        call_args = mock_api_client.update_triples_batch.call_args
         triples = call_args[0][0]
 
-        # Should have 6 triples for a new assignment
-        assert len(triples) == 6
+        # Should have 7 triples for a new assignment (including courier_status_changed_at)
+        assert len(triples) == 7
 
         # Check for key predicates
         predicates = {t["predicate"] for t in triples}
@@ -327,6 +327,7 @@ class TestCourierDispatchScenarioAssignments:
         assert "task_status" in predicates
         assert "task_started_at" in predicates
         assert "courier_status" in predicates
+        assert "courier_status_changed_at" in predicates
         assert "order_status" in predicates
 
         # Verify task status is PICKING
@@ -363,7 +364,7 @@ class TestCourierDispatchScenarioErrorHandling:
         mock_api_client.get_orders_awaiting_courier = AsyncMock(
             return_value=[sample_pending_orders[0]]
         )
-        mock_api_client.create_triples_batch = AsyncMock(
+        mock_api_client.update_triples_batch = AsyncMock(
             side_effect=Exception("Write error")
         )
 

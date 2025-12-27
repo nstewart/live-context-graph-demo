@@ -158,12 +158,7 @@ class OrderLineService:
                 object_value=str(line_item.unit_price),
                 object_type="float",
             ),
-            TripleCreate(
-                subject_id=line_id,
-                predicate="perishable_flag",
-                object_value=str(line_item.perishable_flag).lower(),
-                object_type="bool",
-            ),
+            # Note: perishable_flag is NOT stored - it is derived from the product's perishable attribute
         ]
 
         # Add line_sequence triple only if provided
@@ -235,6 +230,9 @@ class OrderLineService:
         # Create all triples in batch (validates and inserts in single transaction)
         await self.triple_service.create_triples_batch(all_triples)
 
+        # Flush to ensure triples are visible to subsequent queries within the same transaction
+        await self.session.flush()
+
         # Return created line items
         return await self.list_order_lines(order_id)
 
@@ -248,6 +246,7 @@ class OrderLineService:
             List of line items sorted by sequence
         """
         # Query by line_of_order relationship to support both sequential and UUID-based line IDs
+        # Note: perishable_flag is derived from products, not stored on order lines
         query = """
             WITH line_items AS (
                 SELECT DISTINCT subject_id AS line_id
@@ -265,7 +264,6 @@ class OrderLineService:
                     (MAX(CASE WHEN t.predicate = 'quantity' THEN t.object_value END)::INT
                      * MAX(CASE WHEN t.predicate = 'order_line_unit_price' THEN t.object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
                     MAX(CASE WHEN t.predicate = 'line_sequence' THEN t.object_value END)::INT AS line_sequence,
-                    MAX(CASE WHEN t.predicate = 'perishable_flag' THEN t.object_value END)::BOOLEAN AS perishable_flag,
                     MAX(t.updated_at) AS effective_updated_at
                 FROM line_items li
                 LEFT JOIN triples t ON t.subject_id = li.line_id
@@ -275,12 +273,13 @@ class OrderLineService:
                 SELECT
                     subject_id AS product_id,
                     MAX(CASE WHEN predicate = 'product_name' THEN object_value END) AS product_name,
-                    MAX(CASE WHEN predicate = 'category' THEN object_value END) AS category
+                    MAX(CASE WHEN predicate = 'category' THEN object_value END) AS category,
+                    MAX(CASE WHEN predicate = 'perishable' THEN object_value END)::BOOLEAN AS perishable
                 FROM triples
                 WHERE subject_id LIKE 'product:%'
                 GROUP BY subject_id
             )
-            SELECT ld.*, p.product_name, p.category
+            SELECT ld.*, p.product_name, p.category, p.perishable AS perishable_flag
             FROM line_data ld
             LEFT JOIN products p ON p.product_id = ld.product_id
             ORDER BY ld.line_sequence NULLS LAST, ld.line_id
@@ -315,22 +314,35 @@ class OrderLineService:
         Returns:
             Line item or None if not found
         """
+        # Note: perishable_flag is derived from products, not stored on order lines
         query = """
-            SELECT
-                subject_id AS line_id,
-                MAX(CASE WHEN predicate = 'line_of_order' THEN object_value END) AS order_id,
-                MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
-                MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
-                MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
-                -- line_amount is derived from quantity * unit_price (not stored as triple)
-                (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
-                 * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
-                MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
-                MAX(CASE WHEN predicate = 'perishable_flag' THEN object_value END)::BOOLEAN AS perishable_flag,
-                MAX(updated_at) AS effective_updated_at
-            FROM triples
-            WHERE subject_id = :line_id
-            GROUP BY subject_id
+            WITH line_data AS (
+                SELECT
+                    subject_id AS line_id,
+                    MAX(CASE WHEN predicate = 'line_of_order' THEN object_value END) AS order_id,
+                    MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
+                    MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
+                    MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
+                    -- line_amount is derived from quantity * unit_price (not stored as triple)
+                    (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+                     * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
+                    MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
+                    MAX(updated_at) AS effective_updated_at
+                FROM triples
+                WHERE subject_id = :line_id
+                GROUP BY subject_id
+            ),
+            products AS (
+                SELECT
+                    subject_id AS product_id,
+                    MAX(CASE WHEN predicate = 'perishable' THEN object_value END)::BOOLEAN AS perishable
+                FROM triples
+                WHERE subject_id LIKE 'product:%'
+                GROUP BY subject_id
+            )
+            SELECT ld.*, p.perishable AS perishable_flag
+            FROM line_data ld
+            LEFT JOIN products p ON p.product_id = ld.product_id
         """
 
         result = await self.session.execute(text(query), {"line_id": line_id})
@@ -833,13 +845,7 @@ class OrderLineService:
                             object_type="float",
                         ))
 
-                    if existing_vals.get("perishable_flag") != str(new_item.perishable_flag).lower():
-                        changed_triples.append(TripleCreate(
-                            subject_id=existing_line_id,
-                            predicate="perishable_flag",
-                            object_value=str(new_item.perishable_flag).lower(),
-                            object_type="bool",
-                        ))
+                    # Note: perishable_flag is NOT stored - it is derived from the product's perishable attribute
 
                     if self._normalize_decimal(existing_vals.get("line_sequence")) != self._normalize_decimal(line_sequence):
                         changed_triples.append(TripleCreate(

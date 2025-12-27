@@ -163,17 +163,30 @@ class CourierDispatchScenario:
                 "object_value": "ON_DELIVERY",
                 "object_type": "string",
             },
+            {
+                "subject_id": courier_id,
+                "predicate": "courier_status_changed_at",
+                "object_value": now,
+                "object_type": "timestamp",
+            },
         ]
         await self.api_client.update_triples_batch(triples)
 
     async def _complete_delivery(self, task_id: str, order_id: str, courier_id: str):
         """Complete delivery - mark task done and free courier."""
+        now = datetime.now(timezone.utc).isoformat()
         triples = [
             {
                 "subject_id": task_id,
                 "predicate": "task_status",
                 "object_value": "COMPLETED",
                 "object_type": "string",
+            },
+            {
+                "subject_id": task_id,
+                "predicate": "task_completed_at",
+                "object_value": now,
+                "object_type": "timestamp",
             },
             {
                 "subject_id": order_id,
@@ -184,7 +197,7 @@ class CourierDispatchScenario:
             {
                 "subject_id": order_id,
                 "predicate": "delivered_at",
-                "object_value": datetime.now(timezone.utc).isoformat(),
+                "object_value": now,
                 "object_type": "timestamp",
             },
             {
@@ -192,6 +205,12 @@ class CourierDispatchScenario:
                 "predicate": "courier_status",
                 "object_value": "AVAILABLE",
                 "object_type": "string",
+            },
+            {
+                "subject_id": courier_id,
+                "predicate": "courier_status_changed_at",
+                "object_value": now,
+                "object_type": "timestamp",
             },
         ]
         await self.api_client.update_triples_batch(triples)
@@ -292,6 +311,12 @@ class CourierDispatchScenario:
                 "predicate": "courier_status",
                 "object_value": "PICKING",
                 "object_type": "string",
+            },
+            {
+                "subject_id": courier_id,
+                "predicate": "courier_status_changed_at",
+                "object_value": now,
+                "object_type": "timestamp",
             },
             # Update order status
             {

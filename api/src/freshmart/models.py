@@ -142,7 +142,7 @@ class OrderLineCreate(BaseModel):
     quantity: int = Field(..., gt=0, description="Quantity ordered")
     unit_price: Decimal = Field(..., gt=0, description="Unit price at order time")
     line_sequence: Optional[int] = Field(None, gt=0, description="Optional display sequence within order")
-    perishable_flag: bool = Field(..., description="Perishable flag from product")
+    # Note: perishable_flag is NOT stored on order lines - it is derived from the product's perishable attribute
 
 
 class OrderLineUpdate(BaseModel):

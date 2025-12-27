@@ -6,6 +6,60 @@ from langchain_core.tools import tool
 from src.config import get_settings
 
 
+async def _fetch_inventory_pricing(
+    client: httpx.AsyncClient,
+    settings,
+    store_ids: set[str],
+    product_ids: set[str],
+) -> dict[tuple[str, str], dict]:
+    """Fetch live pricing from inventory index for given store/product combinations.
+
+    Returns a dict keyed by (store_id, product_id) with pricing info.
+    """
+    if not store_ids or not product_ids:
+        return {}
+
+    pricing_map = {}
+
+    # Query inventory for each store (inventory is store-specific)
+    for store_id in store_ids:
+        try:
+            inventory_query = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {"term": {"store_id": store_id}},
+                            {"terms": {"product_id": list(product_ids)}},
+                        ]
+                    }
+                },
+                "size": len(product_ids),
+            }
+
+            response = await client.post(
+                f"{settings.agent_os_base}/inventory/_search",
+                json=inventory_query,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            for hit in data.get("hits", {}).get("hits", []):
+                source = hit["_source"]
+                product_id = source.get("product_id")
+                if product_id:
+                    pricing_map[(store_id, product_id)] = {
+                        "live_price": source.get("live_price"),
+                        "base_price": source.get("base_price"),
+                        "price_change": source.get("price_change"),
+                    }
+        except httpx.HTTPError:
+            # If inventory query fails for a store, continue with others
+            pass
+
+    return pricing_map
+
+
 @tool
 async def fetch_order_context(order_ids: list[str]) -> list[dict]:
     """
@@ -15,13 +69,17 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
     - Customer information
     - Store information
     - Delivery task status
-    - Order line items
+    - Order line items with both order-time and current live pricing
 
     Args:
         order_ids: List of order IDs to fetch (e.g., ["order:FM-1001", "order:FM-1002"])
 
     Returns:
-        List of detailed order records with customer, store, and delivery info
+        List of detailed order records with customer, store, and delivery info.
+        Line items include:
+        - unit_price: The price when the order was placed (historical)
+        - live_price: The current dynamic price at the store
+        - base_price: The product catalog base price
     """
     settings = get_settings()
     results = []
@@ -75,6 +133,33 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
                         "has_perishable_items": source.get("has_perishable_items"),
                         "effective_updated_at": source.get("effective_updated_at"),
                     }
+
+            # Collect all unique store_id and product_id combinations for pricing lookup
+            store_ids = set()
+            product_ids = set()
+            for order in found_orders.values():
+                store_id = order.get("store_id")
+                if store_id:
+                    store_ids.add(store_id)
+                for item in order.get("line_items", []):
+                    product_id = item.get("product_id")
+                    if product_id:
+                        product_ids.add(product_id)
+
+            # Fetch live pricing from inventory
+            pricing_map = await _fetch_inventory_pricing(
+                client, settings, store_ids, product_ids
+            )
+
+            # Enrich line items with live pricing
+            for order in found_orders.values():
+                store_id = order.get("store_id")
+                for item in order.get("line_items", []):
+                    product_id = item.get("product_id")
+                    pricing = pricing_map.get((store_id, product_id), {})
+                    item["live_price"] = pricing.get("live_price")
+                    item["base_price"] = pricing.get("base_price")
+                    item["price_change"] = pricing.get("price_change")
 
             # Return results in the same order as requested, with errors for missing orders
             for order_id in order_ids:

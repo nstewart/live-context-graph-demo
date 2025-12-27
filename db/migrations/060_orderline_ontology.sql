@@ -28,11 +28,8 @@ SELECT 'line_sequence', id, 'int', NULL, FALSE, TRUE, 'Display sequence within o
 FROM ontology_classes WHERE class_name = 'OrderLine'
 ON CONFLICT (prop_name) DO NOTHING;
 
--- perishable_flag property (denormalized from product)
-INSERT INTO ontology_properties (prop_name, domain_class_id, range_kind, range_class_id, is_multi_valued, is_required, description)
-SELECT 'perishable_flag', id, 'bool', NULL, FALSE, TRUE, 'Denormalized perishable flag from product for performance'
-FROM ontology_classes WHERE class_name = 'OrderLine'
-ON CONFLICT (prop_name) DO NOTHING;
+-- Note: perishable_flag is NOT stored on order lines - it is derived from the product's perishable attribute
+-- This enables IVM propagation: changing a product's perishable status flows through to order views
 
 -- Update line_amount to mark as derived (not required, computed in views)
 UPDATE ontology_properties

@@ -620,13 +620,8 @@ export default function OrdersDashboardPage() {
               predicate: "line_sequence",
               object_value: String(index + 1),
               object_type: "int",
-            },
-            {
-              subject_id: lineItemId,
-              predicate: "perishable_flag",
-              object_value: String(item.perishable_flag).toLowerCase(),
-              object_type: "bool",
             }
+            // Note: perishable_flag is NOT stored - it is derived from the product's perishable attribute
           );
         });
       }
@@ -652,6 +647,7 @@ export default function OrdersDashboardPage() {
     if (!originalItems || originalItems.length !== newItems.length) return true;
 
     // Compare each line item
+    // Note: perishable_flag is NOT compared - it is derived from the product's perishable attribute
     for (let i = 0; i < originalItems.length; i++) {
       const original = originalItems[i];
       const newItem = newItems[i];
@@ -659,8 +655,7 @@ export default function OrdersDashboardPage() {
       if (
         original.product_id !== newItem.product_id ||
         original.quantity !== newItem.quantity ||
-        Number(original.unit_price) !== Number(newItem.unit_price) ||
-        original.perishable_flag !== newItem.perishable_flag
+        Number(original.unit_price) !== Number(newItem.unit_price)
       ) {
         return true;
       }
@@ -679,8 +674,20 @@ export default function OrdersDashboardPage() {
       data: OrderFormData;
       lineItems: CartLineItem[];
     }) => {
-      const normalizeDate = (date: string | undefined | null) =>
-        date ? new Date(date).toISOString() : undefined;
+      // Compare dates by their timestamp in minutes to avoid false positives
+      // from microsecond/format differences (form inputs truncate to seconds)
+      const getDateMinutes = (date: string | undefined | null): number | null => {
+        if (!date) return null;
+        const d = new Date(date);
+        // Round to nearest minute to handle second-level truncation
+        return Math.floor(d.getTime() / 60000);
+      };
+
+      const datesEqual = (a: string | undefined | null, b: string | undefined | null): boolean => {
+        const aMinutes = getDateMinutes(a);
+        const bMinutes = getDateMinutes(b);
+        return aMinutes === bMinutes;
+      };
 
       // Build update payload (only include changed fields)
       const updateData: any = {};
@@ -694,21 +701,22 @@ export default function OrdersDashboardPage() {
       if (data.store_id !== order.store_id) {
         updateData.store_id = data.store_id;
       }
-      if (normalizeDate(data.delivery_window_start) !== normalizeDate(order.delivery_window_start)) {
-        updateData.delivery_window_start = normalizeDate(data.delivery_window_start);
+      // Only update delivery windows if the actual time changed (not just format)
+      if (!datesEqual(data.delivery_window_start, order.delivery_window_start)) {
+        updateData.delivery_window_start = data.delivery_window_start ? new Date(data.delivery_window_start).toISOString() : undefined;
       }
-      if (normalizeDate(data.delivery_window_end) !== normalizeDate(order.delivery_window_end)) {
-        updateData.delivery_window_end = normalizeDate(data.delivery_window_end);
+      if (!datesEqual(data.delivery_window_end, order.delivery_window_end)) {
+        updateData.delivery_window_end = data.delivery_window_end ? new Date(data.delivery_window_end).toISOString() : undefined;
       }
 
       // Only include line items if they actually changed
+      // Note: perishable_flag is NOT included - it is derived from the product's perishable attribute
       if (hasLineItemsChanged(order.line_items, lineItems)) {
         updateData.line_items = lineItems.map((item, index) => ({
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
           line_sequence: index + 1,
-          perishable_flag: item.perishable_flag,
         }));
       }
 

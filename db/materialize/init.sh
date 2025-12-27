@@ -96,6 +96,7 @@ SELECT
     MAX(CASE WHEN predicate = 'assigned_to' THEN object_value END) AS assigned_courier_id,
     MAX(CASE WHEN predicate = 'task_status' THEN object_value END) AS task_status,
     MAX(CASE WHEN predicate = 'task_started_at' THEN object_value END)::TIMESTAMPTZ AS task_started_at,
+    MAX(CASE WHEN predicate = 'task_completed_at' THEN object_value END)::TIMESTAMPTZ AS task_completed_at,
     MAX(CASE WHEN predicate = 'eta' THEN object_value END) AS eta,
     MAX(updated_at) AS effective_updated_at
 FROM triples
@@ -148,6 +149,7 @@ SELECT
     MAX(CASE WHEN o.predicate = 'placed_by' THEN o.object_value END) AS customer_id,
     MAX(CASE WHEN o.predicate = 'delivery_window_start' THEN o.object_value END) AS delivery_window_start,
     MAX(CASE WHEN o.predicate = 'delivery_window_end' THEN o.object_value END) AS delivery_window_end,
+    MAX(CASE WHEN o.predicate = 'order_created_at' THEN o.object_value END)::TIMESTAMPTZ AS order_created_at,
     -- COMPUTED from line items (not from triple) - auto-calculated, always accurate
     COALESCE(ot.computed_total, 0.00)::DECIMAL(10,2) AS order_total_amount,
     MAX(o.updated_at) AS effective_updated_at
@@ -159,6 +161,7 @@ GROUP BY o.subject_id, ot.computed_total;"
 echo "Creating order line views..."
 
 # Order lines base view
+# Note: perishable_flag is NOT stored here - it is derived from products in order_lines_flat_mv
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS order_lines_base AS
 SELECT
@@ -171,13 +174,13 @@ SELECT
     (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
      * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
     MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
-    MAX(CASE WHEN predicate = 'perishable_flag' THEN object_value END)::BOOLEAN AS perishable_flag,
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'orderline:%'
 GROUP BY subject_id;"
 
 # Order lines flat materialized view with product enrichment
+# perishable_flag is DERIVED from products_flat.perishable (not stored on order line)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS order_lines_flat_mv IN CLUSTER compute AS
 SELECT
@@ -188,12 +191,12 @@ SELECT
     ol.unit_price,
     ol.line_amount,
     ol.line_sequence,
-    ol.perishable_flag,
+    p.perishable AS perishable_flag,  -- Derived from product
     p.product_name,
     p.category,
     p.unit_price AS current_product_price,
     p.unit_weight_grams,
-    ol.effective_updated_at
+    GREATEST(ol.effective_updated_at, p.effective_updated_at) AS effective_updated_at
 FROM order_lines_base ol
 LEFT JOIN products_flat p ON p.product_id = ol.product_id;"
 
@@ -316,13 +319,16 @@ SELECT
     ct.route_sequence,
     ot.order_created_at,
     ot.delivered_at,
+    dt.task_started_at,
+    dt.task_completed_at,
     CASE
         WHEN ot.delivered_at IS NOT NULL AND ot.order_created_at IS NOT NULL
         THEN EXTRACT(EPOCH FROM (ot.delivered_at::TIMESTAMPTZ - ot.order_created_at::TIMESTAMPTZ)) / 60
         ELSE NULL
     END AS wait_time_minutes
 FROM courier_tasks_flat ct
-LEFT JOIN order_timestamps ot ON ot.order_id = ct.order_id;"
+LEFT JOIN order_timestamps ot ON ot.order_id = ct.order_id
+LEFT JOIN delivery_tasks_flat dt ON dt.task_id = ct.task_id;"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE VIEW IF NOT EXISTS couriers_flat AS
 SELECT
@@ -331,6 +337,7 @@ SELECT
     MAX(CASE WHEN predicate = 'courier_home_store' THEN object_value END) AS home_store_id,
     MAX(CASE WHEN predicate = 'vehicle_type' THEN object_value END) AS vehicle_type,
     MAX(CASE WHEN predicate = 'courier_status' THEN object_value END) AS courier_status,
+    MAX(CASE WHEN predicate = 'courier_status_changed_at' THEN object_value END) AS status_changed_at,
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'courier:%'
@@ -343,6 +350,7 @@ SELECT
     cf.home_store_id,
     cf.vehicle_type,
     cf.courier_status,
+    cf.status_changed_at,
     COALESCE(
         jsonb_agg(
             jsonb_build_object(
@@ -351,7 +359,9 @@ SELECT
                 'order_id', ct.order_id,
                 'eta', ct.eta,
                 'wait_time_minutes', ct.wait_time_minutes,
-                'order_created_at', ct.order_created_at
+                'order_created_at', ct.order_created_at,
+                'task_started_at', ct.task_started_at,
+                'task_completed_at', ct.task_completed_at
             )
         ) FILTER (WHERE ct.task_id IS NOT NULL),
         '[]'::jsonb
@@ -359,7 +369,7 @@ SELECT
     cf.effective_updated_at
 FROM couriers_flat cf
 LEFT JOIN courier_tasks_with_timestamps ct ON ct.courier_id = cf.courier_id
-GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.effective_updated_at;"
+GROUP BY cf.courier_id, cf.courier_name, cf.home_store_id, cf.vehicle_type, cf.courier_status, cf.status_changed_at, cf.effective_updated_at;"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS stores_mv IN CLUSTER compute AS
 SELECT
@@ -666,6 +676,7 @@ SELECT
     o.customer_id,
     o.delivery_window_start,
     o.delivery_window_end,
+    o.order_created_at,
     o.order_total_amount,
     -- Customer fields for search
     c.customer_name,
@@ -721,6 +732,7 @@ GROUP BY
     o.customer_id,
     o.delivery_window_start,
     o.delivery_window_end,
+    o.order_created_at,
     o.order_total_amount,
     o.effective_updated_at,
     c.customer_name,

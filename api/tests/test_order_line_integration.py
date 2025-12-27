@@ -1,15 +1,58 @@
 """Integration tests for order line CRUD operations.
 
 Tests the complete workflow: Create order → Add line → Update quantity → Delete line
+
+Note: These tests read from Materialize (CQRS pattern) so we need to wait for
+replication after writes to PostgreSQL.
 """
 
-import os
 import asyncio
 import pytest
 from decimal import Decimal
 from httpx import AsyncClient
 
 from tests.conftest import requires_db
+
+
+async def wait_for_materialize_sync(
+    async_client: AsyncClient,
+    url: str,
+    condition: callable,
+    timeout: float = 5.0,
+    interval: float = 0.2,
+) -> dict:
+    """Wait for Materialize to sync and condition to be met.
+
+    Args:
+        async_client: HTTP client
+        url: URL to poll
+        condition: Function that takes response JSON and returns True when ready
+        timeout: Maximum time to wait in seconds
+        interval: Time between polls in seconds
+
+    Returns:
+        Response JSON when condition is met
+
+    Raises:
+        TimeoutError: If condition not met within timeout
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        response = await async_client.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if condition(data):
+                return data
+        await asyncio.sleep(interval)
+        elapsed += interval
+
+    # Final attempt for error message
+    response = await async_client.get(url)
+    raise TimeoutError(
+        f"Materialize sync timeout after {timeout}s. "
+        f"URL: {url}, Status: {response.status_code}, "
+        f"Response: {response.text[:500]}"
+    )
 
 
 @pytest.mark.asyncio
@@ -29,10 +72,18 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
     # Step 1: Create an order with one line item via batch API
     order_id = "order:FM-TEST-INTEGRATION"
     line_id_1 = "orderline:test-line-001"
+    line_id_2 = "orderline:test-line-002"
     product_id_1 = "product:PROD-TEST-001"
     product_id_2 = "product:PROD-TEST-002"
     customer_id = "customer:TEST-CUST-001"
     store_id = "store:TEST-STORE-01"
+
+    # Clean up any existing test data from previous runs
+    for subject_id in [order_id, line_id_1, line_id_2, product_id_1, product_id_2, customer_id, store_id]:
+        await async_client.delete(f"/triples/subjects/{subject_id}")
+
+    # Wait for Materialize to sync the deletions
+    await asyncio.sleep(1)
 
     # Create test customer
     customer_triples = [
@@ -196,12 +247,7 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
             "object_value": "1",
             "object_type": "int",
         },
-        {
-            "subject_id": line_id_1,
-            "predicate": "perishable_flag",
-            "object_value": "false",
-            "object_type": "bool",
-        },
+        # Note: perishable_flag is NOT stored - it is derived from the product's perishable attribute
     ]
 
     create_order_response = await async_client.post(
@@ -211,21 +257,22 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
     )
     assert create_order_response.status_code == 201, f"Failed to create order: {create_order_response.text}"
 
-    # Wait for Materialize views to hydrate
-    await asyncio.sleep(1)
-
-    # Verify order was created
-    get_order_response = await async_client.get(f"/freshmart/orders/{order_id}")
-    assert get_order_response.status_code == 200, f"Failed to get order: {get_order_response.text}"
-    order = get_order_response.json()
-    assert order["order_id"] == order_id
+    # Wait for Materialize to sync and verify order exists
+    order = await wait_for_materialize_sync(
+        async_client,
+        f"/freshmart/orders/{order_id}",
+        lambda data: data.get("order_id") == order_id,
+        timeout=5.0,
+    )
     assert order["order_status"] == "CREATED"
 
-    # Step 2: List line items (should have 1)
-    list_response = await async_client.get(f"/freshmart/orders/{order_id}/line-items")
-    assert list_response.status_code == 200, f"Failed to list line items: {list_response.text}"
-    line_items = list_response.json()
-    assert len(line_items) == 1, f"Expected 1 line item, got {len(line_items)}"
+    # Step 2: List line items (should have 1) - wait for Materialize sync
+    line_items = await wait_for_materialize_sync(
+        async_client,
+        f"/freshmart/orders/{order_id}/line-items",
+        lambda data: len(data) == 1,
+        timeout=5.0,
+    )
     assert line_items[0]["line_id"] == line_id_1
     assert line_items[0]["quantity"] == 2
 
@@ -241,7 +288,6 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
                     "quantity": 3,
                     "unit_price": 5.00,
                     "line_sequence": 2,
-                    "perishable_flag": True,
                 }
             ]
         },
@@ -253,11 +299,14 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
     new_item = [item for item in all_line_items if item["line_id"] == line_id_2][0]
     assert new_item["quantity"] == 3
 
-    # Verify we now have 2 line items
-    list_response = await async_client.get(f"/freshmart/orders/{order_id}/line-items")
-    assert list_response.status_code == 200
-    line_items = list_response.json()
-    assert len(line_items) == 2, f"Expected 2 line items, got {len(line_items)}"
+    # Verify we now have 2 line items - wait for Materialize sync
+    line_items = await wait_for_materialize_sync(
+        async_client,
+        f"/freshmart/orders/{order_id}/line-items",
+        lambda data: len(data) == 2,
+        timeout=5.0,
+    )
+    assert len(line_items) == 2
 
     # Step 4: Update quantity of first line item
     update_response = await async_client.put(
@@ -271,10 +320,13 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
     # Line amount should be recalculated: 5 * 10.00 = 50.00
     assert float(updated_line["line_amount"]) == 50.00
 
-    # Verify the update persisted
-    list_response = await async_client.get(f"/freshmart/orders/{order_id}/line-items")
-    assert list_response.status_code == 200
-    line_items = list_response.json()
+    # Verify the update persisted - wait for Materialize sync
+    line_items = await wait_for_materialize_sync(
+        async_client,
+        f"/freshmart/orders/{order_id}/line-items",
+        lambda data: any(item["line_id"] == line_id_1 and item["quantity"] == 5 for item in data),
+        timeout=5.0,
+    )
     line_1 = next((item for item in line_items if item["line_id"] == line_id_1), None)
     assert line_1 is not None
     assert line_1["quantity"] == 5
@@ -285,19 +337,17 @@ async def test_order_line_crud_workflow(async_client: AsyncClient):
     )
     assert delete_response.status_code == 204, f"Failed to delete line item: {delete_response.status_code}"
 
-    # Verify we now have only 1 line item
-    list_response = await async_client.get(f"/freshmart/orders/{order_id}/line-items")
-    assert list_response.status_code == 200
-    line_items = list_response.json()
-    assert len(line_items) == 1, f"Expected 1 line item after delete, got {len(line_items)}"
+    # Verify we now have only 1 line item - wait for Materialize sync
+    line_items = await wait_for_materialize_sync(
+        async_client,
+        f"/freshmart/orders/{order_id}/line-items",
+        lambda data: len(data) == 1,
+        timeout=5.0,
+    )
     assert line_items[0]["line_id"] == line_id_1
 
-    # Cleanup: Delete the test order and all its triples
-    cleanup_response = await async_client.delete(f"/freshmart/orders/{order_id}")
-    assert cleanup_response.status_code == 204, f"Failed to cleanup test order: {cleanup_response.status_code}"
-
-    # Cleanup: Delete test entities
-    for entity_id in [customer_id, product_id_1, product_id_2, store_id]:
+    # Cleanup: Delete the test order, line items, and other test entities via triples endpoint
+    for entity_id in [order_id, line_id_1, customer_id, product_id_1, product_id_2, store_id]:
         await async_client.delete(f"/triples/subjects/{entity_id}")
 
 
@@ -309,6 +359,11 @@ async def test_add_line_with_invalid_product(async_client: AsyncClient):
     order_id = "order:FM-TEST-INVALID-PROD"
     customer_id = "customer:TEST-CUST-002"
     store_id = "store:TEST-STORE-02"
+
+    # Clean up any existing test data
+    for subject_id in [order_id, customer_id, store_id]:
+        await async_client.delete(f"/triples/subjects/{subject_id}")
+    await asyncio.sleep(0.5)
 
     # Create minimal test entities
     customer_triples = [
@@ -338,7 +393,6 @@ async def test_add_line_with_invalid_product(async_client: AsyncClient):
                     "product_id": "product:DOES-NOT-EXIST",
                     "quantity": 1,
                     "unit_price": 10.00,
-                    "perishable_flag": False,
                 }
             ]
         },
@@ -349,9 +403,8 @@ async def test_add_line_with_invalid_product(async_client: AsyncClient):
     assert add_response.status_code in [201, 400], f"Unexpected status: {add_response.status_code}"
 
     # Cleanup
-    await async_client.delete(f"/freshmart/orders/{order_id}")
-    await async_client.delete(f"/triples/subjects/{customer_id}")
-    await async_client.delete(f"/triples/subjects/{store_id}")
+    for entity_id in [order_id, "orderline:test-invalid", customer_id, store_id]:
+        await async_client.delete(f"/triples/subjects/{entity_id}")
 
 
 @pytest.mark.asyncio
@@ -364,6 +417,11 @@ async def test_update_line_quantity_validation(async_client: AsyncClient):
     customer_id = "customer:TEST-CUST-003"
     store_id = "store:TEST-STORE-03"
     product_id = "product:PROD-TEST-003"
+
+    # Clean up any existing test data from previous runs
+    for subject_id in [order_id, line_id, customer_id, store_id, product_id]:
+        await async_client.delete(f"/triples/subjects/{subject_id}")
+    await asyncio.sleep(0.5)
 
     # Create test entities
     await async_client.post(
@@ -396,7 +454,5 @@ async def test_update_line_quantity_validation(async_client: AsyncClient):
     assert updated["quantity"] == 10
 
     # Cleanup
-    await async_client.delete(f"/freshmart/orders/{order_id}")
-    await async_client.delete(f"/triples/subjects/{customer_id}")
-    await async_client.delete(f"/triples/subjects/{store_id}")
-    await async_client.delete(f"/triples/subjects/{product_id}")
+    for entity_id in [order_id, line_id, customer_id, store_id, product_id]:
+        await async_client.delete(f"/triples/subjects/{entity_id}")
