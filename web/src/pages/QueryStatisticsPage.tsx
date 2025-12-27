@@ -144,12 +144,15 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
           <>
             {/* Order Info */}
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-start">
                 <span className="text-gray-600 flex items-center gap-1">
                   <ShoppingCart className="h-3 w-3" />
                   Order
                 </span>
-                <span className="font-mono font-medium">{order.order_number || order.order_id}</span>
+                <div className="text-right">
+                  <div className="font-mono font-medium">{order.order_number || order.order_id}</div>
+                  <div className="text-[10px] text-gray-400 font-mono">{order.order_id}</div>
+                </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Status</span>
