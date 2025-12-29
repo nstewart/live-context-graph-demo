@@ -276,6 +276,22 @@ services:
       - /app/node_modules
     command: npm run dev -- --host
 
+  # Load Generator Control Service
+  load-generator:
+    build:
+      context: ./load-generator
+      dockerfile: Dockerfile
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    ports:
+      - "${LOADGEN_PORT:-8084}:8084"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./load-generator:/app:cached
+
   # ============== Agent Service (Optional Profile) ==============
   agents:
     build:

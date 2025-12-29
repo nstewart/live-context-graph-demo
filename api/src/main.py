@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from src.config import get_settings
 from src.db.client import close_connections, get_query_stats
-from src.routes import audit_router, freshmart_router, ontology_router, query_stats_router, triples_router
+from src.routes import audit_router, freshmart_router, loadgen_router, ontology_router, query_stats_router, triples_router
 from src.routes.query_stats import start_heartbeat_generator, stop_heartbeat_generator
 
 # Configure logging
@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down...")
     stop_heartbeat_generator()
+    # Close HTTP client for load generator proxy
+    from src.routes.loadgen import close_http_client
+    await close_http_client()
     await close_connections()
 
 
@@ -96,6 +99,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Include routers
 app.include_router(audit_router)
+app.include_router(loadgen_router)
 app.include_router(ontology_router)
 app.include_router(triples_router)
 app.include_router(freshmart_router)
