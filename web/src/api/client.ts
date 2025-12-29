@@ -409,3 +409,42 @@ export const queryStatsApi = {
   writeTriple: (data: TripleWriteRequest) =>
     apiClient.post('/api/query-stats/write-triple', data),
 }
+
+// Load Generator Types
+export type LoadGenStatus = 'stopped' | 'running' | 'starting' | 'stopping'
+export type LoadGenProfile = 'demo' | 'standard' | 'peak' | 'stress'
+
+export interface LoadGenProfileInfo {
+  name: string
+  description: string
+  orders_per_minute: number
+  concurrent_workflows: number
+  duration_minutes: number | null
+}
+
+export interface LoadGenStatusResponse {
+  status: LoadGenStatus
+  profile: string | null
+  started_at: string | null
+  duration_minutes: number | null
+  pid: number | null
+}
+
+export interface LoadGenStartRequest {
+  profile: LoadGenProfile
+  duration_minutes?: number | null
+  api_url?: string | null
+}
+
+export const loadgenApi = {
+  getProfiles: () =>
+    apiClient.get<LoadGenProfileInfo[]>('/loadgen/profiles'),
+  getStatus: () =>
+    apiClient.get<LoadGenStatusResponse>('/loadgen/status'),
+  start: (request: LoadGenStartRequest) =>
+    apiClient.post<LoadGenStatusResponse>('/loadgen/start', request),
+  stop: () =>
+    apiClient.post<LoadGenStatusResponse>('/loadgen/stop'),
+  getOutput: () =>
+    apiClient.get<{ lines: string[] }>('/loadgen/output'),
+}
