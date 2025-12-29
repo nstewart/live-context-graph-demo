@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useState, useCallback, useRef } from 'react'
 import {
   ReactFlow,
   Node,
@@ -9,10 +9,13 @@ import {
   Position,
   MarkerType,
   ReactFlowProvider,
+  useReactFlow,
+  NodeMouseHandler,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery } from '@tanstack/react-query'
 import { ontologyApi } from '../api/client'
+import { X } from 'lucide-react'
 
 // Node colors by category
 const nodeColors = {
@@ -230,6 +233,49 @@ function OntologyGraphInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges] = useEdgesState<Edge>([])
 
+  // Popup state
+  const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const { flowToScreenPosition } = useReactFlow()
+
+  // Handle node click to show popup
+  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    const classId = parseInt(node.id.replace('class-', ''))
+
+    // Get screen position from flow position
+    const screenPos = flowToScreenPosition({ x: node.position.x + 150, y: node.position.y })
+
+    // Adjust relative to container
+    if (containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect()
+      setPopupPosition({
+        x: screenPos.x - containerRect.left,
+        y: screenPos.y - containerRect.top,
+      })
+    }
+
+    setSelectedClassId(classId)
+  }, [flowToScreenPosition])
+
+  // Close popup
+  const closePopup = useCallback(() => {
+    setSelectedClassId(null)
+    setPopupPosition(null)
+  }, [])
+
+  // Get properties for selected class
+  const selectedClassProps = useMemo(() => {
+    if (!selectedClassId) return []
+    return properties.filter(p => p.domain_class_id === selectedClassId)
+  }, [properties, selectedClassId])
+
+  const selectedClassName = useMemo(() => {
+    if (!selectedClassId) return ''
+    const cls = classes.find(c => c.id === selectedClassId)
+    return cls?.class_name || ''
+  }, [classes, selectedClassId])
+
   // Update nodes and edges when computed values change
   useEffect(() => {
     if (computedNodes.length > 0) {
@@ -267,13 +313,16 @@ function OntologyGraphInner() {
 
       {/* Graph */}
       <div
-        className="w-full border border-gray-200 rounded-lg bg-gray-50"
+        ref={containerRef}
+        className="w-full border border-gray-200 rounded-lg bg-gray-50 relative"
         style={{ height: `${graphHeight}px` }}
       >
         <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
+          onNodeClick={onNodeClick}
+          onPaneClick={closePopup}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           nodesDraggable={true}
@@ -289,6 +338,53 @@ function OntologyGraphInner() {
         >
           <Background color="#e5e7eb" gap={20} />
         </ReactFlow>
+
+        {/* Properties Popup */}
+        {selectedClassId && popupPosition && (
+          <div
+            className="absolute bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-w-xs"
+            style={{
+              left: popupPosition.x,
+              top: popupPosition.y,
+              transform: 'translateY(-50%)',
+            }}
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
+              <span className="font-semibold text-sm text-gray-800">{selectedClassName}</span>
+              <button
+                onClick={closePopup}
+                className="p-1 hover:bg-gray-200 rounded transition-colors"
+              >
+                <X className="h-4 w-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-2 max-h-64 overflow-y-auto">
+              {selectedClassProps.length === 0 ? (
+                <p className="text-sm text-gray-500 px-2 py-1">No properties defined</p>
+              ) : (
+                <div className="space-y-1">
+                  {selectedClassProps.map(prop => (
+                    <div
+                      key={prop.id}
+                      className="px-2 py-1.5 text-xs rounded hover:bg-gray-50"
+                    >
+                      <div className="font-medium text-gray-800">{prop.prop_name}</div>
+                      <div className="text-gray-500">
+                        {prop.range_kind === 'entity_ref' ? (
+                          <span className="text-indigo-600">
+                            → {classes.find(c => c.id === prop.range_class_id)?.class_name || 'Unknown'}
+                          </span>
+                        ) : (
+                          <span>{prop.range_kind}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Description */}
