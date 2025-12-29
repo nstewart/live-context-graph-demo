@@ -16,8 +16,7 @@ import { ontologyApi } from '../api/client'
 
 // Node colors by category
 const nodeColors = {
-  entity: { bg: '#10b981', border: '#059669', text: '#ffffff' }, // Green - main entities
-  reference: { bg: '#6366f1', border: '#4f46e5', text: '#ffffff' }, // Indigo - referenced entities
+  connected: { bg: '#10b981', border: '#059669', text: '#ffffff' }, // Green - has relationships
   standalone: { bg: '#64748b', border: '#475569', text: '#ffffff' }, // Slate - no relationships
 }
 
@@ -169,12 +168,8 @@ function OntologyGraphInner() {
 
       tierClasses.forEach((cls, index) => {
         // Determine node type based on relationships
-        let nodeType: keyof typeof nodeColors = 'standalone'
-        if (hasOutgoing.has(cls.id)) {
-          nodeType = 'entity'
-        } else if (hasIncoming.has(cls.id)) {
-          nodeType = 'reference'
-        }
+        const nodeType: keyof typeof nodeColors =
+          (hasOutgoing.has(cls.id) || hasIncoming.has(cls.id)) ? 'connected' : 'standalone'
 
         const scalarCount = scalarPropsCount[cls.id] || 0
 
@@ -261,12 +256,8 @@ function OntologyGraphInner() {
       {/* Legend */}
       <div className="flex flex-wrap gap-4 mb-3 text-sm">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded" style={{ background: nodeColors.entity.bg }} />
-          <span className="text-gray-600">Entity (has relationships)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded" style={{ background: nodeColors.reference.bg }} />
-          <span className="text-gray-600">Referenced entity</span>
+          <div className="w-4 h-4 rounded" style={{ background: nodeColors.connected.bg }} />
+          <span className="text-gray-600">Connected</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded" style={{ background: nodeColors.standalone.bg }} />
