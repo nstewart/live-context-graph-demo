@@ -54,7 +54,7 @@ function Sparkline({
   )
 }
 
-// Stacked area chart for system-wide metrics
+// Stacked area chart for system-wide metrics (responsive)
 function StackedAreaChart({
   data1,
   data2,
@@ -62,8 +62,6 @@ function StackedAreaChart({
   label2,
   color1 = '#6366f1',
   color2 = '#a5b4fc',
-  width = 280,
-  height = 100,
 }: {
   data1: number[],
   data2: number[],
@@ -71,16 +69,17 @@ function StackedAreaChart({
   label2: string,
   color1?: string,
   color2?: string,
-  width?: number,
-  height?: number,
 }) {
   if (data1.length < 2) {
-    return <div className="w-full h-24 bg-gray-100 rounded animate-pulse" />
+    return <div className="w-full h-32 bg-gray-100 rounded animate-pulse" />
   }
 
+  // Use fixed viewBox dimensions for consistent rendering
+  const viewWidth = 400
+  const viewHeight = 120
   const padding = { top: 10, right: 10, bottom: 20, left: 35 }
-  const chartWidth = width - padding.left - padding.right
-  const chartHeight = height - padding.top - padding.bottom
+  const chartWidth = viewWidth - padding.left - padding.right
+  const chartHeight = viewHeight - padding.top - padding.bottom
 
   // Stack the data
   const stacked = data1.map((v, i) => v + (data2[i] || 0))
@@ -115,8 +114,12 @@ function StackedAreaChart({
   const yTicks = [0, Math.round(maxVal / 2), Math.round(maxVal)]
 
   return (
-    <div className="relative">
-      <svg width={width} height={height}>
+    <div className="relative w-full">
+      <svg
+        viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+        className="w-full h-auto"
+        preserveAspectRatio="xMidYMid meet"
+      >
         <g transform={`translate(${padding.left}, ${padding.top})`}>
           {/* Y-axis */}
           {yTicks.map((tick, i) => (
@@ -167,7 +170,7 @@ function StackedAreaChart({
   )
 }
 
-// Line chart with optional secondary line
+// Line chart with optional secondary line (responsive)
 function TimeSeriesLineChart({
   data,
   data2,
@@ -175,8 +178,6 @@ function TimeSeriesLineChart({
   label2,
   color = '#f59e0b',
   color2 = '#fcd34d',
-  width = 280,
-  height = 100,
   unit = '',
   decimals = 1,
 }: {
@@ -186,18 +187,19 @@ function TimeSeriesLineChart({
   label2?: string,
   color?: string,
   color2?: string,
-  width?: number,
-  height?: number,
   unit?: string,
   decimals?: number,
 }) {
   if (data.length < 2) {
-    return <div className="w-full h-24 bg-gray-100 rounded animate-pulse" />
+    return <div className="w-full h-32 bg-gray-100 rounded animate-pulse" />
   }
 
+  // Use fixed viewBox dimensions for consistent rendering
+  const viewWidth = 400
+  const viewHeight = 120
   const padding = { top: 10, right: 10, bottom: 20, left: 35 }
-  const chartWidth = width - padding.left - padding.right
-  const chartHeight = height - padding.top - padding.bottom
+  const chartWidth = viewWidth - padding.left - padding.right
+  const chartHeight = viewHeight - padding.top - padding.bottom
 
   const allData = data2 ? [...data, ...data2] : data
   const maxVal = Math.max(...allData, 0.1)
@@ -225,8 +227,12 @@ function TimeSeriesLineChart({
   const yTicks = [minVal, (maxVal + minVal) / 2, maxVal]
 
   return (
-    <div className="relative">
-      <svg width={width} height={height}>
+    <div className="relative w-full">
+      <svg
+        viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+        className="w-full h-auto"
+        preserveAspectRatio="xMidYMid meet"
+      >
         <g transform={`translate(${padding.left}, ${padding.top})`}>
           {/* Y-axis */}
           {yTicks.map((tick, i) => (
@@ -638,8 +644,6 @@ export default function MetricsDashboardPage() {
               label2="In Progress"
               color1="#6366f1"
               color2="#a5b4fc"
-              width={280}
-              height={100}
             />
           </div>
 
@@ -656,8 +660,6 @@ export default function MetricsDashboardPage() {
               label2="Max"
               color="#f59e0b"
               color2="#fcd34d"
-              width={280}
-              height={100}
               unit="m"
               decimals={2}
             />
@@ -673,8 +675,6 @@ export default function MetricsDashboardPage() {
               data={systemChartData.throughput}
               label="Picked Up"
               color="#10b981"
-              width={280}
-              height={100}
               unit=""
               decimals={0}
             />
