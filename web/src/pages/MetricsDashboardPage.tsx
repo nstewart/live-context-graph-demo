@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema } from "../schema";
 import { formatAmount } from "../test/utils";
+import { useMetricsTimeseries } from "../hooks/useMetricsTimeseries";
 import {
   AlertTriangle,
   Activity,
@@ -12,7 +13,84 @@ import {
   Store,
   Users,
   Clock,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
+
+// Simple SVG sparkline component
+function Sparkline({
+  data,
+  width = 80,
+  height = 24,
+  color = '#6366f1'
+}: {
+  data: number[],
+  width?: number,
+  height?: number,
+  color?: string
+}) {
+  if (data.length < 2) return <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
+
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+
+  const points = data.map((value, i) => {
+    const x = (i / (data.length - 1)) * width
+    const y = height - ((value - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <svg width={width} height={height} className="inline-block">
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        points={points}
+      />
+    </svg>
+  )
+}
+
+// Delta indicator component showing change from previous value
+function DeltaIndicator({
+  current,
+  previous,
+  suffix = '',
+  higherIsBetter = false
+}: {
+  current: number | null | undefined,
+  previous: number | null | undefined,
+  suffix?: string,
+  higherIsBetter?: boolean
+}) {
+  if (current == null || previous == null) {
+    return <span className="text-xs text-gray-400">--</span>
+  }
+
+  const delta = current - previous
+  if (Math.abs(delta) < 0.01) {
+    return (
+      <span className="inline-flex items-center text-xs text-gray-400">
+        <Minus className="h-3 w-3" />
+      </span>
+    )
+  }
+
+  const isPositive = delta > 0
+  const isGood = higherIsBetter ? isPositive : !isPositive
+  const color = isGood ? 'text-green-600' : 'text-red-600'
+  const Icon = isPositive ? TrendingUp : TrendingDown
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${color}`}>
+      <Icon className="h-3 w-3" />
+      {isPositive ? '+' : ''}{delta.toFixed(1)}{suffix}
+    </span>
+  )
+}
 
 type StoreMetrics = {
   store_id: string
@@ -41,7 +119,7 @@ export default function MetricsDashboardPage() {
   const z = useZero<Schema>();
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
 
-  // 🔥 ZERO - Real-time metrics data
+  // Real-time metrics data via Zero
   const [pricingYieldData] = useQuery(z.query.pricing_yield_mv);
   const [inventoryRiskData] = useQuery(z.query.inventory_risk_mv);
   const [capacityHealthData] = useQuery(z.query.store_capacity_health_mv);
@@ -51,8 +129,9 @@ export default function MetricsDashboardPage() {
   const [couriersData] = useQuery(z.query.courier_schedule_mv.orderBy('courier_id', 'asc'));
   const [ordersData] = useQuery(z.query.orders_with_lines_mv);
 
-  // Time-series data for sparklines will be added in a future iteration
-  // using direct API calls to Materialize
+  // Time-series data for sparklines (via direct API polling, not Zero)
+  // Zero doesn't support these views because Materialize lacks UNIQUE indexes
+  const { storeTimeseries, isLoading: timeseriesLoading } = useMetricsTimeseries(5000, 10);
 
   useEffect(() => {
     if (pricingYieldData.length > 0 || inventoryRiskData.length > 0 || capacityHealthData.length > 0) {
@@ -167,8 +246,21 @@ export default function MetricsDashboardPage() {
     }).sort((a, b) => a.store_name.localeCompare(b.store_name))
   }, [storesData, couriersData, ordersData]);
 
-  // Placeholder for time-series data - sparklines will be added in a future iteration
-  // Using direct API calls to Materialize for time-bucketed data
+  // Helper to get sparkline data for a store
+  const getStoreSparklineData = (storeId: string, field: 'queue_depth' | 'avg_wait_minutes'): number[] => {
+    const data = storeTimeseries[storeId]
+    if (!data || data.length === 0) return []
+    return data.map(d => field === 'queue_depth' ? d.queue_depth : (d.avg_wait_minutes ?? 0))
+  }
+
+  // Helper to get delta values (current vs previous window)
+  const getStoreDelta = (storeId: string, field: 'queue_depth' | 'avg_wait_minutes'): { current: number | null, previous: number | null } => {
+    const data = storeTimeseries[storeId]
+    if (!data || data.length < 2) return { current: null, previous: null }
+    const current = field === 'queue_depth' ? data[data.length - 1].queue_depth : data[data.length - 1].avg_wait_minutes
+    const previous = field === 'queue_depth' ? data[data.length - 2].queue_depth : data[data.length - 2].avg_wait_minutes
+    return { current, previous }
+  }
 
   return (
     <div className="p-6">
@@ -298,49 +390,87 @@ export default function MetricsDashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {storeMetrics.map((metrics) => (
-                    <tr key={metrics.store_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
-                        <div className="text-xs text-gray-500">{metrics.store_zone}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <span
-                          className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
-                          title={metrics.health_status}
-                        />
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm text-gray-900">
-                          {metrics.available_couriers}/{metrics.total_couriers}
-                        </span>
-                        <span className="text-xs text-gray-500 ml-1">avail</span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {metrics.orders_in_queue}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <span className="text-xs text-gray-400">--</span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <span className="text-xs text-gray-400">--</span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm font-medium ${
-                          metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
-                        }`}>
-                          {metrics.orders_at_risk}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {storeMetrics.map((metrics) => {
+                    const queueData = getStoreSparklineData(metrics.store_id, 'queue_depth')
+                    const waitData = getStoreSparklineData(metrics.store_id, 'avg_wait_minutes')
+                    const queueDelta = getStoreDelta(metrics.store_id, 'queue_depth')
+                    const waitDelta = getStoreDelta(metrics.store_id, 'avg_wait_minutes')
+
+                    return (
+                      <tr key={metrics.store_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
+                          <div className="text-xs text-gray-500">{metrics.store_zone}</div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <span
+                            className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
+                            title={metrics.health_status}
+                          />
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="text-sm text-gray-900">
+                            {metrics.available_couriers}/{metrics.total_couriers}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-1">avail</span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {metrics.orders_in_queue}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {timeseriesLoading ? (
+                              <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
+                            ) : queueData.length >= 2 ? (
+                              <>
+                                <Sparkline data={queueData} color="#6366f1" />
+                                <DeltaIndicator
+                                  current={queueDelta.current}
+                                  previous={queueDelta.previous}
+                                  higherIsBetter={false}
+                                />
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">--</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {timeseriesLoading ? (
+                              <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
+                            ) : waitData.length >= 2 ? (
+                              <>
+                                <Sparkline data={waitData} color="#f59e0b" />
+                                <DeltaIndicator
+                                  current={waitDelta.current}
+                                  previous={waitDelta.previous}
+                                  suffix="m"
+                                  higherIsBetter={false}
+                                />
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">--</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${
+                            metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
+                          }`}>
+                            {metrics.orders_at_risk}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

@@ -448,3 +448,37 @@ export const loadgenApi = {
   getOutput: () =>
     apiClient.get<{ lines: string[] }>('/loadgen/output'),
 }
+
+// Metrics Timeseries Types (via direct API, not Zero)
+export interface StoreTimeseriesPoint {
+  id: string
+  store_id: string
+  window_end: number // epoch milliseconds
+  queue_depth: number
+  in_progress: number
+  total_orders: number
+  avg_wait_minutes: number | null
+  max_wait_minutes: number | null
+  orders_picked_up: number
+}
+
+export interface SystemTimeseriesPoint {
+  id: string
+  window_end: number // epoch milliseconds
+  total_queue_depth: number
+  total_in_progress: number
+  total_orders: number
+  avg_wait_minutes: number | null
+  max_wait_minutes: number | null
+  total_orders_picked_up: number
+}
+
+export interface TimeseriesResponse {
+  store_timeseries: StoreTimeseriesPoint[]
+  system_timeseries: SystemTimeseriesPoint[]
+}
+
+export const metricsApi = {
+  getTimeseries: (params?: { store_id?: string; limit?: number }) =>
+    apiClient.get<TimeseriesResponse>('/api/metrics/timeseries', { params }),
+}
