@@ -13,7 +13,10 @@ SELECT
     MAX(CASE WHEN predicate = 'line_product' THEN object_value END) AS product_id,
     MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT AS quantity,
     MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2) AS unit_price,
-    MAX(CASE WHEN predicate = 'line_amount' THEN object_value END)::DECIMAL(10,2) AS line_amount,
+    -- Calculate line_amount from quantity * unit_price (derived, not stored)
+    -- This matches Materialize behavior so totals update when quantity changes
+    (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+     * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount,
     MAX(CASE WHEN predicate = 'line_sequence' THEN object_value END)::INT AS line_sequence,
     MAX(updated_at) AS effective_updated_at
 FROM triples
