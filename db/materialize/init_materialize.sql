@@ -89,6 +89,7 @@ SELECT
     MAX(CASE WHEN predicate = 'delivery_window_start' THEN object_value END) AS delivery_window_start,
     MAX(CASE WHEN predicate = 'delivery_window_end' THEN object_value END) AS delivery_window_end,
     MAX(CASE WHEN predicate = 'order_total_amount' THEN object_value END)::DECIMAL(10,2) AS order_total_amount,
+    MAX(CASE WHEN predicate = 'order_created_at' THEN object_value END)::TIMESTAMPTZ AS order_created_at,
     MAX(updated_at) AS effective_updated_at
 FROM triples
 WHERE subject_id LIKE 'order:%'
@@ -294,3 +295,111 @@ CREATE INDEX IF NOT EXISTS orders_search_source_idx IN CLUSTER serving ON orders
 CREATE INDEX IF NOT EXISTS courier_schedule_idx IN CLUSTER serving ON courier_schedule_mv (courier_id);
 CREATE INDEX IF NOT EXISTS stores_idx IN CLUSTER serving ON stores_mv (store_id);
 CREATE INDEX IF NOT EXISTS customers_idx IN CLUSTER serving ON customers_mv (customer_id);
+
+-- =============================================================================
+-- Time-Series Views for Sparklines and Trend Analysis
+-- Uses mz_now() temporal filters to maintain a rolling 30-minute window
+-- =============================================================================
+
+-- Orders bucketed into 1-minute time windows (rolling 60-minute history)
+CREATE VIEW IF NOT EXISTS orders_time_bucketed AS
+SELECT
+    o.order_id,
+    o.store_id,
+    o.order_status,
+    o.order_created_at,
+    date_bin('1 minute', o.order_created_at, '2000-01-01 00:00:00+00'::timestamptz) + INTERVAL '1 minute' AS window_end
+FROM orders_flat_mv o
+WHERE o.order_created_at IS NOT NULL
+  AND mz_now() <= EXTRACT(EPOCH FROM o.order_created_at)::bigint * 1000 + 3600000;
+
+-- Store metrics aggregated by time window
+CREATE MATERIALIZED VIEW IF NOT EXISTS store_metrics_by_window_mv IN CLUSTER compute AS
+SELECT
+    ob.store_id,
+    ob.window_end,
+    COUNT(*) FILTER (WHERE ob.order_status = 'CREATED') AS queue_depth,
+    COUNT(*) FILTER (WHERE ob.order_status IN ('PICKING', 'OUT_FOR_DELIVERY')) AS in_progress,
+    COUNT(*) AS total_orders
+FROM orders_time_bucketed ob
+WHERE mz_now() >= EXTRACT(EPOCH FROM ob.window_end)::bigint * 1000
+  AND mz_now() < EXTRACT(EPOCH FROM ob.window_end)::bigint * 1000 + 1800000
+GROUP BY ob.store_id, ob.window_end;
+
+-- Delivery tasks flat with timestamps (intermediate view for wait time calculation)
+CREATE VIEW IF NOT EXISTS delivery_tasks_flat_with_timestamps AS
+SELECT
+    subject_id AS task_id,
+    MAX(CASE WHEN predicate = 'task_of_order' THEN object_value END) AS order_id,
+    MAX(CASE WHEN predicate = 'assigned_to' THEN object_value END) AS assigned_courier_id,
+    MAX(CASE WHEN predicate = 'task_status' THEN object_value END) AS task_status,
+    MAX(CASE WHEN predicate = 'task_started_at' THEN object_value END)::TIMESTAMPTZ AS task_started_at,
+    MAX(CASE WHEN predicate = 'task_completed_at' THEN object_value END)::TIMESTAMPTZ AS task_completed_at,
+    MAX(CASE WHEN predicate = 'eta' THEN object_value END) AS eta,
+    MAX(updated_at) AS effective_updated_at
+FROM triples
+WHERE subject_id LIKE 'task:%'
+GROUP BY subject_id;
+
+-- Delivery task timestamps with wait time bucketing
+CREATE VIEW IF NOT EXISTS wait_times_bucketed AS
+SELECT
+    dt.order_id,
+    o.store_id,
+    dt.task_started_at,
+    EXTRACT(EPOCH FROM (dt.task_started_at - o.order_created_at)) / 60.0 AS wait_minutes,
+    date_bin('1 minute', dt.task_started_at, '2000-01-01 00:00:00+00'::timestamptz) + INTERVAL '1 minute' AS window_end
+FROM delivery_tasks_flat_with_timestamps dt
+JOIN orders_flat_mv o ON dt.order_id = o.order_id
+WHERE dt.task_started_at IS NOT NULL
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() <= EXTRACT(EPOCH FROM dt.task_started_at)::bigint * 1000 + 3600000;
+
+-- Store wait time metrics by time window
+CREATE MATERIALIZED VIEW IF NOT EXISTS store_wait_time_by_window_mv IN CLUSTER compute AS
+SELECT
+    wb.store_id,
+    wb.window_end,
+    AVG(wb.wait_minutes)::numeric(10,2) AS avg_wait_minutes,
+    MAX(wb.wait_minutes)::numeric(10,2) AS max_wait_minutes,
+    COUNT(*) AS orders_picked_up
+FROM wait_times_bucketed wb
+WHERE mz_now() >= EXTRACT(EPOCH FROM wb.window_end)::bigint * 1000
+  AND mz_now() < EXTRACT(EPOCH FROM wb.window_end)::bigint * 1000 + 1800000
+GROUP BY wb.store_id, wb.window_end;
+
+-- Combined store metrics timeseries for UI consumption
+-- ID is generated from store_id + window_end for Zero single-column PK requirement
+CREATE MATERIALIZED VIEW IF NOT EXISTS store_metrics_timeseries_mv IN CLUSTER compute AS
+SELECT
+    COALESCE(sm.store_id, wt.store_id) || ':' || EXTRACT(EPOCH FROM COALESCE(sm.window_end, wt.window_end))::bigint::text AS id,
+    COALESCE(sm.store_id, wt.store_id) AS store_id,
+    EXTRACT(EPOCH FROM COALESCE(sm.window_end, wt.window_end))::bigint * 1000 AS window_end,
+    COALESCE(sm.queue_depth, 0) AS queue_depth,
+    COALESCE(sm.in_progress, 0) AS in_progress,
+    COALESCE(sm.total_orders, 0) AS total_orders,
+    wt.avg_wait_minutes,
+    wt.max_wait_minutes,
+    COALESCE(wt.orders_picked_up, 0) AS orders_picked_up
+FROM store_metrics_by_window_mv sm
+FULL JOIN store_wait_time_by_window_mv wt
+    ON sm.store_id = wt.store_id AND sm.window_end = wt.window_end;
+
+-- System-wide aggregate timeseries for executive dashboard
+CREATE MATERIALIZED VIEW IF NOT EXISTS system_metrics_timeseries_mv IN CLUSTER compute AS
+SELECT
+    window_end::text AS id,
+    window_end,
+    SUM(queue_depth) AS total_queue_depth,
+    SUM(in_progress) AS total_in_progress,
+    SUM(total_orders) AS total_orders,
+    AVG(avg_wait_minutes)::numeric(10,2) AS avg_wait_minutes,
+    MAX(max_wait_minutes) AS max_wait_minutes,
+    SUM(orders_picked_up) AS total_orders_picked_up
+FROM store_metrics_timeseries_mv
+GROUP BY window_end;
+
+-- Indexes for timeseries queries
+CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_store_id IN CLUSTER serving ON store_metrics_timeseries_mv (store_id);
+CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_window IN CLUSTER serving ON store_metrics_timeseries_mv (window_end);
+CREATE INDEX IF NOT EXISTS idx_system_metrics_timeseries_window IN CLUSTER serving ON system_metrics_timeseries_mv (window_end);

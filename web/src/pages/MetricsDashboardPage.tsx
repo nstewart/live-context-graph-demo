@@ -12,7 +12,6 @@ import {
   Store,
   Users,
   Clock,
-  Truck,
 } from "lucide-react";
 
 type StoreMetrics = {
@@ -51,6 +50,9 @@ export default function MetricsDashboardPage() {
   const [storesData] = useQuery(z.query.stores_mv.orderBy('store_id', 'asc'));
   const [couriersData] = useQuery(z.query.courier_schedule_mv.orderBy('courier_id', 'asc'));
   const [ordersData] = useQuery(z.query.orders_with_lines_mv);
+
+  // Time-series data for sparklines will be added in a future iteration
+  // using direct API calls to Materialize
 
   useEffect(() => {
     if (pricingYieldData.length > 0 || inventoryRiskData.length > 0 || capacityHealthData.length > 0) {
@@ -165,6 +167,9 @@ export default function MetricsDashboardPage() {
     }).sort((a, b) => a.store_name.localeCompare(b.store_name))
   }, [storesData, couriersData, ordersData]);
 
+  // Placeholder for time-series data - sparklines will be added in a future iteration
+  // Using direct API calls to Materialize for time-bucketed data
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -260,9 +265,6 @@ export default function MetricsDashboardPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Store
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Zone
-                    </th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Health
                     </th>
@@ -273,28 +275,22 @@ export default function MetricsDashboardPage() {
                       </span>
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Util
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <span className="flex items-center justify-end gap-1">
                         <Package className="h-3.5 w-3.5" />
                         Queue
                       </span>
                     </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Queue Trend
+                    </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <span className="flex items-center justify-end gap-1">
                         <Clock className="h-3.5 w-3.5" />
-                        Picking
+                        Avg Wait
                       </span>
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Truck className="h-3.5 w-3.5" />
-                        Delivering
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Avg Wait
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Wait Trend
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       At Risk
@@ -305,10 +301,8 @@ export default function MetricsDashboardPage() {
                   {storeMetrics.map((metrics) => (
                     <tr key={metrics.store_id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-medium text-gray-900">{metrics.store_name}</span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm text-gray-500">{metrics.store_zone}</span>
+                        <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
+                        <div className="text-xs text-gray-500">{metrics.store_zone}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center">
                         <span
@@ -323,33 +317,20 @@ export default function MetricsDashboardPage() {
                         <span className="text-xs text-gray-500 ml-1">avail</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm font-medium ${
-                          metrics.utilization_pct >= 80 ? 'text-red-600' :
-                          metrics.utilization_pct >= 50 ? 'text-yellow-600' :
-                          'text-green-600'
-                        }`}>
-                          {metrics.utilization_pct.toFixed(0)}%
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
                         <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
                           {metrics.orders_in_queue}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm font-medium ${metrics.orders_picking > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {metrics.orders_picking}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className={`text-sm font-medium ${metrics.orders_delivering > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {metrics.orders_delivering}
-                        </span>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <span className="text-xs text-gray-400">--</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
                           {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <span className="text-xs text-gray-400">--</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <span className={`text-sm font-medium ${
