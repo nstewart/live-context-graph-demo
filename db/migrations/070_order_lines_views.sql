@@ -41,6 +41,7 @@ SELECT
     p.product_name,
     p.category,
     p.unit_price AS current_product_price,
+    p.unit_weight_grams,
     GREATEST(ol.effective_updated_at, p.effective_updated_at) AS effective_updated_at
 FROM order_lines_base ol
 LEFT JOIN products_flat p ON p.product_id = ol.product_id;

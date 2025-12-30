@@ -3,25 +3,43 @@
 
 -- Orders Flattened View
 -- Provides a denormalized view of orders with key operational context
+-- order_total_amount is COMPUTED from line items (not stored triple) to match Materialize
 CREATE OR REPLACE VIEW orders_flat AS
-WITH order_subjects AS (
-    SELECT DISTINCT subject_id
+WITH order_line_amounts AS (
+    -- Calculate line_amount from quantity * unit_price (derived, not stored)
+    SELECT
+        subject_id AS line_id,
+        MAX(CASE WHEN predicate = 'line_of_order' THEN object_value END) AS order_id,
+        (MAX(CASE WHEN predicate = 'quantity' THEN object_value END)::INT
+         * MAX(CASE WHEN predicate = 'order_line_unit_price' THEN object_value END)::DECIMAL(10,2))::DECIMAL(10,2) AS line_amount
     FROM triples
-    WHERE subject_id LIKE 'order:%'
+    WHERE subject_id LIKE 'orderline:%'
+    GROUP BY subject_id
+),
+order_totals AS (
+    -- Aggregate line amounts per order BEFORE joining with order triples
+    SELECT
+        order_id,
+        COALESCE(SUM(line_amount), 0.00)::DECIMAL(10,2) AS computed_total
+    FROM order_line_amounts
+    GROUP BY order_id
 )
 SELECT
-    os.subject_id AS order_id,
-    MAX(CASE WHEN t.predicate = 'order_number' THEN t.object_value END) AS order_number,
-    MAX(CASE WHEN t.predicate = 'order_status' THEN t.object_value END) AS order_status,
-    MAX(CASE WHEN t.predicate = 'order_store' THEN t.object_value END) AS store_id,
-    MAX(CASE WHEN t.predicate = 'placed_by' THEN t.object_value END) AS customer_id,
-    MAX(CASE WHEN t.predicate = 'delivery_window_start' THEN t.object_value END) AS delivery_window_start,
-    MAX(CASE WHEN t.predicate = 'delivery_window_end' THEN t.object_value END) AS delivery_window_end,
-    MAX(CASE WHEN t.predicate = 'order_total_amount' THEN t.object_value END)::DECIMAL(10,2) AS order_total_amount,
-    MAX(t.updated_at) AS effective_updated_at
-FROM order_subjects os
-LEFT JOIN triples t ON t.subject_id = os.subject_id
-GROUP BY os.subject_id;
+    o.subject_id AS order_id,
+    MAX(CASE WHEN o.predicate = 'order_number' THEN o.object_value END) AS order_number,
+    MAX(CASE WHEN o.predicate = 'order_status' THEN o.object_value END) AS order_status,
+    MAX(CASE WHEN o.predicate = 'order_store' THEN o.object_value END) AS store_id,
+    MAX(CASE WHEN o.predicate = 'placed_by' THEN o.object_value END) AS customer_id,
+    MAX(CASE WHEN o.predicate = 'delivery_window_start' THEN o.object_value END) AS delivery_window_start,
+    MAX(CASE WHEN o.predicate = 'delivery_window_end' THEN o.object_value END) AS delivery_window_end,
+    MAX(CASE WHEN o.predicate = 'order_created_at' THEN o.object_value END)::TIMESTAMPTZ AS order_created_at,
+    -- COMPUTED from line items (not from triple) - auto-calculated, always accurate
+    COALESCE(ot.computed_total, 0.00)::DECIMAL(10,2) AS order_total_amount,
+    MAX(o.updated_at) AS effective_updated_at
+FROM triples o
+LEFT JOIN order_totals ot ON ot.order_id = o.subject_id
+WHERE o.subject_id LIKE 'order:%'
+GROUP BY o.subject_id, ot.computed_total;
 
 -- Store Inventory Flattened View
 -- Shows current inventory levels per store and product
@@ -140,6 +158,7 @@ SELECT
     MAX(CASE WHEN t.predicate = 'category' THEN t.object_value END) AS category,
     MAX(CASE WHEN t.predicate = 'unit_price' THEN t.object_value END)::DECIMAL(10,2) AS unit_price,
     MAX(CASE WHEN t.predicate = 'perishable' THEN t.object_value END)::BOOLEAN AS perishable,
+    MAX(CASE WHEN t.predicate = 'unit_weight_grams' THEN t.object_value END)::INT AS unit_weight_grams,
     MAX(t.updated_at) AS effective_updated_at
 FROM product_subjects ps
 LEFT JOIN triples t ON t.subject_id = ps.subject_id
