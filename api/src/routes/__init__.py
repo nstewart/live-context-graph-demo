@@ -5,6 +5,7 @@ from src.routes.loadgen import router as loadgen_router
 from src.routes.metrics import router as metrics_router
 from src.routes.ontology import router as ontology_router
 from src.routes.query_stats import router as query_stats_router
+from src.routes.search import router as search_router
 from src.routes.triples import router as triples_router
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "metrics_router",
     "ontology_router",
     "query_stats_router",
+    "search_router",
     "triples_router",
 ]

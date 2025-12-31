@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from src.config import get_settings
 from src.db.client import close_connections, get_query_stats
-from src.routes import audit_router, freshmart_router, loadgen_router, metrics_router, ontology_router, query_stats_router, triples_router
+from src.routes import audit_router, freshmart_router, loadgen_router, metrics_router, ontology_router, query_stats_router, search_router, triples_router
 from src.routes.query_stats import start_heartbeat_generator, stop_heartbeat_generator
 
 # Configure logging
@@ -102,6 +102,7 @@ app.include_router(audit_router)
 app.include_router(loadgen_router)
 app.include_router(metrics_router)
 app.include_router(ontology_router)
+app.include_router(search_router)
 app.include_router(triples_router)
 app.include_router(freshmart_router)
 app.include_router(query_stats_router)

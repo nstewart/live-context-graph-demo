@@ -596,3 +596,14 @@ export const metricsApi = {
   getTimeseries: (params?: { store_id?: string; limit?: number }) =>
     apiClient.get<TimeseriesResponse>('/api/metrics/timeseries', { params }),
 }
+
+// Search API Types (OpenSearch proxy) - returns raw OpenSearch response
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type OpenSearchResponse = Record<string, any>
+
+export const searchApi = {
+  searchOrders: (query: string, limit?: number) =>
+    apiClient.get<OpenSearchResponse>('/api/search/orders', {
+      params: { q: query, limit: limit || 5 },
+    }),
+}

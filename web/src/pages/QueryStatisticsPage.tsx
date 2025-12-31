@@ -41,6 +41,7 @@ import {
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
+import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
 
 interface ChartDataPoint {
   time: number;
@@ -1487,6 +1488,9 @@ export default function QueryStatisticsPage() {
           </div>
         )}
       </div>
+
+      {/* Agent-native Reads Card */}
+      <AgentNativeReadsCard />
 
       {/* What is a Knowledge Graph? Card */}
       <WhatIsKnowledgeGraphCard />
