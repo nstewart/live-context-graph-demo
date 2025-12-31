@@ -121,6 +121,7 @@ up-agent:
 
 down:
 	docker-compose --profile agent down
+	docker volume rm live-agent-ontology-demo_postgres_data 2>/dev/null
 
 # Logs
 logs:

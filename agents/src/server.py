@@ -1,6 +1,7 @@
 """FastAPI server for the FreshMart Operations Agent with SSE streaming."""
 
 import json
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -14,12 +15,25 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from src.config import get_settings
 from src.graphs.ops_assistant_graph import cleanup_graph_resources, run_assistant
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
+    # Log API key status on startup
+    settings = get_settings()
+    if settings.openai_api_key:
+        logger.info("OpenAI API key: FOUND")
+    if settings.anthropic_api_key:
+        logger.info("Anthropic API key: FOUND")
+
+    if not settings.openai_api_key and not settings.anthropic_api_key:
+        logger.error("No LLM API key configured! Set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+
     yield
     # Cleanup on shutdown
     await cleanup_graph_resources()
