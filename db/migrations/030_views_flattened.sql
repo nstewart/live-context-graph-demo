@@ -26,16 +26,8 @@ order_totals AS (
 order_subjects AS (
     SELECT DISTINCT subject_id
     FROM triples
-    WHERE subject_id LIKE 'orderline:%'
+    WHERE subject_id LIKE 'order:%'
     GROUP BY subject_id
-),
-order_totals AS (
-    -- Aggregate line amounts per order BEFORE joining with order triples
-    SELECT
-        order_id,
-        COALESCE(SUM(line_amount), 0.00)::DECIMAL(10,2) AS computed_total
-    FROM order_line_amounts
-    GROUP BY order_id
 )
 SELECT
     os.subject_id AS order_id,
