@@ -123,7 +123,7 @@ services:
           MATERIALIZE_AUTH_OPTIONS_USER: ${MZ_USER:-materialize}
           MATERIALIZE_AUTH_OPTIONS_PASSWORD: ${MZ_PASSWORD:-materialize}
           MATERIALIZE_DATABASE: ${MZ_DATABASE:-materialize}
-          MATERIALIZE_COLLECTIONS: "orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing,pricing_yield_mv,inventory_risk_mv,store_capacity_health_mv"
+          MATERIALIZE_COLLECTIONS: "orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing,pricing_yield_mv,inventory_risk_mv,store_capacity_health_mv,delivery_bundles_mv,compatible_pairs_mv"
           PORT: 8080
           LOG_LEVEL: ${LOG_LEVEL:-INFO}
           NODE_ENV: production

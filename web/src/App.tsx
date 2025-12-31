@@ -8,6 +8,7 @@ import {
   Settings,
   TrendingUp,
   BarChart3,
+  Layers,
 } from 'lucide-react'
 
 import OntologyPage from './pages/OntologyPage'
@@ -18,6 +19,7 @@ import CouriersSchedulePage from './pages/CouriersSchedulePage'
 import SettingsPage from './pages/SettingsPage'
 import MetricsDashboardPage from './pages/MetricsDashboardPage'
 import QueryStatisticsPage from './pages/QueryStatisticsPage'
+import BundlingPage from './pages/BundlingPage'
 import { PropagationProvider } from './contexts/PropagationContext'
 import { ChatProvider } from './contexts/ChatContext'
 import PropagationWidget from './components/PropagationWidget'
@@ -26,6 +28,7 @@ import ChatWidget from './components/ChatWidget'
 const navItems = [
   { path: '/', icon: BarChart3, label: 'IVM Demo' },
   { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
+  { path: '/bundling', icon: Layers, label: 'Delivery Bundling' },
   { path: '/orders', icon: ShoppingCart, label: 'Orders' },
   { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },
@@ -71,6 +74,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<QueryStatisticsPage />} />
                 <Route path="/metrics" element={<MetricsDashboardPage />} />
+                <Route path="/bundling" element={<BundlingPage />} />
                 <Route path="/orders" element={<OrdersDashboardPage />} />
                 <Route path="/stores" element={<StoresInventoryPage />} />
                 <Route path="/couriers" element={<CouriersSchedulePage />} />

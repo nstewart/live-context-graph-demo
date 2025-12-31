@@ -16,6 +16,7 @@ set -e
 
 MZ_HOST=${MZ_HOST:-localhost}
 MZ_PORT=${MZ_PORT:-6875}
+MZ_SYSTEM_PORT=${MZ_SYSTEM_PORT:-6877}
 
 echo "Waiting for Materialize to be ready..."
 until psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "SELECT 1" > /dev/null 2>&1; do
@@ -26,10 +27,44 @@ echo "Materialize is ready!"
 
 echo "Setting up Three-Tier Architecture clusters..."
 
+# Determine compute cluster size based on available CPUs (subtract 2 for non-MZ services)
+CPUS=$(($(nproc) - 2))
+if (( CPUS < 1 )); then
+    CPUS=1
+fi
+
+if (( CPUS >= 64 )); then
+    COMPUTE_CLUSTER_SIZE="3200cc"
+elif (( CPUS >= 32 )); then
+    COMPUTE_CLUSTER_SIZE="1600cc"
+elif (( CPUS >= 24 )); then
+    COMPUTE_CLUSTER_SIZE="1200cc"
+elif (( CPUS >= 16 )); then
+    COMPUTE_CLUSTER_SIZE="800cc"
+elif (( CPUS >= 12 )); then
+    COMPUTE_CLUSTER_SIZE="600cc"
+elif (( CPUS >= 8 )); then
+    COMPUTE_CLUSTER_SIZE="400cc"
+elif (( CPUS >= 6 )); then
+    COMPUTE_CLUSTER_SIZE="300cc"
+elif (( CPUS >= 4 )); then
+    COMPUTE_CLUSTER_SIZE="200cc"
+elif (( CPUS >= 2 )); then
+    COMPUTE_CLUSTER_SIZE="100cc"
+else
+    COMPUTE_CLUSTER_SIZE="50cc"
+fi
+
+echo "Detected $((CPUS + 2)) CPUs, using $COMPUTE_CLUSTER_SIZE for compute cluster"
+
 # Create clusters (ignore errors if already exist)
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER ingest (SIZE = '25cc');" 2>/dev/null || echo "ingest cluster already exists"
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER compute (SIZE = '25cc');" 2>/dev/null || echo "compute cluster already exists"
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER serving (SIZE = '25cc');" 2>/dev/null || echo "serving cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER ingest (SIZE = '50cc');" 2>/dev/null || echo "ingest cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER compute (SIZE = '$COMPUTE_CLUSTER_SIZE');" 2>/dev/null || echo "compute cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER serving (SIZE = '50cc');" 2>/dev/null || echo "serving cluster already exists"
+
+# Set serving as the default cluster and drop quickstart
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "ALTER SYSTEM SET cluster = 'serving';" 2>/dev/null || echo "default cluster already set"
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "DROP CLUSTER IF EXISTS quickstart CASCADE;" || echo "quickstart cluster already dropped"
 
 echo "Creating PostgreSQL connection..."
 
@@ -1202,6 +1237,220 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS i
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_store_id IN CLUSTER serving ON store_metrics_timeseries_mv (store_id);"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_window IN CLUSTER serving ON store_metrics_timeseries_mv (window_end);"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS idx_system_metrics_timeseries_window IN CLUSTER serving ON system_metrics_timeseries_mv (window_end);"
+
+# =============================================================================
+# DELIVERY BUNDLING WITH MUTUALLY RECURSIVE CONSTRAINTS
+# Demonstrates Materialize's WITH MUTUALLY RECURSIVE for Datalog-style logic
+#
+# Bundle orders that:
+# 1. Share the same store (required for pickup efficiency)
+# 2. Have overlapping delivery windows
+# 3. Don't exceed available inventory when combined
+# 4. Fit within courier vehicle capacity
+#
+# The mutual recursion pattern:
+#   - compatible_pair: base pairwise compatibility check
+#   - bundle_membership: assigns orders to bundles, referencing itself for clique validation
+#   - Fixed-point iteration until bundle assignments stabilize
+# =============================================================================
+
+echo "Creating delivery bundling views with mutual recursion..."
+
+# Helper view: Order weights (total weight per order)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS order_weights AS
+SELECT
+    ol.order_id,
+    SUM(ol.quantity * COALESCE(ol.unit_weight_grams, 0))::INT AS total_weight_grams
+FROM order_lines_flat_mv ol
+GROUP BY ol.order_id;"
+
+# Main mutually recursive view for delivery bundling
+# Produces one row per bundle with JSON array of orders
+# Each order appears in at most one bundle (greedy assignment to smallest bundle_id)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS delivery_bundles_mv IN CLUSTER compute AS
+WITH MUTUALLY RECURSIVE (RETURN AT RECURSION LIMIT 100)
+    -- CTE 1: Pairwise compatibility - orders that CAN be bundled together
+    compatible_pair (order_a TEXT, order_b TEXT, store_id TEXT) AS (
+        SELECT
+            o1.order_id AS order_a,
+            o2.order_id AS order_b,
+            o1.store_id
+        FROM orders_flat_mv o1
+        JOIN orders_flat_mv o2
+            ON o1.store_id = o2.store_id
+            AND o1.order_id < o2.order_id
+        LEFT JOIN order_weights w1 ON w1.order_id = o1.order_id
+        LEFT JOIN order_weights w2 ON w2.order_id = o2.order_id
+        WHERE o1.order_status = 'CREATED'
+          AND o2.order_status = 'CREATED'
+          -- Overlapping delivery windows
+          AND o1.delivery_window_start::timestamptz <= o2.delivery_window_end::timestamptz
+          AND o2.delivery_window_start::timestamptz <= o1.delivery_window_end::timestamptz
+          -- Combined weight fits in VAN (50kg max)
+          AND (COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0)) <= 50000
+          -- No inventory conflict
+          AND NOT EXISTS (
+              SELECT 1
+              FROM order_lines_flat_mv ol1
+              JOIN order_lines_flat_mv ol2
+                  ON ol2.order_id = o2.order_id
+                  AND ol2.product_id = ol1.product_id
+              JOIN store_inventory_mv inv
+                  ON inv.product_id = ol1.product_id
+                  AND inv.store_id = o1.store_id
+              WHERE ol1.order_id = o1.order_id
+                AND ol1.quantity + ol2.quantity > inv.available_quantity
+          )
+          -- At least one compatible courier exists
+          AND EXISTS (
+              SELECT 1 FROM couriers_flat c
+              WHERE c.home_store_id = o1.store_id
+                AND c.courier_status = 'AVAILABLE'
+                AND (
+                    c.vehicle_type = 'VAN' OR
+                    (c.vehicle_type = 'CAR' AND
+                     COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 20000) OR
+                    (c.vehicle_type = 'BIKE' AND
+                     COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 5000)
+                )
+          )
+    ),
+
+    -- CTE 2: Bundle membership - assigns each order to a bundle
+    -- Bundle is identified by smallest order_id among mutually compatible orders
+    bundle_membership (order_id TEXT, bundle_id TEXT, store_id TEXT) AS (
+        -- Base: every CREATED order starts in its own bundle
+        SELECT o.order_id, o.order_id AS bundle_id, o.store_id
+        FROM orders_flat_mv o
+        WHERE o.order_status = 'CREATED'
+
+        UNION
+
+        -- Merge: order joins a smaller bundle if compatible with ALL its members
+        SELECT
+            bm1.order_id,
+            bm2.bundle_id,
+            bm1.store_id
+        FROM bundle_membership bm1
+        JOIN bundle_membership bm2
+            ON bm2.store_id = bm1.store_id
+            AND bm2.bundle_id < bm1.bundle_id
+        WHERE
+            -- Must be pairwise compatible with the bundle anchor
+            EXISTS (
+                SELECT 1 FROM compatible_pair cp
+                WHERE cp.store_id = bm1.store_id
+                  AND ((cp.order_a = bm2.bundle_id AND cp.order_b = bm1.order_id)
+                    OR (cp.order_a = bm1.order_id AND cp.order_b = bm2.bundle_id))
+            )
+            -- Must be compatible with ALL other orders already in that bundle
+            AND NOT EXISTS (
+                SELECT 1 FROM bundle_membership other
+                WHERE other.bundle_id = bm2.bundle_id
+                  AND other.order_id != bm1.order_id
+                  AND other.order_id != bm2.bundle_id
+                  AND NOT EXISTS (
+                      SELECT 1 FROM compatible_pair cp2
+                      WHERE cp2.store_id = bm1.store_id
+                        AND ((cp2.order_a = other.order_id AND cp2.order_b = bm1.order_id)
+                          OR (cp2.order_a = bm1.order_id AND cp2.order_b = other.order_id))
+                  )
+            )
+    )
+
+-- Final output: one row per bundle with JSON array of orders
+SELECT
+    final.bundle_id,
+    final.store_id,
+    s.store_name,
+    jsonb_agg(final.order_id ORDER BY final.order_id) AS orders,
+    COUNT(*) AS bundle_size
+FROM (
+    -- Each order gets assigned to its SMALLEST valid bundle_id
+    SELECT order_id, MIN(bundle_id) AS bundle_id, store_id
+    FROM bundle_membership
+    GROUP BY order_id, store_id
+) final
+JOIN stores_mv s ON s.store_id = final.store_id
+GROUP BY final.bundle_id, final.store_id, s.store_name
+ORDER BY bundle_size DESC, bundle_id;"
+
+echo "Creating delivery bundling indexes..."
+
+# Serving indexes for delivery bundles
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_id_idx IN CLUSTER serving ON delivery_bundles_mv (bundle_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_store_idx IN CLUSTER serving ON delivery_bundles_mv (store_id);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_size_idx IN CLUSTER serving ON delivery_bundles_mv (bundle_size);"
+
+# =============================================================================
+# COMPATIBLE PAIRS VIEW - Exposes pairwise compatibility with details
+# Used by UI to show WHY orders are bundled together
+# =============================================================================
+
+echo "Creating compatible pairs view for bundle explanations..."
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS compatible_pairs_mv IN CLUSTER compute AS
+SELECT
+    o1.order_id || ':' || o2.order_id AS pair_id,
+    o1.order_id AS order_a,
+    o2.order_id AS order_b,
+    o1.store_id,
+    s.store_name,
+    -- Time overlap window
+    GREATEST(o1.delivery_window_start::timestamptz, o2.delivery_window_start::timestamptz)::text AS overlap_start,
+    LEAST(o1.delivery_window_end::timestamptz, o2.delivery_window_end::timestamptz)::text AS overlap_end,
+    -- Individual weights
+    COALESCE(w1.total_weight_grams, 0) AS order_a_weight_grams,
+    COALESCE(w2.total_weight_grams, 0) AS order_b_weight_grams,
+    -- Combined weight
+    (COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0)) AS combined_weight_grams
+FROM orders_flat_mv o1
+JOIN orders_flat_mv o2
+    ON o1.store_id = o2.store_id
+    AND o1.order_id < o2.order_id
+JOIN stores_mv s ON s.store_id = o1.store_id
+LEFT JOIN order_weights w1 ON w1.order_id = o1.order_id
+LEFT JOIN order_weights w2 ON w2.order_id = o2.order_id
+WHERE o1.order_status = 'CREATED'
+  AND o2.order_status = 'CREATED'
+  -- Overlapping delivery windows
+  AND o1.delivery_window_start::timestamptz <= o2.delivery_window_end::timestamptz
+  AND o2.delivery_window_start::timestamptz <= o1.delivery_window_end::timestamptz
+  -- Combined weight fits in VAN (50kg max)
+  AND (COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0)) <= 50000
+  -- No inventory conflict
+  AND NOT EXISTS (
+      SELECT 1
+      FROM order_lines_flat_mv ol1
+      JOIN order_lines_flat_mv ol2
+          ON ol2.order_id = o2.order_id
+          AND ol2.product_id = ol1.product_id
+      JOIN store_inventory_mv inv
+          ON inv.product_id = ol1.product_id
+          AND inv.store_id = o1.store_id
+      WHERE ol1.order_id = o1.order_id
+        AND ol1.quantity + ol2.quantity > inv.available_quantity
+  )
+  -- At least one compatible courier exists
+  AND EXISTS (
+      SELECT 1 FROM couriers_flat c
+      WHERE c.home_store_id = o1.store_id
+        AND c.courier_status = 'AVAILABLE'
+        AND (
+            c.vehicle_type = 'VAN' OR
+            (c.vehicle_type = 'CAR' AND
+             COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 20000) OR
+            (c.vehicle_type = 'BIKE' AND
+             COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 5000)
+        )
+  );"
+
+# Create a unique key for compatible_pairs_mv
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_pk_idx IN CLUSTER serving ON compatible_pairs_mv (order_a, order_b);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_store_idx IN CLUSTER serving ON compatible_pairs_mv (store_id);"
 
 echo "Verifying three-tier setup..."
 echo ""
