@@ -1349,6 +1349,74 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS d
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_store_idx IN CLUSTER serving ON delivery_bundles_mv (store_id);"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_size_idx IN CLUSTER serving ON delivery_bundles_mv (bundle_size);"
 
+# =============================================================================
+# COMPATIBLE PAIRS VIEW - Exposes pairwise compatibility with details
+# Used by UI to show WHY orders are bundled together
+# =============================================================================
+
+echo "Creating compatible pairs view for bundle explanations..."
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS compatible_pairs_mv IN CLUSTER compute AS
+SELECT
+    o1.order_id || ':' || o2.order_id AS pair_id,
+    o1.order_id AS order_a,
+    o2.order_id AS order_b,
+    o1.store_id,
+    s.store_name,
+    -- Time overlap window
+    GREATEST(o1.delivery_window_start::timestamptz, o2.delivery_window_start::timestamptz)::text AS overlap_start,
+    LEAST(o1.delivery_window_end::timestamptz, o2.delivery_window_end::timestamptz)::text AS overlap_end,
+    -- Individual weights
+    COALESCE(w1.total_weight_grams, 0) AS order_a_weight_grams,
+    COALESCE(w2.total_weight_grams, 0) AS order_b_weight_grams,
+    -- Combined weight
+    (COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0)) AS combined_weight_grams
+FROM orders_flat_mv o1
+JOIN orders_flat_mv o2
+    ON o1.store_id = o2.store_id
+    AND o1.order_id < o2.order_id
+JOIN stores_mv s ON s.store_id = o1.store_id
+LEFT JOIN order_weights w1 ON w1.order_id = o1.order_id
+LEFT JOIN order_weights w2 ON w2.order_id = o2.order_id
+WHERE o1.order_status = 'CREATED'
+  AND o2.order_status = 'CREATED'
+  -- Overlapping delivery windows
+  AND o1.delivery_window_start::timestamptz <= o2.delivery_window_end::timestamptz
+  AND o2.delivery_window_start::timestamptz <= o1.delivery_window_end::timestamptz
+  -- Combined weight fits in VAN (50kg max)
+  AND (COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0)) <= 50000
+  -- No inventory conflict
+  AND NOT EXISTS (
+      SELECT 1
+      FROM order_lines_flat_mv ol1
+      JOIN order_lines_flat_mv ol2
+          ON ol2.order_id = o2.order_id
+          AND ol2.product_id = ol1.product_id
+      JOIN store_inventory_mv inv
+          ON inv.product_id = ol1.product_id
+          AND inv.store_id = o1.store_id
+      WHERE ol1.order_id = o1.order_id
+        AND ol1.quantity + ol2.quantity > inv.available_quantity
+  )
+  -- At least one compatible courier exists
+  AND EXISTS (
+      SELECT 1 FROM couriers_flat c
+      WHERE c.home_store_id = o1.store_id
+        AND c.courier_status = 'AVAILABLE'
+        AND (
+            c.vehicle_type = 'VAN' OR
+            (c.vehicle_type = 'CAR' AND
+             COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 20000) OR
+            (c.vehicle_type = 'BIKE' AND
+             COALESCE(w1.total_weight_grams, 0) + COALESCE(w2.total_weight_grams, 0) <= 5000)
+        )
+  );"
+
+# Create a unique key for compatible_pairs_mv
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_pk_idx IN CLUSTER serving ON compatible_pairs_mv (order_a, order_b);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_store_idx IN CLUSTER serving ON compatible_pairs_mv (store_id);"
+
 echo "Verifying three-tier setup..."
 echo ""
 echo "=== Clusters ==="
