@@ -827,7 +827,7 @@ export default function QueryStatisticsPage() {
       <div className="flex justify-between items-center mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">IVM Demo</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Agent Reference Architecture</h1>
             {isPolling ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -846,7 +846,7 @@ export default function QueryStatisticsPage() {
             )}
           </div>
           <p className="text-gray-600">
-            Incremental View Maintenance: PostgreSQL VIEW vs Batch Refresh vs Materialize IVM
+            Materialize creates a foundational data layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads.
           </p>
         </div>
         <div className="flex items-center gap-2">

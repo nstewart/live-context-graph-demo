@@ -26,7 +26,7 @@ import PropagationWidget from './components/PropagationWidget'
 import ChatWidget from './components/ChatWidget'
 
 const navItems = [
-  { path: '/', icon: BarChart3, label: 'IVM Demo' },
+  { path: '/', icon: BarChart3, label: 'Agent Ref. Architecture' },
   { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
   { path: '/bundling', icon: Layers, label: 'Delivery Bundling' },
   { path: '/orders', icon: ShoppingCart, label: 'Orders' },
