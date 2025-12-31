@@ -379,6 +379,29 @@ freshmart-digital-twin-agent-starter/
 - **Serving cluster**: Indexed queries without impacting compute
 - Resource isolation prevents one workload from starving others
 
+## Known Limitations
+
+### Zero and Materialize UNIQUE Index Constraint
+
+**Issue**: Zero (the real-time sync layer) requires tables to have either a `PRIMARY KEY` constraint or a `UNIQUE` index. Materialize supports `PRIMARY KEY` on tables but does not support `UNIQUE` indexes on materialized views.
+
+**Impact**: Time-series views created in Materialize (e.g., `store_metrics_timeseries_mv`, `system_metrics_timeseries_mv`) cannot be synced through Zero because they use generated composite keys that require `UNIQUE` indexes for Zero compatibility.
+
+**Workaround**: Time-series data for sparklines and trend visualization is fetched via direct API polling instead of Zero sync:
+- The `/api/metrics/timeseries` endpoint queries Materialize directly
+- The `useMetricsTimeseries` React hook polls this endpoint every 5 seconds
+- All other data (orders, stores, inventory, etc.) continues to sync in real-time through Zero
+
+**Code locations**:
+- API endpoint: `api/src/routes/metrics.py`
+- React hook: `web/src/hooks/useMetricsTimeseries.ts`
+- Time-series views: `db/materialize/init.sh` (lines 1165-1204)
+
+**Alternative approaches considered**:
+1. **Tables with PRIMARY KEY**: Would work but requires separate insert/update logic instead of incremental maintenance
+2. **Composite string keys**: Implemented but Zero still requires UNIQUE index, not just a regular index
+3. **Direct API polling**: Current solution - provides 5-second granularity which is acceptable for sparklines
+
 
 ## License
 

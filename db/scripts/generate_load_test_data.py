@@ -845,7 +845,7 @@ class DataGenerator:
         self.num_stores = max(10, int(50 * scale))
         self.num_products = len(REALISTIC_PRODUCTS)  # Use all realistic products (993)
         self.num_customers = max(100, int(5000 * scale))
-        self.num_couriers = max(self.num_stores * 5, int(200 * scale))  # At least 5 couriers per store
+        self.num_couriers = max(self.num_stores * 15, int(200 * scale))  # At least 15 couriers per store
         self.num_orders = max(500, int(25000 * scale))
         self.lines_per_order = 3  # Average
         self.num_days = 180  # 6 months
@@ -930,7 +930,7 @@ class DataGenerator:
         """Generate courier entities."""
         print(f"Generating {self.num_couriers} couriers...")
 
-        couriers_per_store = max(5, self.num_couriers // len(self.store_ids))
+        couriers_per_store = max(15, self.num_couriers // len(self.store_ids))
         courier_num = 1
 
         for store_id in self.store_ids:

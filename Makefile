@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-health test-load-gen
+.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen
 
 # Default target
 help:
@@ -28,6 +28,8 @@ help:
 	@echo "  make load-gen-standard - Start with standard profile (20 orders/min)"
 	@echo "  make load-gen-peak     - Start with peak profile (60 orders/min)"
 	@echo "  make load-gen-stress   - Start with stress profile (200 orders/min)"
+	@echo "  make load-gen-demand   - Start demand-only generator (orders, customers)"
+	@echo "  make load-gen-supply   - Start supply-only generator (courier dispatch)"
 	@echo "  make load-gen-health   - Check API health for load generator"
 	@echo "  make test-load-gen     - Run load generator tests"
 	@echo ""
@@ -135,7 +137,8 @@ migrate:
 	./db/scripts/run_migrations.sh
 
 seed:
-	@echo "Running database seeder..."
+	@echo "Building and running database seeder..."
+	docker-compose --profile seed build db-seed
 	docker-compose --profile seed run --rm db-seed
 
 reset-db:
@@ -230,6 +233,14 @@ load-gen-peak: setup-load-gen
 load-gen-stress: setup-load-gen
 	@echo "Starting load generator with stress profile..."
 	@cd load-generator && uv run --no-sync python -m loadgen start --profile stress
+
+load-gen-demand: setup-load-gen
+	@echo "Starting demand-only load generator (orders, customers, inventory)..."
+	@cd load-generator && uv run --no-sync python -m loadgen start --profile demo --demand-only
+
+load-gen-supply: setup-load-gen
+	@echo "Starting supply-only load generator (courier dispatch)..."
+	@cd load-generator && uv run --no-sync python -m loadgen start --profile demo --supply-only
 
 load-gen-health: setup-load-gen
 	@cd load-generator && uv run --no-sync python -m loadgen health

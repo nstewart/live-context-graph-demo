@@ -15,10 +15,9 @@ from loadgen.api_client import FreshMartAPIClient
 
 logger = logging.getLogger(__name__)
 
-# Task timing configuration (in seconds)
-# Keep these short to ensure couriers keep up with order creation rate
-PICKING_DURATION_SECONDS = 3  # 3 seconds
-DELIVERY_DURATION_SECONDS = 3  # 3 seconds
+# Default task timing configuration (in seconds)
+DEFAULT_PICKING_DURATION_SECONDS = 3.0
+DEFAULT_DELIVERY_DURATION_SECONDS = 3.0
 
 
 class CourierDispatchScenario:
@@ -30,13 +29,22 @@ class CourierDispatchScenario:
     - Does not maintain any in-memory state
     """
 
-    def __init__(self, api_client: FreshMartAPIClient):
+    def __init__(
+        self,
+        api_client: FreshMartAPIClient,
+        picking_duration_seconds: float = DEFAULT_PICKING_DURATION_SECONDS,
+        delivery_duration_seconds: float = DEFAULT_DELIVERY_DURATION_SECONDS,
+    ):
         """Initialize courier dispatch scenario.
 
         Args:
             api_client: FreshMart API client for queries and writes
+            picking_duration_seconds: How long PICKING phase takes
+            delivery_duration_seconds: How long DELIVERING phase takes
         """
         self.api_client = api_client
+        self.picking_duration_seconds = picking_duration_seconds
+        self.delivery_duration_seconds = delivery_duration_seconds
         self.stores: list[dict[str, Any]] = []
 
     async def initialize(self):

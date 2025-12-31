@@ -5,6 +5,67 @@ from typing import Optional
 
 
 @dataclass
+class SupplyConfig:
+    """Configuration for supply-side (courier dispatch) generation."""
+
+    # How often to run dispatch cycles (seconds)
+    dispatch_interval_seconds: float = 1.0
+
+    # Task durations - how long each phase takes (seconds)
+    picking_duration_seconds: float = 3.0
+    delivery_duration_seconds: float = 3.0
+
+    def with_speed_multiplier(self, multiplier: float) -> "SupplyConfig":
+        """Create a new config with adjusted speeds.
+
+        Args:
+            multiplier: Speed multiplier (2.0 = twice as fast, 0.5 = half speed)
+
+        Returns:
+            New SupplyConfig with adjusted durations
+        """
+        return SupplyConfig(
+            dispatch_interval_seconds=self.dispatch_interval_seconds / multiplier,
+            picking_duration_seconds=self.picking_duration_seconds / multiplier,
+            delivery_duration_seconds=self.delivery_duration_seconds / multiplier,
+        )
+
+
+# Default supply configurations
+SUPPLY_CONFIGS = {
+    "normal": SupplyConfig(),
+    "fast": SupplyConfig(
+        dispatch_interval_seconds=0.5,
+        picking_duration_seconds=2.0,
+        delivery_duration_seconds=2.0,
+    ),
+    "slow": SupplyConfig(
+        dispatch_interval_seconds=2.0,
+        picking_duration_seconds=5.0,
+        delivery_duration_seconds=5.0,
+    ),
+}
+
+
+def get_supply_config(name: str = "normal") -> SupplyConfig:
+    """Get a supply config by name.
+
+    Args:
+        name: Config name (normal, fast, slow)
+
+    Returns:
+        SupplyConfig
+
+    Raises:
+        ValueError: If config name is not found
+    """
+    if name not in SUPPLY_CONFIGS:
+        available = ", ".join(SUPPLY_CONFIGS.keys())
+        raise ValueError(f"Unknown supply config '{name}'. Available: {available}")
+    return SUPPLY_CONFIGS[name]
+
+
+@dataclass
 class LoadProfile:
     """Configuration for a load generation profile."""
 

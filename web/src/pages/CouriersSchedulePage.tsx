@@ -3,31 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { triplesApi, CourierSchedule, TripleCreate } from '../api/client'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
-import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff, Users, Clock, Package } from 'lucide-react'
+import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
 import { CourierFormModal, CourierFormData } from '../components/CourierFormModal'
-
-type StoreMetrics = {
-  store_id: string
-  store_name: string
-  store_zone: string
-  total_couriers: number
-  available_couriers: number
-  busy_couriers: number
-  off_shift_couriers: number
-  orders_in_queue: number
-  orders_picking: number
-  orders_delivering: number
-  utilization_pct: number
-  health_status: 'HEALTHY' | 'WARNING' | 'CRITICAL'
-  avg_wait_minutes: number | null
-  orders_at_risk: number
-}
-
-const healthStatusColors = {
-  HEALTHY: 'bg-green-500',
-  WARNING: 'bg-yellow-500',
-  CRITICAL: 'bg-red-500',
-}
 
 const vehicleIcons: Record<string, typeof Truck> = {
   BIKE: Bike,
@@ -58,92 +35,10 @@ export default function CouriersSchedulePage() {
   // Couriers sorted by courier_id (with tasks as JSON)
   const [couriersData] = useQuery(z.query.courier_schedule_mv.orderBy('courier_id', 'asc'))
 
-  // Stores for home store lookup (still needed for display in table)
+  // Stores for filter dropdown and home store lookup
   const [storesData] = useQuery(z.query.stores_mv.orderBy('store_id', 'asc'))
 
-  // Orders for queue/picking/delivering counts
-  const [ordersData] = useQuery(z.query.orders_with_lines_mv)
-
   const zeroConnected = true // Zero handles connection internally
-
-  // Compute store metrics from courier and order data
-  const storeMetrics: StoreMetrics[] = useMemo(() => {
-    if (storesData.length === 0) return []
-
-    const now = Date.now()
-
-    return storesData.map((store) => {
-      // Count couriers by status for this store
-      const storeCouriers = couriersData.filter(c => c.home_store_id === store.store_id)
-      const total = storeCouriers.length
-      const available = storeCouriers.filter(c => c.courier_status === 'AVAILABLE').length
-      const busy = storeCouriers.filter(c => c.courier_status === 'PICKING' || c.courier_status === 'DELIVERING' || c.courier_status === 'ON_DELIVERY').length
-      const offShift = storeCouriers.filter(c => c.courier_status === 'OFF_SHIFT').length
-
-      // Count orders by status for this store
-      const storeOrders = ordersData.filter(o => o.store_id === store.store_id)
-      const inQueue = storeOrders.filter(o => o.order_status === 'CREATED').length
-      const picking = storeOrders.filter(o => o.order_status === 'PICKING').length
-      const delivering = storeOrders.filter(o => o.order_status === 'OUT_FOR_DELIVERY').length
-
-      // Calculate utilization
-      const utilization = total > 0 ? (busy / total) * 100 : 0
-
-      // Determine health status
-      let health: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY'
-      if (available === 0 && inQueue > 0) {
-        health = 'CRITICAL'
-      } else if (utilization >= 80 || (inQueue > available * 5)) {
-        health = 'WARNING'
-      }
-
-      // Calculate avg wait time from tasks with order_created_at and task_started_at
-      const waitTimes: number[] = []
-      storeCouriers.forEach(courier => {
-        const tasks = (courier.tasks as any[]) || []
-        tasks.forEach(task => {
-          if (task.order_created_at && task.task_started_at) {
-            const created = new Date(task.order_created_at).getTime()
-            const started = new Date(task.task_started_at).getTime()
-            if (started > created) {
-              waitTimes.push((started - created) / 60000) // minutes
-            }
-          }
-        })
-      })
-      const avgWait = waitTimes.length > 0
-        ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length
-        : null
-
-      // Calculate orders at risk (waiting more than 3 minutes for courier assignment)
-      const atRisk = storeOrders.filter(o => {
-        if (o.order_status === 'DELIVERED' || o.order_status === 'CANCELLED') return false
-        if (o.order_status !== 'CREATED') return false // Only count orders still in queue
-        if (!o.order_created_at) return false
-        // order_created_at is epoch milliseconds from Zero
-        const createdAt = typeof o.order_created_at === 'number' ? o.order_created_at : new Date(o.order_created_at).getTime()
-        const waitTime = now - createdAt
-        return waitTime > 3 * 60 * 1000 // waiting more than 3 minutes
-      }).length
-
-      return {
-        store_id: store.store_id,
-        store_name: store.store_name || store.store_id,
-        store_zone: store.store_zone || '',
-        total_couriers: total,
-        available_couriers: available,
-        busy_couriers: busy,
-        off_shift_couriers: offShift,
-        orders_in_queue: inQueue,
-        orders_picking: picking,
-        orders_delivering: delivering,
-        utilization_pct: utilization,
-        health_status: health,
-        avg_wait_minutes: avgWait,
-        orders_at_risk: atRisk,
-      }
-    }).sort((a, b) => a.store_name.localeCompare(b.store_name))
-  }, [storesData, couriersData, ordersData])
 
   // Map couriers data (already sorted by Zero) with computed metrics
   const couriers = useMemo(() => {
@@ -327,177 +222,42 @@ export default function CouriersSchedulePage() {
         <div className="text-center py-8 text-gray-500">Loading couriers...</div>
       )}
 
-      {/* Store Capacity Table */}
-      {storeMetrics.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Store Demand vs Capacity</h2>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Store
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Zone
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Health
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3.5 w-3.5" />
-                        Couriers
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Util
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Package className="h-3.5 w-3.5" />
-                        Queue
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        Picking
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Truck className="h-3.5 w-3.5" />
-                        Delivering
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Avg Wait
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      At Risk
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {storeMetrics.map((metrics) => {
-                    const isSelected = selectedStoreId === metrics.store_id
-                    return (
-                      <tr
-                        key={metrics.store_id}
-                        onClick={() => {
-                          setSelectedStoreId(isSelected ? null : metrics.store_id)
-                          setCourierIdSearch('')
-                        }}
-                        className={`cursor-pointer transition-colors ${
-                          isSelected
-                            ? 'bg-blue-50 hover:bg-blue-100'
-                            : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="text-sm font-medium text-gray-900">{metrics.store_name}</span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="text-sm text-gray-500">{metrics.store_zone}</span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
-                          <span
-                            className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
-                            title={metrics.health_status}
-                          />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="text-sm text-gray-900">
-                            {metrics.available_couriers}/{metrics.total_couriers}
-                          </span>
-                          <span className="text-xs text-gray-500 ml-1">avail</span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${
-                            metrics.utilization_pct >= 80 ? 'text-red-600' :
-                            metrics.utilization_pct >= 50 ? 'text-yellow-600' :
-                            'text-green-600'
-                          }`}>
-                            {metrics.utilization_pct.toFixed(0)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.orders_in_queue}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${metrics.orders_picking > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.orders_picking}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${metrics.orders_delivering > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.orders_delivering}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${
-                            metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
-                          }`}>
-                            {metrics.orders_at_risk}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
       {couriers.length > 0 && (
         <>
-          {/* Active Store Filter */}
-          {selectedStoreId && (
-            <div className="mb-4 flex items-center gap-2 text-sm">
-              <span className="text-gray-600">Filtering by:</span>
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
-                {storesData.find(s => s.store_id === selectedStoreId)?.store_name || selectedStoreId}
-                <button
-                  onClick={() => setSelectedStoreId(null)}
-                  className="ml-1 hover:text-blue-900"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </span>
-              <span className="text-gray-500">({filteredCouriers.length} couriers)</span>
-            </div>
-          )}
-
-          <div className="mb-4 space-y-2">
-            <div className="relative max-w-md">
+          <div className="mb-4 flex flex-wrap items-center gap-4">
+            <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
                 value={courierIdSearch}
                 onChange={e => setCourierIdSearch(e.target.value)}
-                placeholder="Search by courier ID (e.g., C-0057)..."
+                placeholder="Search by courier ID..."
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            {!courierIdSearch && couriers.length >= 1000 && (
-              <div className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg max-w-md">
-                ⚠️ Showing first 1000 couriers only. Use search to find specific couriers.
-              </div>
+            <select
+              value={selectedStoreId || ''}
+              onChange={e => {
+                setSelectedStoreId(e.target.value || null)
+                setCourierIdSearch('')
+              }}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">All Stores</option>
+              {storesData.map(store => (
+                <option key={store.store_id} value={store.store_id}>
+                  {store.store_name} ({store.store_zone})
+                </option>
+              ))}
+            </select>
+            {selectedStoreId && (
+              <span className="text-sm text-gray-500">
+                {filteredCouriers.length} couriers
+              </span>
             )}
-            {courierIdSearch && searchedCourier && !couriers.find(c => c.courier_id === searchedCourier.courier_id) && (
-              <div className="text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg max-w-md">
-                ℹ️ Found courier from database (not in displayed list)
+            {!courierIdSearch && couriers.length >= 1000 && (
+              <div className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                ⚠️ Showing first 1000 couriers. Use search or filter by store.
               </div>
             )}
           </div>
