@@ -44,10 +44,14 @@ if [ "$MISSING_DEPS" = true ]; then
     }
 fi
 
-# Run ontology seed files first
+# Run ontology seed files first (excludes bundleable orders which need entity data)
 for seed in "$SCRIPT_DIR/../seed"/*.sql; do
     if [ -f "$seed" ]; then
         filename=$(basename "$seed")
+        # Skip bundleable orders - must run after Python generator creates entities
+        if [[ "$filename" == "demo_bundleable_orders.sql" ]]; then
+            continue
+        fi
         echo "Running seed: $filename"
         # Use psql from Docker container to avoid requiring local psql installation
         docker-compose exec -T db psql -U "$PG_USER" -d "$PG_DATABASE" -f "/docker-entrypoint-initdb.d/seed/$filename"
@@ -59,5 +63,11 @@ done
 # This is the default that works reliably with Zero sync
 echo "Generating demo operational data (scale=0.01)..."
 python3 "$SCRIPT_DIR/generate_load_test_data.py" --scale 0.01
+
+# Run bundleable orders seed AFTER Python generator creates stores/customers/products
+if [ -f "$SCRIPT_DIR/../seed/demo_bundleable_orders.sql" ]; then
+    echo "Running seed: demo_bundleable_orders.sql (bundleable order demo data)"
+    docker-compose exec -T db psql -U "$PG_USER" -d "$PG_DATABASE" -f "/docker-entrypoint-initdb.d/seed/demo_bundleable_orders.sql"
+fi
 
 echo "Seed complete!"
