@@ -1,12 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo } from '../api/client'
-import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, Zap } from 'lucide-react'
+import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo, SupplyConfigInfo, SupplyConfigName } from '../api/client'
+import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck } from 'lucide-react'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
-  const [selectedProfile, setSelectedProfile] = useState<LoadGenProfile>('demo')
-  const [durationOverride, setDurationOverride] = useState<string>('')
+
+  // Demand state
+  const [demandProfile, setDemandProfile] = useState<LoadGenProfile>('demo')
+  const [demandDuration, setDemandDuration] = useState<string>('')
+
+  // Supply state
+  const [supplyConfig, setSupplyConfig] = useState<SupplyConfigName>('normal')
+  const [supplyDuration, setSupplyDuration] = useState<string>('')
 
   const { data: health, error: healthError } = useQuery({
     queryKey: ['health'],
@@ -21,10 +27,17 @@ export default function SettingsPage() {
   })
 
   // Load generator queries
-  const { data: loadgenStatus, isLoading: statusLoading, error: statusError } = useQuery({
-    queryKey: ['loadgen-status'],
-    queryFn: () => loadgenApi.getStatus().then(r => r.data),
-    refetchInterval: 2000, // Poll every 2 seconds
+  const { data: demandStatus, isLoading: demandStatusLoading, error: demandStatusError } = useQuery({
+    queryKey: ['demand-status'],
+    queryFn: () => loadgenApi.getDemandStatus().then(r => r.data),
+    refetchInterval: 2000,
+    retry: 3,
+  })
+
+  const { data: supplyStatus, isLoading: supplyStatusLoading, error: supplyStatusError } = useQuery({
+    queryKey: ['supply-status'],
+    queryFn: () => loadgenApi.getSupplyStatus().then(r => r.data),
+    refetchInterval: 2000,
     retry: 3,
   })
 
@@ -34,28 +47,103 @@ export default function SettingsPage() {
     retry: 3,
   })
 
-  const startMutation = useMutation({
-    mutationFn: () => loadgenApi.start({
-      profile: selectedProfile,
-      duration_minutes: durationOverride ? parseInt(durationOverride, 10) : undefined,
+  const { data: supplyConfigs, error: supplyConfigsError } = useQuery({
+    queryKey: ['supply-configs'],
+    queryFn: () => loadgenApi.getSupplyConfigs().then(r => r.data),
+    retry: 3,
+  })
+
+  // Demand mutations
+  const startDemandMutation = useMutation({
+    mutationFn: () => loadgenApi.startDemand({
+      profile: demandProfile,
+      duration_minutes: demandDuration ? parseInt(demandDuration, 10) : undefined,
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['loadgen-status'] })
+      queryClient.invalidateQueries({ queryKey: ['demand-status'] })
     },
   })
 
-  const stopMutation = useMutation({
-    mutationFn: () => loadgenApi.stop(),
+  const stopDemandMutation = useMutation({
+    mutationFn: () => loadgenApi.stopDemand(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['loadgen-status'] })
+      queryClient.invalidateQueries({ queryKey: ['demand-status'] })
     },
   })
 
-  const isRunning = loadgenStatus?.status === 'running' || loadgenStatus?.status === 'starting'
-  const isStopping = loadgenStatus?.status === 'stopping'
-  const selectedProfileInfo = profiles?.find((p: LoadGenProfileInfo) => p.name === selectedProfile)
+  // Supply mutations
+  const startSupplyMutation = useMutation({
+    mutationFn: () => loadgenApi.startSupply({
+      profile: demandProfile, // Use same profile for duration
+      supply_config: supplyConfig,
+      duration_minutes: supplyDuration ? parseInt(supplyDuration, 10) : undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supply-status'] })
+    },
+  })
+
+  const stopSupplyMutation = useMutation({
+    mutationFn: () => loadgenApi.stopSupply(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['supply-status'] })
+    },
+  })
+
+  const isDemandRunning = demandStatus?.status === 'running' || demandStatus?.status === 'starting'
+  const isDemandStopping = demandStatus?.status === 'stopping'
+  const isSupplyRunning = supplyStatus?.status === 'running' || supplyStatus?.status === 'starting'
+  const isSupplyStopping = supplyStatus?.status === 'stopping'
+
+  const selectedProfileInfo = profiles?.find((p: LoadGenProfileInfo) => p.name === demandProfile)
+  const selectedSupplyConfigInfo = supplyConfigs?.find((c: SupplyConfigInfo) => c.name === supplyConfig)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+
+  // Helper to render status badge
+  const renderStatusBadge = (
+    isRunning: boolean,
+    isStopping: boolean,
+    statusLoading: boolean,
+    statusError: Error | null
+  ) => {
+    if (statusError) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
+          <XCircle className="h-3 w-3" />
+          Service Unavailable
+        </span>
+      )
+    }
+    if (statusLoading) {
+      return <span className="text-sm text-gray-500">Loading...</span>
+    }
+    if (isRunning) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          Running
+        </span>
+      )
+    }
+    if (isStopping) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Stopping
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
+        <span className="h-2 w-2 rounded-full bg-gray-400"></span>
+        Stopped
+      </span>
+    )
+  }
 
   return (
     <div className="p-6">
@@ -120,170 +208,281 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Load Generator Controls */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-500" />
-            Load Generator
-          </h2>
-          <div className="flex items-center gap-2">
-            {statusError || profilesError ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
-                <XCircle className="h-3 w-3" />
-                Service Unavailable
-              </span>
-            ) : statusLoading ? (
-              <span className="text-sm text-gray-500">Loading...</span>
-            ) : isRunning ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                Running
-              </span>
-            ) : isStopping ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Stopping
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
-                <span className="h-2 w-2 rounded-full bg-gray-400"></span>
-                Stopped
-              </span>
-            )}
+      {/* Load Generator Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Demand Generator Card */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-blue-500" />
+              Demand Generator
+            </h2>
+            {renderStatusBadge(isDemandRunning, isDemandStopping, demandStatusLoading, demandStatusError)}
           </div>
-        </div>
 
-        {/* Running Info */}
-        {isRunning && loadgenStatus && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-gray-500">Profile:</span>
-                <span className="ml-2 font-medium text-green-800">{loadgenStatus.profile}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Duration:</span>
-                <span className="ml-2 font-medium text-green-800">
-                  {loadgenStatus.duration_minutes ? `${loadgenStatus.duration_minutes} min` : 'Unlimited'}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">Started:</span>
-                <span className="ml-2 font-medium text-green-800">
-                  {loadgenStatus.started_at ? new Date(loadgenStatus.started_at).toLocaleTimeString() : '-'}
-                </span>
+          <p className="text-sm text-gray-600 mb-4">
+            Creates orders, customers, and inventory updates
+          </p>
+
+          {/* Running Info */}
+          {isDemandRunning && demandStatus && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Profile:</span>
+                  <span className="ml-2 font-medium text-blue-800">{demandStatus.profile}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Duration:</span>
+                  <span className="ml-2 font-medium text-blue-800">
+                    {demandStatus.duration_minutes ? `${demandStatus.duration_minutes} min` : 'Unlimited'}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Profile Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Profile</label>
-            <select
-              value={selectedProfile}
-              onChange={(e) => setSelectedProfile(e.target.value as LoadGenProfile)}
-              disabled={isRunning || isStopping}
-              className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-gray-100 disabled:text-gray-500"
-            >
-              {profiles?.map((profile: LoadGenProfileInfo) => (
-                <option key={profile.name} value={profile.name}>
-                  {profile.name.charAt(0).toUpperCase() + profile.name.slice(1)} - {profile.orders_per_minute} orders/min
-                </option>
-              ))}
-            </select>
-            {selectedProfileInfo && (
-              <p className="text-xs text-gray-500 mt-1">{selectedProfileInfo.description}</p>
-            )}
-          </div>
-
-          {/* Duration Override */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
-            <input
-              type="number"
-              value={durationOverride}
-              onChange={(e) => {
-                const value = e.target.value
-                // Only allow positive integers or empty string
-                if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
-                  setDurationOverride(value)
-                }
-              }}
-              placeholder={selectedProfileInfo?.duration_minutes?.toString() || 'Unlimited'}
-              disabled={isRunning || isStopping}
-              className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
-              min="1"
-            />
-            <p className="text-xs text-gray-500 mt-1">Leave empty for profile default</p>
-          </div>
-        </div>
-
-        {/* Start/Stop Button */}
-        <div className="mt-4">
-          {isRunning || isStopping ? (
-            <button
-              onClick={() => stopMutation.mutate()}
-              disabled={isStopping || stopMutation.isPending}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium rounded-lg transition-colors"
-            >
-              {stopMutation.isPending || isStopping ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Stopping...
-                </>
-              ) : (
-                <>
-                  <Square className="h-4 w-4" />
-                  Stop Traffic
-                </>
+          {/* Controls */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Profile</label>
+              <select
+                value={demandProfile}
+                onChange={(e) => setDemandProfile(e.target.value as LoadGenProfile)}
+                disabled={isDemandRunning || isDemandStopping}
+                className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                {profiles?.map((profile: LoadGenProfileInfo) => (
+                  <option key={profile.name} value={profile.name}>
+                    {profile.name.charAt(0).toUpperCase() + profile.name.slice(1)} - {profile.orders_per_minute} orders/min
+                  </option>
+                ))}
+              </select>
+              {selectedProfileInfo && (
+                <p className="text-xs text-gray-500 mt-1">{selectedProfileInfo.description}</p>
               )}
-            </button>
-          ) : (
-            <button
-              onClick={() => startMutation.mutate()}
-              disabled={startMutation.isPending}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium rounded-lg transition-colors"
-            >
-              {startMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Starting...
-                </>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
+              <input
+                type="number"
+                value={demandDuration}
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
+                    setDemandDuration(value)
+                  }
+                }}
+                placeholder={selectedProfileInfo?.duration_minutes?.toString() || 'Unlimited'}
+                disabled={isDemandRunning || isDemandStopping}
+                className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+                min="1"
+              />
+            </div>
+
+            {/* Start/Stop Button */}
+            <div>
+              {isDemandRunning || isDemandStopping ? (
+                <button
+                  onClick={() => stopDemandMutation.mutate()}
+                  disabled={isDemandStopping || stopDemandMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium rounded-lg transition-colors"
+                >
+                  {stopDemandMutation.isPending || isDemandStopping ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop Demand
+                    </>
+                  )}
+                </button>
               ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  Start Traffic
-                </>
+                <button
+                  onClick={() => startDemandMutation.mutate()}
+                  disabled={startDemandMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg transition-colors"
+                >
+                  {startDemandMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      Start Demand
+                    </>
+                  )}
+                </button>
               )}
-            </button>
+            </div>
+          </div>
+
+          {/* Error Display */}
+          {(startDemandMutation.isError || stopDemandMutation.isError || profilesError) && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <XCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-red-800">Error</p>
+                  <p className="text-red-700 mt-1">
+                    {(startDemandMutation.error as Error)?.message ||
+                     (stopDemandMutation.error as Error)?.message ||
+                     (profilesError as Error)?.message ||
+                     'Failed to connect to load generator service.'}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Error Display */}
-        {(startMutation.isError || stopMutation.isError || statusError || profilesError) && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-start gap-2">
-              <XCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm">
-                <p className="font-medium text-red-800">Load Generator Error</p>
-                <p className="text-red-700 mt-1">
-                  {startMutation.error?.message ||
-                   stopMutation.error?.message ||
-                   statusError?.message ||
-                   profilesError?.message ||
-                   'Failed to connect to load generator service. Please check that the service is running.'}
-                </p>
+        {/* Supply Generator Card */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg flex items-center gap-2">
+              <Truck className="h-5 w-5 text-green-500" />
+              Supply Generator
+            </h2>
+            {renderStatusBadge(isSupplyRunning, isSupplyStopping, supplyStatusLoading, supplyStatusError)}
+          </div>
+
+          <p className="text-sm text-gray-600 mb-4">
+            Dispatches couriers and advances deliveries
+          </p>
+
+          {/* Running Info */}
+          {isSupplyRunning && supplyStatus && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Config:</span>
+                  <span className="ml-2 font-medium text-green-800">{supplyStatus.supply_config}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Duration:</span>
+                  <span className="ml-2 font-medium text-green-800">
+                    {supplyStatus.duration_minutes ? `${supplyStatus.duration_minutes} min` : 'Unlimited'}
+                  </span>
+                </div>
+                {supplyStatus.dispatch_interval_seconds && (
+                  <div className="col-span-2 text-xs text-green-700">
+                    Dispatch: {supplyStatus.dispatch_interval_seconds}s |
+                    Pick: {supplyStatus.picking_duration_seconds}s |
+                    Deliver: {supplyStatus.delivery_duration_seconds}s
+                  </div>
+                )}
               </div>
             </div>
+          )}
+
+          {/* Controls */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Speed Config</label>
+              <select
+                value={supplyConfig}
+                onChange={(e) => setSupplyConfig(e.target.value as SupplyConfigName)}
+                disabled={isSupplyRunning || isSupplyStopping}
+                className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                {supplyConfigs?.map((config: SupplyConfigInfo) => (
+                  <option key={config.name} value={config.name}>
+                    {config.name.charAt(0).toUpperCase() + config.name.slice(1)} - {config.dispatch_interval_seconds}s interval
+                  </option>
+                ))}
+              </select>
+              {selectedSupplyConfigInfo && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Pick: {selectedSupplyConfigInfo.picking_duration_seconds}s,
+                  Deliver: {selectedSupplyConfigInfo.delivery_duration_seconds}s
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
+              <input
+                type="number"
+                value={supplyDuration}
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
+                    setSupplyDuration(value)
+                  }
+                }}
+                placeholder={selectedProfileInfo?.duration_minutes?.toString() || 'Unlimited'}
+                disabled={isSupplyRunning || isSupplyStopping}
+                className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+                min="1"
+              />
+            </div>
+
+            {/* Start/Stop Button */}
+            <div>
+              {isSupplyRunning || isSupplyStopping ? (
+                <button
+                  onClick={() => stopSupplyMutation.mutate()}
+                  disabled={isSupplyStopping || stopSupplyMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium rounded-lg transition-colors"
+                >
+                  {stopSupplyMutation.isPending || isSupplyStopping ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop Supply
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={() => startSupplyMutation.mutate()}
+                  disabled={startSupplyMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium rounded-lg transition-colors"
+                >
+                  {startSupplyMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      Start Supply
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Error Display */}
+          {(startSupplyMutation.isError || stopSupplyMutation.isError || supplyConfigsError) && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <XCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-red-800">Error</p>
+                  <p className="text-red-700 mt-1">
+                    {(startSupplyMutation.error as Error)?.message ||
+                     (stopSupplyMutation.error as Error)?.message ||
+                     (supplyConfigsError as Error)?.message ||
+                     'Failed to connect to load generator service.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dashboard Links */}
@@ -359,7 +558,7 @@ export default function SettingsPage() {
             <h3 className="font-semibold text-orange-900 mb-2">Quick Start: Dev Tools Console</h3>
             <ol className="list-decimal list-inside space-y-2 text-gray-700">
               <li>Open <a href="http://localhost:5601" target="_blank" rel="noopener noreferrer" className="text-orange-600 hover:underline font-medium">OpenSearch Dashboards</a></li>
-              <li>Click the menu icon (☰) → "Management" → "Dev Tools"</li>
+              <li>Click the menu icon (&#9776;) &rarr; "Management" &rarr; "Dev Tools"</li>
               <li>Run queries in the console</li>
             </ol>
           </div>

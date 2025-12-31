@@ -10,8 +10,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 
 from loadgen import __version__
-from loadgen.config import PROFILES, get_profile, list_profiles
-from loadgen.orchestrator import LoadOrchestrator
+from loadgen.config import PROFILES, SUPPLY_CONFIGS, get_profile, get_supply_config, list_profiles, SupplyConfig
 
 console = Console()
 
@@ -76,6 +75,37 @@ def cli():
     is_flag=True,
     help="Show configuration without running",
 )
+@click.option(
+    "--demand-only",
+    is_flag=True,
+    help="Run only demand generator (orders, customers, inventory)",
+)
+@click.option(
+    "--supply-only",
+    is_flag=True,
+    help="Run only supply generator (courier dispatch)",
+)
+@click.option(
+    "--supply-config",
+    type=click.Choice(list(SUPPLY_CONFIGS.keys())),
+    default="normal",
+    help="Supply configuration preset",
+)
+@click.option(
+    "--dispatch-interval",
+    type=float,
+    help="Dispatch interval in seconds (overrides supply config)",
+)
+@click.option(
+    "--picking-duration",
+    type=float,
+    help="Picking phase duration in seconds (overrides supply config)",
+)
+@click.option(
+    "--delivery-duration",
+    type=float,
+    help="Delivery phase duration in seconds (overrides supply config)",
+)
 def start(
     profile: str,
     api_url: str,
@@ -83,9 +113,19 @@ def start(
     seed: int,
     verbose: bool,
     dry_run: bool,
+    demand_only: bool,
+    supply_only: bool,
+    supply_config: str,
+    dispatch_interval: float,
+    picking_duration: float,
+    delivery_duration: float,
 ):
     """Start load generation with specified profile."""
     setup_logging(verbose)
+
+    if demand_only and supply_only:
+        console.print("[red]Error: Cannot specify both --demand-only and --supply-only[/red]")
+        sys.exit(1)
 
     # Get profile configuration
     try:
@@ -93,6 +133,24 @@ def start(
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+
+    # Get supply configuration
+    try:
+        base_supply_config = get_supply_config(supply_config)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+    # Apply supply config overrides
+    final_supply_config = SupplyConfig(
+        dispatch_interval_seconds=dispatch_interval or base_supply_config.dispatch_interval_seconds,
+        picking_duration_seconds=picking_duration or base_supply_config.picking_duration_seconds,
+        delivery_duration_seconds=delivery_duration or base_supply_config.delivery_duration_seconds,
+    )
+
+    # Determine what to run
+    run_demand = not supply_only
+    run_supply = not demand_only
 
     # Show configuration
     console.print("\n[bold cyan]FreshMart Load Generator[/bold cyan]")
@@ -104,8 +162,22 @@ def start(
 
     table.add_row("Profile", load_profile.name)
     table.add_row("Description", load_profile.description)
-    table.add_row("Target Rate", f"{load_profile.orders_per_minute} orders/min")
-    table.add_row("Concurrent Workflows", str(load_profile.concurrent_workflows))
+
+    if run_demand:
+        table.add_row("Demand", "Enabled")
+        table.add_row("  Target Rate", f"{load_profile.orders_per_minute} orders/min")
+        table.add_row("  Concurrent Workflows", str(load_profile.concurrent_workflows))
+    else:
+        table.add_row("Demand", "Disabled")
+
+    if run_supply:
+        table.add_row("Supply", "Enabled")
+        table.add_row("  Dispatch Interval", f"{final_supply_config.dispatch_interval_seconds}s")
+        table.add_row("  Picking Duration", f"{final_supply_config.picking_duration_seconds}s")
+        table.add_row("  Delivery Duration", f"{final_supply_config.delivery_duration_seconds}s")
+    else:
+        table.add_row("Supply", "Disabled")
+
     table.add_row(
         "Duration",
         f"{duration or load_profile.duration_minutes or 'unlimited'} minutes",
@@ -121,23 +193,60 @@ def start(
         console.print("[yellow]Dry run - not executing[/yellow]")
         return
 
-    # Create orchestrator
-    orchestrator = LoadOrchestrator(
-        api_url=api_url,
-        profile=load_profile,
-        seed=seed,
-    )
+    # Run the appropriate orchestrator(s)
+    if run_demand and run_supply:
+        # Run both using the combined orchestrator (legacy behavior)
+        from loadgen.orchestrator import LoadOrchestrator
+        orchestrator = LoadOrchestrator(
+            api_url=api_url,
+            profile=load_profile,
+            seed=seed,
+        )
+        try:
+            asyncio.run(orchestrator.run(duration_minutes=duration))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted by user[/yellow]")
+        except Exception as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+            if verbose:
+                console.print_exception()
+            sys.exit(1)
 
-    # Run orchestrator with proper signal handling
-    try:
-        asyncio.run(orchestrator.run(duration_minutes=duration))
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted by user[/yellow]")
-    except Exception as e:
-        console.print(f"\n[red]Error: {e}[/red]")
-        if verbose:
-            console.print_exception()
-        sys.exit(1)
+    elif run_demand:
+        # Run only demand
+        from loadgen.demand_orchestrator import DemandOrchestrator
+        orchestrator = DemandOrchestrator(
+            api_url=api_url,
+            profile=load_profile,
+            seed=seed,
+        )
+        try:
+            asyncio.run(orchestrator.run(duration_minutes=duration))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted by user[/yellow]")
+        except Exception as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+            if verbose:
+                console.print_exception()
+            sys.exit(1)
+
+    elif run_supply:
+        # Run only supply
+        from loadgen.supply_orchestrator import SupplyOrchestrator
+        orchestrator = SupplyOrchestrator(
+            api_url=api_url,
+            profile=load_profile,
+            supply_config=final_supply_config,
+        )
+        try:
+            asyncio.run(orchestrator.run(duration_minutes=duration))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted by user[/yellow]")
+        except Exception as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+            if verbose:
+                console.print_exception()
+            sys.exit(1)
 
 
 @cli.command()
@@ -154,6 +263,24 @@ def profiles():
         table.add_row("Orders/min", str(profile.orders_per_minute))
         table.add_row("Concurrent Workflows", str(profile.concurrent_workflows))
         table.add_row("Default Duration", f"{profile.duration_minutes} minutes")
+
+        console.print(table)
+        console.print()
+
+
+@cli.command(name="supply-configs")
+def supply_configs():
+    """List available supply configurations."""
+    console.print("\n[bold cyan]Available Supply Configurations[/bold cyan]\n")
+
+    for name, config in SUPPLY_CONFIGS.items():
+        table = Table(title=f"{name.upper()} Supply Config", show_header=False)
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="green")
+
+        table.add_row("Dispatch Interval", f"{config.dispatch_interval_seconds}s")
+        table.add_row("Picking Duration", f"{config.picking_duration_seconds}s")
+        table.add_row("Delivery Duration", f"{config.delivery_duration_seconds}s")
 
         console.print(table)
         console.print()

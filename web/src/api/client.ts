@@ -413,6 +413,7 @@ export const queryStatsApi = {
 // Load Generator Types
 export type LoadGenStatus = 'stopped' | 'running' | 'starting' | 'stopping'
 export type LoadGenProfile = 'demo' | 'standard' | 'peak' | 'stress'
+export type SupplyConfigName = 'normal' | 'fast' | 'slow'
 
 export interface LoadGenProfileInfo {
   name: string
@@ -422,6 +423,86 @@ export interface LoadGenProfileInfo {
   duration_minutes: number | null
 }
 
+export interface SupplyConfigInfo {
+  name: string
+  dispatch_interval_seconds: number
+  picking_duration_seconds: number
+  delivery_duration_seconds: number
+}
+
+// Demand generator types
+export interface DemandStatusResponse {
+  status: LoadGenStatus
+  profile: string | null
+  started_at: string | null
+  duration_minutes: number | null
+}
+
+export interface DemandMetricsResponse {
+  total_successes: number
+  total_failures: number
+  success_rate: number
+  throughput_per_min: number
+  avg_latency_ms: number
+  orders_created: number
+  customers_created: number
+  inventory_updates: number
+  cancellations: number
+}
+
+export interface StartDemandRequest {
+  profile: LoadGenProfile
+  duration_minutes?: number | null
+  api_url?: string | null
+}
+
+// Supply generator types
+export interface SupplyStatusResponse {
+  status: LoadGenStatus
+  supply_config: string | null
+  dispatch_interval_seconds: number | null
+  picking_duration_seconds: number | null
+  delivery_duration_seconds: number | null
+  started_at: string | null
+  duration_minutes: number | null
+}
+
+export interface SupplyMetricsResponse {
+  total_successes: number
+  dispatch_assigns: number
+  dispatch_completes: number
+  throughput_per_min: number
+}
+
+export interface StartSupplyRequest {
+  profile?: LoadGenProfile
+  supply_config?: SupplyConfigName
+  dispatch_interval_seconds?: number | null
+  picking_duration_seconds?: number | null
+  delivery_duration_seconds?: number | null
+  duration_minutes?: number | null
+  api_url?: string | null
+}
+
+// Combined types
+export interface CombinedStatusResponse {
+  demand: DemandStatusResponse
+  supply: SupplyStatusResponse
+}
+
+export interface CombinedMetricsResponse {
+  demand: DemandMetricsResponse
+  supply: SupplyMetricsResponse
+}
+
+export interface StartBothRequest {
+  profile: LoadGenProfile
+  supply_config?: SupplyConfigName
+  duration_minutes?: number | null
+  api_url?: string | null
+}
+
+// Legacy types (backward compatible)
 export interface LoadGenStatusResponse {
   status: LoadGenStatus
   profile: string | null
@@ -437,14 +518,47 @@ export interface LoadGenStartRequest {
 }
 
 export const loadgenApi = {
+  // Profiles and configs
   getProfiles: () =>
     apiClient.get<LoadGenProfileInfo[]>('/loadgen/profiles'),
+  getSupplyConfigs: () =>
+    apiClient.get<SupplyConfigInfo[]>('/loadgen/supply-configs'),
+
+  // Demand generator endpoints
+  getDemandStatus: () =>
+    apiClient.get<DemandStatusResponse>('/loadgen/demand/status'),
+  getDemandMetrics: () =>
+    apiClient.get<DemandMetricsResponse>('/loadgen/demand/metrics'),
+  startDemand: (request: StartDemandRequest) =>
+    apiClient.post<DemandStatusResponse>('/loadgen/demand/start', request),
+  stopDemand: () =>
+    apiClient.post<DemandStatusResponse>('/loadgen/demand/stop'),
+
+  // Supply generator endpoints
+  getSupplyStatus: () =>
+    apiClient.get<SupplyStatusResponse>('/loadgen/supply/status'),
+  getSupplyMetrics: () =>
+    apiClient.get<SupplyMetricsResponse>('/loadgen/supply/metrics'),
+  startSupply: (request: StartSupplyRequest) =>
+    apiClient.post<SupplyStatusResponse>('/loadgen/supply/start', request),
+  stopSupply: () =>
+    apiClient.post<SupplyStatusResponse>('/loadgen/supply/stop'),
+
+  // Combined endpoints
   getStatus: () =>
-    apiClient.get<LoadGenStatusResponse>('/loadgen/status'),
+    apiClient.get<CombinedStatusResponse>('/loadgen/status'),
+  getMetrics: () =>
+    apiClient.get<CombinedMetricsResponse>('/loadgen/metrics'),
+  startBoth: (request: StartBothRequest) =>
+    apiClient.post<CombinedStatusResponse>('/loadgen/start', request),
+  stopBoth: () =>
+    apiClient.post<CombinedStatusResponse>('/loadgen/stop'),
+
+  // Legacy endpoints (backward compatible)
   start: (request: LoadGenStartRequest) =>
-    apiClient.post<LoadGenStatusResponse>('/loadgen/start', request),
+    apiClient.post<CombinedStatusResponse>('/loadgen/start', request),
   stop: () =>
-    apiClient.post<LoadGenStatusResponse>('/loadgen/stop'),
+    apiClient.post<CombinedStatusResponse>('/loadgen/stop'),
   getOutput: () =>
     apiClient.get<{ lines: string[] }>('/loadgen/output'),
 }
