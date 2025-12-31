@@ -77,10 +77,8 @@ async def get_timeseries(
     - Sparkline charts showing trends over time
     - Delta indicators comparing current vs previous windows
     """
-    # Wrap both queries in a transaction to ensure consistent snapshot
-    async with session.begin():
-        # Query store-level timeseries
-        store_query = text("""
+    # Query store-level timeseries (session already in transaction from dependency)
+    store_query = text("""
             SELECT
                 id,
                 store_id,
@@ -95,61 +93,61 @@ async def get_timeseries(
             WHERE (:store_id IS NULL OR store_id = :store_id)
             ORDER BY window_end DESC
             LIMIT :limit
-        """)
+    """)
 
-        store_result = await session.execute(
-            store_query,
-            {"store_id": store_id, "limit": limit * 10 if store_id is None else limit}
+    store_result = await session.execute(
+        store_query,
+        {"store_id": store_id, "limit": limit * 10 if store_id is None else limit}
+    )
+    store_rows = store_result.fetchall()
+
+    store_timeseries = [
+        StoreTimeseriesPoint(
+            id=row.id,
+            store_id=row.store_id,
+            window_end=int(row.window_end) if row.window_end else 0,
+            queue_depth=int(row.queue_depth) if row.queue_depth else 0,
+            in_progress=int(row.in_progress) if row.in_progress else 0,
+            total_orders=int(row.total_orders) if row.total_orders else 0,
+            avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
+            max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
+            orders_picked_up=int(row.orders_picked_up) if row.orders_picked_up else 0,
         )
-        store_rows = store_result.fetchall()
+        for row in store_rows
+    ]
 
-        store_timeseries = [
-            StoreTimeseriesPoint(
-                id=row.id,
-                store_id=row.store_id,
-                window_end=int(row.window_end) if row.window_end else 0,
-                queue_depth=int(row.queue_depth) if row.queue_depth else 0,
-                in_progress=int(row.in_progress) if row.in_progress else 0,
-                total_orders=int(row.total_orders) if row.total_orders else 0,
-                avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
-                max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
-                orders_picked_up=int(row.orders_picked_up) if row.orders_picked_up else 0,
-            )
-            for row in store_rows
-        ]
+    # Query system-level timeseries
+    system_query = text("""
+        SELECT
+            id,
+            window_end,
+            COALESCE(total_queue_depth, 0) as total_queue_depth,
+            COALESCE(total_in_progress, 0) as total_in_progress,
+            COALESCE(total_orders, 0) as total_orders,
+            avg_wait_minutes,
+            max_wait_minutes,
+            COALESCE(total_orders_picked_up, 0) as total_orders_picked_up
+        FROM system_metrics_timeseries_mv
+        ORDER BY window_end DESC
+        LIMIT :limit
+    """)
 
-        # Query system-level timeseries
-        system_query = text("""
-            SELECT
-                id,
-                window_end,
-                COALESCE(total_queue_depth, 0) as total_queue_depth,
-                COALESCE(total_in_progress, 0) as total_in_progress,
-                COALESCE(total_orders, 0) as total_orders,
-                avg_wait_minutes,
-                max_wait_minutes,
-                COALESCE(total_orders_picked_up, 0) as total_orders_picked_up
-            FROM system_metrics_timeseries_mv
-            ORDER BY window_end DESC
-            LIMIT :limit
-        """)
+    system_result = await session.execute(system_query, {"limit": limit})
+    system_rows = system_result.fetchall()
 
-        system_result = await session.execute(system_query, {"limit": limit})
-        system_rows = system_result.fetchall()
-
-        system_timeseries = [
-            SystemTimeseriesPoint(
-                id=row.id,
-                window_end=int(row.window_end) if row.window_end else 0,
-                total_queue_depth=int(row.total_queue_depth) if row.total_queue_depth else 0,
-                total_in_progress=int(row.total_in_progress) if row.total_in_progress else 0,
-                total_orders=int(row.total_orders) if row.total_orders else 0,
-                avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
-                max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
-                total_orders_picked_up=int(row.total_orders_picked_up) if row.total_orders_picked_up else 0,
-            )
-            for row in system_rows
-        ]
+    system_timeseries = [
+        SystemTimeseriesPoint(
+            id=row.id,
+            window_end=int(row.window_end) if row.window_end else 0,
+            total_queue_depth=int(row.total_queue_depth) if row.total_queue_depth else 0,
+            total_in_progress=int(row.total_in_progress) if row.total_in_progress else 0,
+            total_orders=int(row.total_orders) if row.total_orders else 0,
+            avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
+            max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
+            total_orders_picked_up=int(row.total_orders_picked_up) if row.total_orders_picked_up else 0,
+        )
+        for row in system_rows
+    ]
 
     return TimeseriesResponse(
         store_timeseries=store_timeseries,
