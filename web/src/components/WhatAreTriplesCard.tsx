@@ -20,14 +20,17 @@ export const WhatAreTriplesCard = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [triples, setTriples] = useState<Triple[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchTriples = useCallback(async () => {
     if (!selectedOrderId) {
       setTriples([]);
+      setError(null);
       return;
     }
 
     setIsLoading(true);
+    setError(null);
     try {
       // Fetch triples for the order
       const orderTriples = await triplesApi.list({ subject_id: selectedOrderId });
@@ -48,6 +51,7 @@ export const WhatAreTriplesCard = ({
     } catch (error) {
       console.error("Failed to fetch triples:", error);
       setTriples([]);
+      setError("Failed to load triples. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +91,7 @@ export const WhatAreTriplesCard = ({
       {isExpanded && (
         <div className="px-6 pb-6">
           {/* Explainer text */}
-          <div className="mb-4 text-sm text-gray-600 leading-relaxed space-y-2">
+          <div className="mb-4 text-sm text-gray-600 leading-relaxed">
             <p>
               Triples are the atomic unit of knowledge&mdash;each captures a single fact as{" "}
               <span className="font-mono text-purple-600">Subject</span>{" "}
@@ -97,12 +101,6 @@ export const WhatAreTriplesCard = ({
               <span className="font-mono text-purple-600">Value</span>. This structure lets AI
               agents update individual facts without needing complex schemas or full object
               structures.
-            </p>
-            <p>
-              A <span className="font-medium">knowledge graph</span> (ontology) sits on top of
-              triples, defining entity types, valid predicates, and relationships. This gives
-              agents the context to understand what facts exist, how entities relate, and which
-              updates are valid&mdash;enabling structured reasoning over unstructured data.
             </p>
           </div>
 
@@ -117,7 +115,11 @@ export const WhatAreTriplesCard = ({
               </span>
             </div>
 
-            {triples.length === 0 && !isLoading ? (
+            {error ? (
+              <div className="p-4 text-center text-red-600 text-sm">
+                {error}
+              </div>
+            ) : triples.length === 0 && !isLoading ? (
               <div className="p-4 text-center text-gray-500 text-sm">
                 No triples found for this order
               </div>
