@@ -30,15 +30,15 @@ class StoreTimeseriesPoint(BaseModel):
 
 
 class SystemTimeseriesPoint(BaseModel):
-    """A single timeseries data point for system-wide metrics."""
+    """A single point-in-time snapshot of system-wide order state."""
     id: str
-    window_end: int  # epoch milliseconds
-    total_queue_depth: int
-    total_in_progress: int
-    total_orders: int
-    avg_wait_minutes: Optional[float]
-    max_wait_minutes: Optional[float]
-    total_orders_picked_up: int
+    window_end: int  # epoch milliseconds (snapshot time)
+    total_queue_depth: int  # orders waiting (CREATED status)
+    total_in_progress: int  # orders being worked (PICKING/OUT_FOR_DELIVERY)
+    total_orders: int  # queue_depth + in_progress
+    avg_wait_minutes: Optional[float]  # not available in snapshot view
+    max_wait_minutes: Optional[float]  # not available in snapshot view
+    total_orders_picked_up: int  # throughput: orders delivered this minute
 
 
 class TimeseriesResponse(BaseModel):
@@ -77,24 +77,24 @@ async def get_timeseries(
     - Sparkline charts showing trends over time
     - Delta indicators comparing current vs previous windows
     """
-    # Wrap both queries in a transaction to ensure consistent snapshot
+    # Explicit transaction ensures both queries see a consistent snapshot
     async with session.begin():
         # Query store-level timeseries
         store_query = text("""
-            SELECT
-                id,
-                store_id,
-                window_end,
-                COALESCE(queue_depth, 0) as queue_depth,
-                COALESCE(in_progress, 0) as in_progress,
-                COALESCE(total_orders, 0) as total_orders,
-                avg_wait_minutes,
-                max_wait_minutes,
-                COALESCE(orders_picked_up, 0) as orders_picked_up
-            FROM store_metrics_timeseries_mv
-            WHERE (:store_id IS NULL OR store_id = :store_id)
-            ORDER BY window_end DESC
-            LIMIT :limit
+                SELECT
+                    id,
+                    store_id,
+                    window_end,
+                    COALESCE(queue_depth, 0) as queue_depth,
+                    COALESCE(in_progress, 0) as in_progress,
+                    COALESCE(total_orders, 0) as total_orders,
+                    avg_wait_minutes,
+                    max_wait_minutes,
+                    COALESCE(orders_picked_up, 0) as orders_picked_up
+                FROM store_metrics_timeseries_mv
+                WHERE (:store_id IS NULL OR store_id = :store_id)
+                ORDER BY window_end DESC
+                LIMIT :limit
         """)
 
         store_result = await session.execute(
@@ -118,7 +118,8 @@ async def get_timeseries(
             for row in store_rows
         ]
 
-        # Query system-level timeseries
+        # Query system-level point-in-time snapshots
+        # This view shows actual queue depth and in-progress counts at each minute
         system_query = text("""
             SELECT
                 id,

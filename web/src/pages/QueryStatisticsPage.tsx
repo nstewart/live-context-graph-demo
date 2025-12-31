@@ -39,6 +39,8 @@ import {
   OrderLineItem,
 } from "../api/client";
 import { LineageGraph } from "../components/LineageGraph";
+import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
+import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 
 interface ChartDataPoint {
   time: number;
@@ -537,37 +539,50 @@ export default function QueryStatisticsPage() {
   const [tripleValue, setTripleValue] = useState("");
   const [writeStatus, setWriteStatus] = useState<string | null>(null);
   const userSetSubjectRef = useRef(false);
+  const [triplesRefreshTrigger, setTriplesRefreshTrigger] = useState(0);
 
   // View mode state
   const [viewMode, setViewMode] = useState<ViewMode>('query-offload');
 
   // Derive subject type from tripleSubject prefix and get available predicates
   const availablePredicates = useMemo(() => {
-    if (!tripleSubject) return predicatesBySubjectType.orderline;
+    let basePredicates: string[];
 
-    // Extract prefix before the colon (e.g., "orderline:123" -> "orderline")
-    const colonIndex = tripleSubject.indexOf(':');
-    if (colonIndex === -1) {
-      // No colon found, try to detect type from ID format
-      if (tripleSubject.startsWith('order_')) return predicatesBySubjectType.order;
-      if (tripleSubject.startsWith('orderline_')) return predicatesBySubjectType.orderline;
-      if (tripleSubject.startsWith('customer_')) return predicatesBySubjectType.customer;
-      if (tripleSubject.startsWith('store_')) return predicatesBySubjectType.store;
-      if (tripleSubject.startsWith('product_')) return predicatesBySubjectType.product;
-      if (tripleSubject.startsWith('inventory_')) return predicatesBySubjectType.inventory;
-      if (tripleSubject.startsWith('courier_')) return predicatesBySubjectType.courier;
-      if (tripleSubject.startsWith('task_')) return predicatesBySubjectType.task;
-      // Unknown subject type - warn and default to orderline
-      console.warn(`Unknown subject type for ID: "${tripleSubject}", defaulting to orderline predicates`);
-      return predicatesBySubjectType.orderline;
+    if (!tripleSubject) {
+      basePredicates = predicatesBySubjectType.orderline;
+    } else {
+      // Extract prefix before the colon (e.g., "orderline:123" -> "orderline")
+      const colonIndex = tripleSubject.indexOf(':');
+      if (colonIndex === -1) {
+        // No colon found, try to detect type from ID format
+        if (tripleSubject.startsWith('order_')) basePredicates = predicatesBySubjectType.order;
+        else if (tripleSubject.startsWith('orderline_')) basePredicates = predicatesBySubjectType.orderline;
+        else if (tripleSubject.startsWith('customer_')) basePredicates = predicatesBySubjectType.customer;
+        else if (tripleSubject.startsWith('store_')) basePredicates = predicatesBySubjectType.store;
+        else if (tripleSubject.startsWith('product_')) basePredicates = predicatesBySubjectType.product;
+        else if (tripleSubject.startsWith('inventory_')) basePredicates = predicatesBySubjectType.inventory;
+        else if (tripleSubject.startsWith('courier_')) basePredicates = predicatesBySubjectType.courier;
+        else if (tripleSubject.startsWith('task_')) basePredicates = predicatesBySubjectType.task;
+        else {
+          // Unknown subject type - warn and default to orderline
+          console.warn(`Unknown subject type for ID: "${tripleSubject}", defaulting to orderline predicates`);
+          basePredicates = predicatesBySubjectType.orderline;
+        }
+      } else {
+        const prefix = tripleSubject.slice(0, colonIndex).toLowerCase();
+        if (!predicatesBySubjectType[prefix]) {
+          console.warn(`Unknown subject type prefix: "${prefix}", defaulting to orderline predicates`);
+        }
+        basePredicates = predicatesBySubjectType[prefix] || predicatesBySubjectType.orderline;
+      }
     }
 
-    const prefix = tripleSubject.slice(0, colonIndex).toLowerCase();
-    if (!predicatesBySubjectType[prefix]) {
-      console.warn(`Unknown subject type prefix: "${prefix}", defaulting to orderline predicates`);
+    // Include current predicate if it's not in the base list (allows clicking any triple)
+    if (triplePredicate && !basePredicates.includes(triplePredicate)) {
+      return [triplePredicate, ...basePredicates];
     }
-    return predicatesBySubjectType[prefix] || predicatesBySubjectType.orderline;
-  }, [tripleSubject]);
+    return basePredicates;
+  }, [tripleSubject, triplePredicate]);
 
   // Update predicate when available predicates change (if current predicate is not in new list)
   useEffect(() => {
@@ -744,6 +759,14 @@ export default function QueryStatisticsPage() {
     };
   }, []);
 
+  // Handle triple row click - pre-populate the form
+  const handleTripleClick = useCallback((subject: string, predicate: string, value: string) => {
+    userSetSubjectRef.current = true;
+    setTripleSubject(subject);
+    setTriplePredicate(predicate);
+    setTripleValue(value);
+  }, []);
+
   // Handle triple write
   const handleWriteTriple = async () => {
     if (!tripleSubject || !triplePredicate || !tripleValue) return;
@@ -782,6 +805,8 @@ export default function QueryStatisticsPage() {
       });
       setWriteStatus(`Written at ${new Date().toLocaleTimeString()}`);
       setTimeout(() => setWriteStatus(null), 3000);
+      // Trigger refresh of the triples card
+      setTriplesRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       console.error("Failed to write triple:", err);
       setWriteStatus("Write failed");
@@ -889,6 +914,14 @@ export default function QueryStatisticsPage() {
         </div>
       </div>
 
+      {/* What are Triples? Card */}
+      <WhatAreTriplesCard
+        selectedOrderId={selectedOrderId}
+        orderNumber={zeroOrder?.order_number ?? null}
+        lineItemIds={zeroOrder?.line_items?.map((item) => item.line_id) ?? []}
+        onTripleClick={handleTripleClick}
+        refreshTrigger={triplesRefreshTrigger}
+      />
 
       {/* Live Data Products Lineage Graph (Collapsible) */}
       <div className="bg-white rounded-lg shadow mb-6">
@@ -1339,7 +1372,7 @@ export default function QueryStatisticsPage() {
       </div>
 
       {/* Reaction Time Chart (Collapsible) */}
-      <div className="bg-white rounded-lg shadow">
+      <div className="bg-white rounded-lg shadow mb-6">
         <button
           onClick={() => setReactionTimeGraphOpen(!reactionTimeGraphOpen)}
           className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
@@ -1454,6 +1487,9 @@ export default function QueryStatisticsPage() {
           </div>
         )}
       </div>
+
+      {/* What is a Knowledge Graph? Card */}
+      <WhatIsKnowledgeGraphCard />
     </div>
   );
 }

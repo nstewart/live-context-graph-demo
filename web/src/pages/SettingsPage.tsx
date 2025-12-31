@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo, SupplyConfigInfo, SupplyConfigName } from '../api/client'
+import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo } from '../api/client'
 import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck } from 'lucide-react'
 
 export default function SettingsPage() {
@@ -11,7 +11,9 @@ export default function SettingsPage() {
   const [demandDuration, setDemandDuration] = useState<string>('')
 
   // Supply state
-  const [supplyConfig, setSupplyConfig] = useState<SupplyConfigName>('normal')
+  const [dispatchInterval, setDispatchInterval] = useState<string>('1')
+  const [pickingDuration, setPickingDuration] = useState<string>('3')
+  const [deliveryDuration, setDeliveryDuration] = useState<string>('3')
   const [supplyDuration, setSupplyDuration] = useState<string>('')
 
   const { data: health, error: healthError } = useQuery({
@@ -47,12 +49,6 @@ export default function SettingsPage() {
     retry: 3,
   })
 
-  const { data: supplyConfigs, error: supplyConfigsError } = useQuery({
-    queryKey: ['supply-configs'],
-    queryFn: () => loadgenApi.getSupplyConfigs().then(r => r.data),
-    retry: 3,
-  })
-
   // Demand mutations
   const startDemandMutation = useMutation({
     mutationFn: () => loadgenApi.startDemand({
@@ -74,9 +70,11 @@ export default function SettingsPage() {
   // Supply mutations
   const startSupplyMutation = useMutation({
     mutationFn: () => loadgenApi.startSupply({
-      profile: demandProfile, // Use same profile for duration
-      supply_config: supplyConfig,
+      profile: demandProfile,
       duration_minutes: supplyDuration ? parseInt(supplyDuration, 10) : undefined,
+      dispatch_interval_seconds: dispatchInterval ? parseFloat(dispatchInterval) : 1,
+      picking_duration_seconds: pickingDuration ? parseFloat(pickingDuration) : 3,
+      delivery_duration_seconds: deliveryDuration ? parseFloat(deliveryDuration) : 3,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supply-status'] })
@@ -96,7 +94,6 @@ export default function SettingsPage() {
   const isSupplyStopping = supplyStatus?.status === 'stopping'
 
   const selectedProfileInfo = profiles?.find((p: LoadGenProfileInfo) => p.name === demandProfile)
-  const selectedSupplyConfigInfo = supplyConfigs?.find((c: SupplyConfigInfo) => c.name === supplyConfig)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
@@ -383,27 +380,62 @@ export default function SettingsPage() {
 
           {/* Controls */}
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Speed Config</label>
-              <select
-                value={supplyConfig}
-                onChange={(e) => setSupplyConfig(e.target.value as SupplyConfigName)}
-                disabled={isSupplyRunning || isSupplyStopping}
-                className="w-full px-3 py-2 border rounded-lg bg-white disabled:bg-gray-100 disabled:text-gray-500"
-              >
-                {supplyConfigs?.map((config: SupplyConfigInfo) => (
-                  <option key={config.name} value={config.name}>
-                    {config.name.charAt(0).toUpperCase() + config.name.slice(1)} - {config.dispatch_interval_seconds}s interval
-                  </option>
-                ))}
-              </select>
-              {selectedSupplyConfigInfo && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Pick: {selectedSupplyConfigInfo.picking_duration_seconds}s,
-                  Deliver: {selectedSupplyConfigInfo.delivery_duration_seconds}s
-                </p>
-              )}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Dispatch (sec)</label>
+                <input
+                  type="number"
+                  value={dispatchInterval}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
+                      setDispatchInterval(value)
+                    }
+                  }}
+                  disabled={isSupplyRunning || isSupplyStopping}
+                  className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+                  min="0.1"
+                  step="0.1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Picking (sec)</label>
+                <input
+                  type="number"
+                  value={pickingDuration}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
+                      setPickingDuration(value)
+                    }
+                  }}
+                  disabled={isSupplyRunning || isSupplyStopping}
+                  className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+                  min="0.5"
+                  step="0.5"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Delivery (sec)</label>
+                <input
+                  type="number"
+                  value={deliveryDuration}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === '' || (!isNaN(Number(value)) && Number(value) > 0)) {
+                      setDeliveryDuration(value)
+                    }
+                  }}
+                  disabled={isSupplyRunning || isSupplyStopping}
+                  className="w-full px-3 py-2 border rounded-lg disabled:bg-gray-100 disabled:text-gray-500"
+                  min="0.5"
+                  step="0.5"
+                />
+              </div>
             </div>
+            <p className="text-xs text-gray-500">
+              <strong>Dispatch:</strong> How often to check for pending orders. <strong>Picking:</strong> Time to pick items. <strong>Delivery:</strong> Time to deliver.
+            </p>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
@@ -466,7 +498,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Error Display */}
-          {(startSupplyMutation.isError || stopSupplyMutation.isError || supplyConfigsError) && (
+          {(startSupplyMutation.isError || stopSupplyMutation.isError) && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
               <div className="flex items-start gap-2">
                 <XCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
@@ -475,7 +507,6 @@ export default function SettingsPage() {
                   <p className="text-red-700 mt-1">
                     {(startSupplyMutation.error as Error)?.message ||
                      (stopSupplyMutation.error as Error)?.message ||
-                     (supplyConfigsError as Error)?.message ||
                      'Failed to connect to load generator service.'}
                   </p>
                 </div>
