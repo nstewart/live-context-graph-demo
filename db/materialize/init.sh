@@ -807,6 +807,7 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS o
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS order_lines_order_sequence_idx IN CLUSTER serving ON order_lines_flat_mv (order_id, line_sequence);"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_idx IN CLUSTER serving ON orders_with_lines_mv (effective_updated_at DESC);"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_status_idx IN CLUSTER serving ON orders_with_lines_mv (order_status);"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_with_lines_order_id_idx IN CLUSTER serving ON orders_with_lines_mv (order_id);"
 
 # Dynamic pricing indexes
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_dynamic_pricing_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (inventory_id);"

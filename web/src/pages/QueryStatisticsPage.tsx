@@ -1050,7 +1050,7 @@ export default function QueryStatisticsPage() {
               {(viewMode === 'batch' || viewMode === 'materialize') && (
                 <OrderCard
                   title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 20s)"
+                  subtitle="Fast but STALE (refreshes every 60s)"
                   icon={<Clock className="h-5 w-5" />}
                   iconColor="text-green-500"
                   bgColor="border-green-500"
@@ -1173,7 +1173,7 @@ export default function QueryStatisticsPage() {
                             <Clock className="h-4 w-4 text-green-500" />
                             <div>
                               <div className="font-medium text-gray-900">Batch MATERIALIZED VIEW</div>
-                              <div className="text-xs text-gray-500">Fast but STALE (refreshes every 20s)</div>
+                              <div className="text-xs text-gray-500">Fast but STALE (refreshes every 60s)</div>
                             </div>
                           </div>
                         </td>
