@@ -292,7 +292,7 @@ describe('HighlightedJson', () => {
 
   describe('Edge Cases', () => {
     it('handles empty data object', () => {
-      const { container } = render(<HighlightedJson data={} />)
+      const { container } = render(<HighlightedJson data={{}} />)
       expect(container.textContent).toContain('{}')
     })
 

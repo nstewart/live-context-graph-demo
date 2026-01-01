@@ -445,8 +445,6 @@ export default function QueryStatisticsPage() {
   const [responseTimeChartData, setResponseTimeChartData] = useState<ChartDataPoint[]>([]);
   const [useLogScale, setUseLogScale] = useState(true);
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(true);
-  const [responseTimeGraphOpen, setResponseTimeGraphOpen] = useState(true);
-  const [reactionTimeGraphOpen, setReactionTimeGraphOpen] = useState(true);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
@@ -924,7 +922,7 @@ export default function QueryStatisticsPage() {
         refreshTrigger={triplesRefreshTrigger}
       />
 
-      {/* Live Data Products Lineage Graph (Collapsible) */}
+      {/* Live Data Products (Collapsible) */}
       <div className="bg-white rounded-lg shadow mb-6">
         <button
           onClick={() => setLineageGraphOpen(!lineageGraphOpen)}
@@ -946,6 +944,476 @@ export default function QueryStatisticsPage() {
         </button>
         {lineageGraphOpen && (
           <div className="p-6 pt-0">
+            {/* Write Triple Form */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Edit3 className="h-4 w-4 text-purple-600" />
+                <span className="font-medium text-gray-900">Write a Triple</span>
+                <span className="text-xs text-gray-500">
+                  - Update an order property and observe propagation
+                </span>
+              </div>
+
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
+                  <input
+                    type="text"
+                    value={tripleSubject}
+                    onChange={(e) => {
+                      userSetSubjectRef.current = true;
+                      setTripleSubject(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
+                    placeholder="order:FM-1001"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Predicate</label>
+                  <select
+                    value={triplePredicate}
+                    onChange={(e) => setTriplePredicate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
+                  >
+                    {availablePredicates.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Value</label>
+                  <input
+                    type="text"
+                    value={tripleValue}
+                    onChange={(e) => setTripleValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
+                    placeholder={placeholdersByPredicate[triplePredicate] || 'value'}
+                  />
+                </div>
+                <button
+                  onClick={handleWriteTriple}
+                  disabled={!tripleSubject || !triplePredicate || !tripleValue}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                >
+                  Write
+                </button>
+                {writeStatus && (
+                  <span className="text-sm text-green-600 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                    {writeStatus}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Order Cards - conditional rendering based on view mode */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* PostgreSQL VIEW - shown in all modes */}
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 20s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {/* Materialize - shown only in materialize mode */}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize (via Zero)"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+
+            {/* Statistics Table */}
+            <div className="bg-gray-50 rounded-lg mb-6">
+              <div className="p-4 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Query Statistics - Orders with Lines View
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Source
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Response Time (ms)
+                        </div>
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <Activity className="h-3 w-3" />
+                          Reaction Time (ms)
+                        </div>
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
+                        <div className="flex items-center justify-center gap-1">
+                          <Zap className="h-3 w-3" />
+                          QPS
+                        </div>
+                      </th>
+                    </tr>
+                    <tr className="bg-gray-100">
+                      <th></th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400 border-l">
+                        Median
+                      </th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400 border-l">
+                        Median
+                      </th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
+                      <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
+                      <th className="border-l"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {/* PostgreSQL View Row */}
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-orange-500" />
+                          <div>
+                            <div className="font-medium text-gray-900">PostgreSQL View</div>
+                            <div className="text-xs text-gray-500">Fresh but SLOW (computes on every query)</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
+                        {formatMs(metrics?.postgresql_view?.response_time?.median)}
+                      </td>
+                      <td className="px-2 py-3 text-center font-mono text-orange-600">
+                        {formatMs(metrics?.postgresql_view?.response_time?.p99)}
+                      </td>
+                      <td className="px-2 py-3 text-center font-mono text-orange-600">
+                        {formatMs(metrics?.postgresql_view?.response_time?.max)}
+                      </td>
+                      <td className="px-2 py-3 text-center border-l font-mono">
+                        {formatMs(metrics?.postgresql_view?.reaction_time?.median)}
+                      </td>
+                      <td className="px-2 py-3 text-center font-mono">
+                        {formatMs(metrics?.postgresql_view?.reaction_time?.p99)}
+                      </td>
+                      <td className="px-2 py-3 text-center font-mono">
+                        {formatMs(metrics?.postgresql_view?.reaction_time?.max)}
+                      </td>
+                      <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
+                        {metrics?.postgresql_view?.qps?.toFixed(1) || 0}
+                      </td>
+                    </tr>
+
+                    {/* Batch Cache Row - shown in batch and materialize modes */}
+                    {(viewMode === 'batch' || viewMode === 'materialize') && (
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-green-500" />
+                            <div>
+                              <div className="font-medium text-gray-900">Batch MATERIALIZED VIEW</div>
+                              <div className="text-xs text-gray-500">Fast but STALE (refreshes every 20s)</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono">
+                          {formatMs(metrics?.batch_cache?.response_time?.median)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono">
+                          {formatMs(metrics?.batch_cache?.response_time?.p99)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono">
+                          {formatMs(metrics?.batch_cache?.response_time?.max)}
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
+                          {formatMs(metrics?.batch_cache?.reaction_time?.median)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono text-green-600">
+                          {formatMs(metrics?.batch_cache?.reaction_time?.p99)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono text-green-600">
+                          {formatMs(metrics?.batch_cache?.reaction_time?.max)}
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
+                          {metrics?.batch_cache?.qps?.toFixed(1) || 0}
+                        </td>
+                      </tr>
+                    )}
+
+                    {/* Materialize Row - shown only in materialize mode */}
+                    {viewMode === 'materialize' && (
+                      <tr className="hover:bg-gray-50 bg-blue-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Zap className="h-4 w-4 text-blue-500" />
+                            <div>
+                              <div className="font-medium text-gray-900 flex items-center gap-1">
+                                Materialize
+                                <span className="text-xs text-blue-600 font-normal bg-blue-100 px-1 rounded">Best</span>
+                              </div>
+                              <div className="text-xs text-gray-500">Fast AND Fresh (incremental via CDC)</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono">
+                          {formatMs(metrics?.materialize?.response_time?.median)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono">
+                          {formatMs(metrics?.materialize?.response_time?.p99)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono">
+                          {formatMs(metrics?.materialize?.response_time?.max)}
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
+                          {formatMs(metrics?.materialize?.reaction_time?.median)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono text-blue-600 font-semibold">
+                          {formatMs(metrics?.materialize?.reaction_time?.p99)}
+                        </td>
+                        <td className="px-2 py-3 text-center font-mono text-blue-600 font-semibold">
+                          {formatMs(metrics?.materialize?.reaction_time?.max)}
+                        </td>
+                        <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
+                          {metrics?.materialize?.qps?.toFixed(1) || 0}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Response Time and Reaction Time Charts - Side by Side */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              {/* Response Time Chart */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-gray-900">Response Time Over Time</h4>
+                    <p className="text-xs text-gray-500">
+                      Query latency: how long does each query take to execute?
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setUseLogScaleResponseTime(false)}
+                      className={`px-2 py-1 text-xs rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                    >
+                      Linear
+                    </button>
+                    <button
+                      onClick={() => setUseLogScaleResponseTime(true)}
+                      className={`px-2 py-1 text-xs rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                    >
+                      Log
+                    </button>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={responseTimeChartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="time"
+                      tickFormatter={(t) => {
+                        const date = new Date(t);
+                        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
+                      }}
+                      domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                      type="number"
+                      fontSize={10}
+                      tick={{ fill: "#6b7280" }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      scale={useLogScaleResponseTime ? "log" : "linear"}
+                      domain={useLogScaleResponseTime ? [1, "auto"] : [0, "auto"]}
+                      tickFormatter={(v) =>
+                        v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
+                      }
+                      fontSize={10}
+                      tick={{ fill: "#6b7280" }}
+                      allowDataOverflow={useLogScaleResponseTime}
+                    />
+                    <Tooltip
+                      formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
+                      labelFormatter={(t) => {
+                        const date = new Date(t as number);
+                        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
+                      }}
+                      contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    <Line
+                      type="monotone"
+                      dataKey="postgresql"
+                      name="PostgreSQL View"
+                      stroke="#f97316"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                    {(viewMode === 'batch' || viewMode === 'materialize') && (
+                      <Line
+                        type="monotone"
+                        dataKey="batch"
+                        name="Batch Cache"
+                        stroke="#22c55e"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {viewMode === 'materialize' && (
+                      <Line
+                        type="monotone"
+                        dataKey="materialize"
+                        name="Materialize"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Reaction Time Chart */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-gray-900">Reaction Time Over Time</h4>
+                    <p className="text-xs text-gray-500">
+                      Data freshness: how stale is the data when the query completes?
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setUseLogScale(false)}
+                      className={`px-2 py-1 text-xs rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                    >
+                      Linear
+                    </button>
+                    <button
+                      onClick={() => setUseLogScale(true)}
+                      className={`px-2 py-1 text-xs rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                    >
+                      Log
+                    </button>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="time"
+                      tickFormatter={(t) => {
+                        const date = new Date(t);
+                        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
+                      }}
+                      domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                      type="number"
+                      fontSize={10}
+                      tick={{ fill: "#6b7280" }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      scale={useLogScale ? "log" : "linear"}
+                      domain={useLogScale ? [1, "auto"] : [0, "auto"]}
+                      tickFormatter={(v) =>
+                        v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
+                      }
+                      fontSize={10}
+                      tick={{ fill: "#6b7280" }}
+                      allowDataOverflow={useLogScale}
+                    />
+                    <Tooltip
+                      formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
+                      labelFormatter={(t) => {
+                        const date = new Date(t as number);
+                        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
+                      }}
+                      contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    <Line
+                      type="monotone"
+                      dataKey="postgresql"
+                      name="PostgreSQL View"
+                      stroke="#f97316"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                    {(viewMode === 'batch' || viewMode === 'materialize') && (
+                      <Line
+                        type="monotone"
+                        dataKey="batch"
+                        name="Batch Cache"
+                        stroke="#22c55e"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {viewMode === 'materialize' && (
+                      <Line
+                        type="monotone"
+                        dataKey="materialize"
+                        name="Materialize"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Lineage Graph and JSON API Response */}
             <div className="flex gap-6">
               {/* Left: Lineage Graph */}
               <div className="flex-[3]">
@@ -977,514 +1445,6 @@ export default function QueryStatisticsPage() {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Write Triple Form (directly under selector) */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Edit3 className="h-4 w-4 text-purple-600" />
-          <span className="font-medium text-gray-900">Write a Triple</span>
-          <span className="text-xs text-gray-500">
-            - Update an order property and observe propagation
-          </span>
-        </div>
-
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
-            <input
-              type="text"
-              value={tripleSubject}
-              onChange={(e) => {
-                userSetSubjectRef.current = true;
-                setTripleSubject(e.target.value);
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-              placeholder="order:FM-1001"
-            />
-          </div>
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Predicate</label>
-            <select
-              value={triplePredicate}
-              onChange={(e) => setTriplePredicate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-            >
-              {availablePredicates.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Value</label>
-            <input
-              type="text"
-              value={tripleValue}
-              onChange={(e) => setTripleValue(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-              placeholder={placeholdersByPredicate[triplePredicate] || 'value'}
-            />
-          </div>
-          <button
-            onClick={handleWriteTriple}
-            disabled={!tripleSubject || !triplePredicate || !tripleValue}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-          >
-            Write
-          </button>
-          {writeStatus && (
-            <span className="text-sm text-green-600 flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-              {writeStatus}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Order Cards - conditional rendering based on view mode */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {/* PostgreSQL VIEW - shown in all modes */}
-        <OrderCard
-          title="PostgreSQL VIEW"
-          subtitle="Fresh but SLOW (computes every query)"
-          icon={<Database className="h-5 w-5" />}
-          iconColor="text-orange-500"
-          bgColor="border-orange-500"
-          order={orderData?.postgresql_view || null}
-          isLoading={isPolling}
-        />
-        {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-        {(viewMode === 'batch' || viewMode === 'materialize') && (
-          <OrderCard
-            title="Batch MATERIALIZED VIEW"
-            subtitle="Fast but STALE (refreshes every 20s)"
-            icon={<Clock className="h-5 w-5" />}
-            iconColor="text-green-500"
-            bgColor="border-green-500"
-            order={orderData?.batch_cache || null}
-            isLoading={isPolling}
-          />
-        )}
-        {/* Materialize - shown only in materialize mode */}
-        {viewMode === 'materialize' && (
-          <OrderCard
-            title="Materialize (via Zero)"
-            subtitle="Real-time sync - updates instantly"
-            icon={<Zap className="h-5 w-5" />}
-            iconColor="text-blue-500"
-            bgColor="border-blue-500"
-            order={zeroMaterializeOrder}
-            isLoading={false}
-          />
-        )}
-      </div>
-
-      {/* Statistics Table */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Query Statistics - Orders with Lines View
-          </h3>
-          <p className="text-xs text-gray-500 mt-1">
-            Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Source
-                </th>
-                <th
-                  colSpan={3}
-                  className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l"
-                >
-                  <div className="flex items-center justify-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    Response Time (ms)
-                  </div>
-                </th>
-                <th
-                  colSpan={3}
-                  className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l"
-                >
-                  <div className="flex items-center justify-center gap-1">
-                    <Activity className="h-3 w-3" />
-                    Reaction Time (ms)
-                  </div>
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
-                  <div className="flex items-center justify-center gap-1">
-                    <Zap className="h-3 w-3" />
-                    QPS
-                  </div>
-                </th>
-              </tr>
-              <tr className="bg-gray-50">
-                <th></th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400 border-l">
-                  Median
-                </th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400 border-l">
-                  Median
-                </th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400">P99</th>
-                <th className="px-2 py-1 text-center text-xs text-gray-400">Max</th>
-                <th className="border-l"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {/* PostgreSQL View Row */}
-              <tr className="hover:bg-gray-50">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4 text-orange-500" />
-                    <div>
-                      <div className="font-medium text-gray-900">PostgreSQL View</div>
-                      <div className="text-xs text-gray-500">Fresh but SLOW (computes on every query)</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
-                  {formatMs(metrics?.postgresql_view?.response_time?.median)}
-                </td>
-                <td className="px-2 py-3 text-center font-mono text-orange-600">
-                  {formatMs(metrics?.postgresql_view?.response_time?.p99)}
-                </td>
-                <td className="px-2 py-3 text-center font-mono text-orange-600">
-                  {formatMs(metrics?.postgresql_view?.response_time?.max)}
-                </td>
-                <td className="px-2 py-3 text-center border-l font-mono">
-                  {formatMs(metrics?.postgresql_view?.reaction_time?.median)}
-                </td>
-                <td className="px-2 py-3 text-center font-mono">
-                  {formatMs(metrics?.postgresql_view?.reaction_time?.p99)}
-                </td>
-                <td className="px-2 py-3 text-center font-mono">
-                  {formatMs(metrics?.postgresql_view?.reaction_time?.max)}
-                </td>
-                <td className="px-2 py-3 text-center border-l font-mono text-orange-600 font-semibold">
-                  {metrics?.postgresql_view?.qps?.toFixed(1) || 0}
-                </td>
-              </tr>
-
-              {/* Batch Cache Row - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-green-500" />
-                      <div>
-                        <div className="font-medium text-gray-900">Batch MATERIALIZED VIEW</div>
-                        <div className="text-xs text-gray-500">Fast but STALE (refreshes every 20s)</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono">
-                    {formatMs(metrics?.batch_cache?.response_time?.median)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono">
-                    {formatMs(metrics?.batch_cache?.response_time?.p99)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono">
-                    {formatMs(metrics?.batch_cache?.response_time?.max)}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
-                    {formatMs(metrics?.batch_cache?.reaction_time?.median)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono text-green-600">
-                    {formatMs(metrics?.batch_cache?.reaction_time?.p99)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono text-green-600">
-                    {formatMs(metrics?.batch_cache?.reaction_time?.max)}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono text-green-600 font-semibold">
-                    {metrics?.batch_cache?.qps?.toFixed(1) || 0}
-                  </td>
-                </tr>
-              )}
-
-              {/* Materialize Row - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <tr className="hover:bg-gray-50 bg-blue-50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <Zap className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <div className="font-medium text-gray-900 flex items-center gap-1">
-                          Materialize
-                          <span className="text-xs text-blue-600 font-normal bg-blue-100 px-1 rounded">Best</span>
-                        </div>
-                        <div className="text-xs text-gray-500">Fast AND Fresh (incremental via CDC)</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono">
-                    {formatMs(metrics?.materialize?.response_time?.median)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono">
-                    {formatMs(metrics?.materialize?.response_time?.p99)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono">
-                    {formatMs(metrics?.materialize?.response_time?.max)}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
-                    {formatMs(metrics?.materialize?.reaction_time?.median)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono text-blue-600 font-semibold">
-                    {formatMs(metrics?.materialize?.reaction_time?.p99)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-mono text-blue-600 font-semibold">
-                    {formatMs(metrics?.materialize?.reaction_time?.max)}
-                  </td>
-                  <td className="px-2 py-3 text-center border-l font-mono text-blue-600 font-semibold">
-                    {metrics?.materialize?.qps?.toFixed(1) || 0}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Response Time Chart (Collapsible) */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <button
-          onClick={() => setResponseTimeGraphOpen(!responseTimeGraphOpen)}
-          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            {responseTimeGraphOpen ? (
-              <ChevronDown className="h-5 w-5 text-gray-500" />
-            ) : (
-              <ChevronRight className="h-5 w-5 text-gray-500" />
-            )}
-            <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Response Time Over Time</h3>
-              <p className="text-xs text-gray-500">
-                Query latency: how long does each query take to execute?
-              </p>
-            </div>
-          </div>
-          {responseTimeGraphOpen && (
-            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-              <button
-                onClick={() => setUseLogScaleResponseTime(false)}
-                className={`px-3 py-1 text-sm rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                  }`}
-              >
-                Linear
-              </button>
-              <button
-                onClick={() => setUseLogScaleResponseTime(true)}
-                className={`px-3 py-1 text-sm rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                  }`}
-              >
-                Logarithmic
-              </button>
-            </div>
-          )}
-        </button>
-        {responseTimeGraphOpen && (
-          <div className="p-6 pt-0">
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={responseTimeChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="time"
-                  tickFormatter={(t) => {
-                    const date = new Date(t);
-                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
-                  }}
-                  domain={[lastUpdateTime - 180000, lastUpdateTime]}
-                  type="number"
-                  fontSize={12}
-                  tick={{ fill: "#6b7280" }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  scale={useLogScaleResponseTime ? "log" : "linear"}
-                  domain={useLogScaleResponseTime ? [1, "auto"] : [0, "auto"]}
-                  tickFormatter={(v) =>
-                    v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
-                  }
-                  fontSize={12}
-                  tick={{ fill: "#6b7280" }}
-                  allowDataOverflow={useLogScaleResponseTime}
-                />
-                <Tooltip
-                  formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
-                  labelFormatter={(t) => {
-                    const date = new Date(t as number);
-                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
-                  }}
-                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
-                />
-                <Legend />
-                {/* PostgreSQL line - always shown */}
-                <Line
-                  type="monotone"
-                  dataKey="postgresql"
-                  name="PostgreSQL View"
-                  stroke="#f97316"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-                {/* Batch line - shown in batch and materialize modes */}
-                {(viewMode === 'batch' || viewMode === 'materialize') && (
-                  <Line
-                    type="monotone"
-                    dataKey="batch"
-                    name="Batch Cache"
-                    stroke="#22c55e"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                )}
-                {/* Materialize line - shown only in materialize mode */}
-                {viewMode === 'materialize' && (
-                  <Line
-                    type="monotone"
-                    dataKey="materialize"
-                    name="Materialize"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-
-      {/* Reaction Time Chart (Collapsible) */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <button
-          onClick={() => setReactionTimeGraphOpen(!reactionTimeGraphOpen)}
-          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            {reactionTimeGraphOpen ? (
-              <ChevronDown className="h-5 w-5 text-gray-500" />
-            ) : (
-              <ChevronRight className="h-5 w-5 text-gray-500" />
-            )}
-            <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Reaction Time Over Time</h3>
-              <p className="text-xs text-gray-500">
-                Data freshness: how stale is the data when the query completes?
-              </p>
-            </div>
-          </div>
-          {reactionTimeGraphOpen && (
-            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-              <button
-                onClick={() => setUseLogScale(false)}
-                className={`px-3 py-1 text-sm rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                  }`}
-              >
-                Linear
-              </button>
-              <button
-                onClick={() => setUseLogScale(true)}
-                className={`px-3 py-1 text-sm rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"
-                  }`}
-              >
-                Logarithmic
-              </button>
-            </div>
-          )}
-        </button>
-        {reactionTimeGraphOpen && (
-          <div className="p-6 pt-0">
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="time"
-                  tickFormatter={(t) => {
-                    const date = new Date(t);
-                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
-                  }}
-                  domain={[lastUpdateTime - 180000, lastUpdateTime]}
-                  type="number"
-                  fontSize={12}
-                  tick={{ fill: "#6b7280" }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  scale={useLogScale ? "log" : "linear"}
-                  domain={useLogScale ? [1, "auto"] : [0, "auto"]}
-                  tickFormatter={(v) =>
-                    v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
-                  }
-                  fontSize={12}
-                  tick={{ fill: "#6b7280" }}
-                  allowDataOverflow={useLogScale}
-                />
-                <Tooltip
-                  formatter={(value: number | undefined) => [value !== undefined ? `${value.toFixed(1)}ms` : "-", ""]}
-                  labelFormatter={(t) => {
-                    const date = new Date(t as number);
-                    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')} UTC`;
-                  }}
-                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb" }}
-                />
-                <Legend />
-                {/* PostgreSQL line - always shown */}
-                <Line
-                  type="monotone"
-                  dataKey="postgresql"
-                  name="PostgreSQL View"
-                  stroke="#f97316"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-                {/* Batch line - shown in batch and materialize modes */}
-                {(viewMode === 'batch' || viewMode === 'materialize') && (
-                  <Line
-                    type="monotone"
-                    dataKey="batch"
-                    name="Batch Cache"
-                    stroke="#22c55e"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                )}
-                {/* Materialize line - shown only in materialize mode */}
-                {viewMode === 'materialize' && (
-                  <Line
-                    type="monotone"
-                    dataKey="materialize"
-                    name="Materialize"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
           </div>
         )}
       </div>
