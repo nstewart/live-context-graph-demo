@@ -11,6 +11,7 @@ services:
       -c wal_level=logical
       -c max_replication_slots=10
       -c max_wal_senders=10
+      -c wal_writer_delay=10ms
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d/migrations:ro

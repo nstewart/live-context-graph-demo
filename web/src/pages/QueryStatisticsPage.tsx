@@ -646,13 +646,21 @@ export default function QueryStatisticsPage() {
       const batchData = history.batch_cache || { reaction_times: [], response_times: [], timestamps: [] };
       const mzData = history.materialize || { reaction_times: [], response_times: [], timestamps: [] };
 
-      // Create maps of time -> data point, using 1-second buckets for smoothing
-      const reactionDataBySecond = new Map<number, ChartDataPoint>();
-      const responseDataBySecond = new Map<number, ChartDataPoint>();
+      // Type for collecting all values per bucket before computing p99
+      type BucketData = {
+        time: number;
+        postgresql: number[];
+        batch: number[];
+        materialize: number[];
+      };
+
+      // Create maps of time -> collected values, using 1-second buckets
+      const reactionBuckets = new Map<number, BucketData>();
+      const responseBuckets = new Map<number, BucketData>();
 
       // Helper to add data point to the appropriate second bucket
-      const addToChart = (
-        dataMap: Map<number, ChartDataPoint>,
+      const addToBucket = (
+        dataMap: Map<number, BucketData>,
         timestamp: number,
         value: number,
         source: 'postgresql' | 'batch' | 'materialize'
@@ -660,47 +668,65 @@ export default function QueryStatisticsPage() {
         if (timestamp < threeMinutesAgo) return; // Skip old data
         const bucket = Math.floor(timestamp / 1000) * 1000; // Round to nearest second
         if (!dataMap.has(bucket)) {
-          dataMap.set(bucket, { time: bucket, postgresql: null, batch: null, materialize: null });
+          dataMap.set(bucket, { time: bucket, postgresql: [], batch: [], materialize: [] });
         }
-        const point = dataMap.get(bucket)!;
-        // Use latest value for this second (or average if preferred)
-        point[source] = value;
+        dataMap.get(bucket)![source].push(value);
+      };
+
+      // Helper to calculate p99 from an array of values
+      const calcP99 = (values: number[]): number | null => {
+        if (values.length === 0) return null;
+        const sorted = [...values].sort((a, b) => a - b);
+        const p99Idx = Math.min(Math.floor(sorted.length * 0.99), sorted.length - 1);
+        return sorted[p99Idx];
+      };
+
+      // Convert bucket data to chart data points with p99 values
+      const bucketsToChartData = (buckets: Map<number, BucketData>): ChartDataPoint[] => {
+        return Array.from(buckets.values())
+          .map(bucket => ({
+            time: bucket.time,
+            postgresql: calcP99(bucket.postgresql),
+            batch: calcP99(bucket.batch),
+            materialize: calcP99(bucket.materialize),
+          }))
+          .sort((a, b) => a.time - b.time);
       };
 
       // Add all reaction time data points from each source
       for (let i = 0; i < pgData.reaction_times.length; i++) {
         const ts = pgData.timestamps[i];
-        if (ts) addToChart(reactionDataBySecond, ts, pgData.reaction_times[i], 'postgresql');
+        if (ts) addToBucket(reactionBuckets, ts, pgData.reaction_times[i], 'postgresql');
       }
       for (let i = 0; i < batchData.reaction_times.length; i++) {
         const ts = batchData.timestamps[i];
-        if (ts) addToChart(reactionDataBySecond, ts, batchData.reaction_times[i], 'batch');
+        if (ts) addToBucket(reactionBuckets, ts, batchData.reaction_times[i], 'batch');
       }
       for (let i = 0; i < mzData.reaction_times.length; i++) {
         const ts = mzData.timestamps[i];
-        if (ts) addToChart(reactionDataBySecond, ts, mzData.reaction_times[i], 'materialize');
+        if (ts) addToBucket(reactionBuckets, ts, mzData.reaction_times[i], 'materialize');
       }
 
       // Add all response time data points from each source
       for (let i = 0; i < pgData.response_times.length; i++) {
         const ts = pgData.timestamps[i];
-        if (ts) addToChart(responseDataBySecond, ts, pgData.response_times[i], 'postgresql');
+        if (ts) addToBucket(responseBuckets, ts, pgData.response_times[i], 'postgresql');
       }
       for (let i = 0; i < batchData.response_times.length; i++) {
         const ts = batchData.timestamps[i];
-        if (ts) addToChart(responseDataBySecond, ts, batchData.response_times[i], 'batch');
+        if (ts) addToBucket(responseBuckets, ts, batchData.response_times[i], 'batch');
       }
       for (let i = 0; i < mzData.response_times.length; i++) {
         const ts = mzData.timestamps[i];
-        if (ts) addToChart(responseDataBySecond, ts, mzData.response_times[i], 'materialize');
+        if (ts) addToBucket(responseBuckets, ts, mzData.response_times[i], 'materialize');
       }
 
-      // Convert maps to sorted arrays
-      const newChartData = Array.from(reactionDataBySecond.values()).sort((a, b) => a.time - b.time);
+      // Convert buckets to chart data with p99 per second
+      const newChartData = bucketsToChartData(reactionBuckets);
       chartDataRef.current = newChartData;
       setChartData(chartDataRef.current);
 
-      const newResponseTimeChartData = Array.from(responseDataBySecond.values()).sort((a, b) => a.time - b.time);
+      const newResponseTimeChartData = bucketsToChartData(responseBuckets);
       responseTimeChartDataRef.current = newResponseTimeChartData;
       setResponseTimeChartData(responseTimeChartDataRef.current);
 
@@ -1218,13 +1244,13 @@ export default function QueryStatisticsPage() {
               </div>
             </div>
 
-            {/* Response Time and Reaction Time Charts - Side by Side */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            {/* Response Time and Reaction Time Charts - Stacked */}
+            <div className="space-y-4 mb-6">
               {/* Response Time Chart */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h4 className="font-semibold text-gray-900">Response Time Over Time</h4>
+                    <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
                     <p className="text-xs text-gray-500">
                       Query latency: how long does each query take to execute?
                     </p>
@@ -1320,7 +1346,7 @@ export default function QueryStatisticsPage() {
               <div className="bg-gray-50 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h4 className="font-semibold text-gray-900">Reaction Time Over Time</h4>
+                    <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
                     <p className="text-xs text-gray-500">
                       Data freshness: how stale is the data when the query completes?
                     </p>

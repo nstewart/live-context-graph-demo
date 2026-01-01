@@ -37,8 +37,8 @@ router = APIRouter(prefix="/api/query-stats", tags=["Query Statistics"])
 
 # Configuration
 MAX_SAMPLES = 500000  # Keep 3 min of history even at high QPS (~2700 QPS * 180s). Memory: ~12MB per source.
-BATCH_REFRESH_INTERVAL = 20  # seconds
-HEARTBEAT_INTERVAL = 1.0  # 1 second
+BATCH_REFRESH_INTERVAL = 60  # seconds
+HEARTBEAT_INTERVAL = 0.1  # 100ms
 QPS_WINDOW_SIZE = 1.0  # 1 second rolling window for QPS calculation
 
 # Concurrency limits per source (Freshmart approach)
