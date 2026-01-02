@@ -38,6 +38,9 @@ brew install uv
 
 # Start with AI agent included
 make up-agent
+
+# Or start with delivery bundling enabled (CPU intensive)
+make up-agent-bundling
 ```
 
 **Services will be ready at:**
@@ -378,6 +381,31 @@ freshmart-digital-twin-agent-starter/
 - **Compute cluster**: Isolated aggregation and transformation workloads
 - **Serving cluster**: Indexed queries without impacting compute
 - Resource isolation prevents one workload from starving others
+
+## Optional Features
+
+### Delivery Bundling (Opt-in)
+
+Delivery bundling uses Materialize's `WITH MUTUALLY RECURSIVE` to group compatible orders that can be delivered together. This feature demonstrates Datalog-style recursive constraint satisfaction:
+
+- **Same store**: Orders must originate from the same store
+- **Time overlap**: Delivery windows must intersect
+- **Inventory**: Combined quantities must not exceed available stock
+- **Capacity**: Combined weight must fit courier vehicle
+
+**Why opt-in?** The recursive views are CPU intensive (~460 seconds of compute time) and consume significant resources. They are disabled by default to keep the demo lightweight.
+
+**To enable:**
+```bash
+make up-agent-bundling
+```
+
+**To check status programmatically:**
+```bash
+curl http://localhost:8080/api/features/bundling
+```
+
+The Bundling page in the UI will show a "Feature Not Enabled" message when disabled, with instructions to enable.
 
 ## Known Limitations
 

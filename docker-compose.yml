@@ -83,6 +83,7 @@ services:
       - MZ_USER=materialize
       - MZ_PASSWORD=materialize
       - MZ_DATABASE=materialize
+      - ENABLE_DELIVERY_BUNDLING=${ENABLE_DELIVERY_BUNDLING:-false}
     volumes:
       - ./db/materialize/init.sh:/init.sh:ro
     command: sh -c "/init.sh"
@@ -212,6 +213,7 @@ services:
       - OS_PASSWORD=${OS_PASSWORD:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - USE_MATERIALIZE_FOR_READS=${USE_MATERIALIZE_FOR_READS:-true}
+      - ENABLE_DELIVERY_BUNDLING=${ENABLE_DELIVERY_BUNDLING:-false}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:

@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen
+.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen
 
 # Default target
 help:
@@ -6,10 +6,11 @@ help:
 	@echo "============================================"
 	@echo ""
 	@echo "Setup & Run:"
-	@echo "  make setup      - Initial setup (copy .env, build containers)"
-	@echo "  make up         - Start all services (Materialize auto-initializes)"
-	@echo "  make up-agent   - Start all services including agent (Materialize auto-initializes)"
-	@echo "  make down       - Stop all services"
+	@echo "  make setup             - Initial setup (copy .env, build containers)"
+	@echo "  make up                - Start all services (Materialize auto-initializes)"
+	@echo "  make up-agent          - Start all services including agent (Materialize auto-initializes)"
+	@echo "  make up-agent-bundling - Start with delivery bundling enabled (CPU intensive)"
+	@echo "  make down              - Stop all services"
 	@echo "  make init-mz    - Manually re-initialize Materialize (usually not needed)"
 	@echo "  make logs       - Tail logs from all services"
 	@echo "  make logs-api   - Tail logs from API service"
@@ -72,6 +73,8 @@ init-checkpointer:
 up:
 	@docker network create freshmart-network 2>/dev/null || true
 	docker-compose build web zero-permissions
+	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
+	docker-compose rm -f materialize-init 2>/dev/null || true
 	docker-compose up -d
 	@echo ""
 	@echo "Waiting for databases to be ready..."
@@ -95,6 +98,8 @@ up:
 up-agent:
 	@docker network create freshmart-network 2>/dev/null || true
 	docker-compose build web zero-permissions
+	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
+	docker-compose rm -f materialize-init 2>/dev/null || true
 	docker-compose --profile agent up -d
 	@echo ""
 	@echo "Waiting for databases to be ready..."
@@ -118,6 +123,36 @@ up-agent:
 	@echo "      OpenSearch will be populated automatically once search-sync starts"
 	@echo ""
 	@echo "All services ready (including agents)!"
+
+up-agent-bundling:
+	@docker network create freshmart-network 2>/dev/null || true
+	ENABLE_DELIVERY_BUNDLING=true docker-compose build web zero-permissions
+	@# Force recreate materialize-init to ensure bundling views are created
+	docker-compose rm -f materialize-init 2>/dev/null || true
+	ENABLE_DELIVERY_BUNDLING=true docker-compose --profile agent up -d
+	@echo ""
+	@echo "Waiting for databases to be ready..."
+	@sleep 5
+	@echo "Running migrations..."
+	@$(MAKE) migrate
+	@echo ""
+	@echo "Note: Materialize views are initialized automatically by the materialize-init container."
+	@echo "      Delivery bundling is ENABLED (CPU intensive recursive views)."
+	@sleep 3
+	@echo "Loading seed data..."
+	@$(MAKE) seed
+	@echo ""
+	@echo "Waiting for agent services to be ready..."
+	@sleep 3
+	@echo ""
+	@echo "Initializing agent checkpointer..."
+	@docker-compose exec agents env PYTHONPATH=/app python -m src.init_checkpointer
+	@echo ""
+	@echo "Note: Materialize is automatically initialized via materialize-init service"
+	@echo "      Delivery bundling is ENABLED - expect higher CPU usage (~460s compute time)"
+	@echo "      OpenSearch will be populated automatically once search-sync starts"
+	@echo ""
+	@echo "All services ready (including agents with delivery bundling)!"
 
 down:
 	docker-compose --profile agent down

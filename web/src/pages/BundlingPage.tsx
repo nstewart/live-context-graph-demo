@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import {
   Truck,
@@ -12,8 +12,19 @@ import {
   Clock,
   Scale,
   AlertTriangle,
+  AlertCircle,
+  Terminal,
 } from 'lucide-react'
 import { Schema } from '../schema'
+import { apiClient } from '../api/client'
+
+// Feature status type
+interface FeatureStatus {
+  feature: string
+  enabled: boolean
+  description: string
+  enable_command: string | null
+}
 
 // Bundle type from Zero
 interface Bundle {
@@ -68,6 +79,23 @@ function getVehicleCompatibility(weightGrams: number | null): { bike: boolean; c
 export default function BundlingPage() {
   const [howItWorksOpen, setHowItWorksOpen] = useState(true)
   const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set())
+  const [featureStatus, setFeatureStatus] = useState<FeatureStatus | null>(null)
+  const [featureLoading, setFeatureLoading] = useState(true)
+
+  // Check if bundling feature is enabled
+  useEffect(() => {
+    const checkFeature = async () => {
+      try {
+        const response = await apiClient.get('/api/features/bundling')
+        setFeatureStatus(response.data)
+      } catch (error) {
+        console.error('Failed to check bundling feature status:', error)
+      } finally {
+        setFeatureLoading(false)
+      }
+    }
+    checkFeature()
+  }, [])
 
   // Zero queries
   const z = useZero<Schema>()
@@ -210,6 +238,70 @@ export default function BundlingPage() {
       type: 'no_overlap',
       message: `No time overlap with ${sameStoreOrders.length} other order${sameStoreOrders.length !== 1 ? 's' : ''} at this store`,
     }
+  }
+
+  // Show loading state
+  if (featureLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <Truck className="h-8 w-8 text-green-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Delivery Bundling</h1>
+            <p className="text-gray-600">Loading feature status...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show disabled state if feature is not enabled
+  if (featureStatus && !featureStatus.enabled) {
+    return (
+      <div className="p-6">
+        {/* Header */}
+        <div className="mb-6">
+          <div className="flex items-center gap-3">
+            <Truck className="h-8 w-8 text-gray-400" />
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Delivery Bundling</h1>
+              <p className="text-gray-600">
+                Mutually recursive constraint satisfaction
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature Disabled Notice */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 max-w-2xl">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-lg font-semibold text-amber-800 mb-2">
+                Feature Not Enabled
+              </h3>
+              <p className="text-amber-700 mb-4">
+                Delivery bundling uses Materialize's <code className="bg-amber-100 px-1 rounded">WITH MUTUALLY RECURSIVE</code> to
+                group compatible orders. This feature is disabled by default because it's CPU intensive
+                (~460 seconds of compute time).
+              </p>
+              <div className="bg-gray-900 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
+                  <Terminal className="h-4 w-4" />
+                  <span>To enable, restart with:</span>
+                </div>
+                <code className="text-green-400 font-mono">
+                  make up-agent-bundling
+                </code>
+              </div>
+              <p className="text-sm text-amber-600">
+                This will create the recursive materialized views for order bundling optimization.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

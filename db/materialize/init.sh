@@ -1229,6 +1229,59 @@ SELECT
 FROM store_metrics_timeseries_mv
 GROUP BY window_end;"
 
+# Current queue wait time - real-time wait for orders still waiting to be picked up
+# This uses mz_now() to calculate how long orders have been waiting
+# NOTE: These are VIEWs (not materialized) because NOW() changes constantly
+echo "Creating current queue wait time views..."
+
+# Point-in-time current queue wait (for single metric display)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_by_store AS
+SELECT
+    o.store_id,
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS max_wait_minutes,
+    MIN(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS min_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at
+GROUP BY o.store_id;"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_system AS
+SELECT
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS max_wait_minutes,
+    MIN(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS min_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at;"
+
+# Current queue wait TIMESERIES - bucketed by order creation time
+# Shows wait times for orders STILL in queue, bucketed by 1-minute windows
+# This allows comparison with completed pickup wait times on the same chart
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_timeseries AS
+SELECT
+    DATE_TRUNC('minute', o.order_created_at) AS window_end,
+    EXTRACT(EPOCH FROM DATE_TRUNC('minute', o.order_created_at))::bigint * 1000 AS window_end_ms,
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS queue_avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS queue_max_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at
+  AND mz_now() <= o.order_created_at + INTERVAL '30 minutes'
+GROUP BY DATE_TRUNC('minute', o.order_created_at);"
+
+# Create index for the orders_flat_mv status lookups used by current queue wait views
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_flat_status_idx IN CLUSTER serving ON orders_flat_mv (order_status);"
+
 echo "Creating indexes for timeseries queries..."
 
 # Indexes for timeseries queries
@@ -1253,18 +1306,22 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS i
 #   - compatible_pair: base pairwise compatibility check
 #   - bundle_membership: assigns orders to bundles, referencing itself for clique validation
 #   - Fixed-point iteration until bundle assignments stabilize
+#
+# NOTE: This feature is opt-in due to high CPU usage (~460s elapsed time).
+# Enable with ENABLE_DELIVERY_BUNDLING=true
 # =============================================================================
 
-echo "Creating delivery bundling views with mutual recursion..."
+if [ "$ENABLE_DELIVERY_BUNDLING" = "true" ]; then
+    echo "Creating delivery bundling views with mutual recursion (ENABLE_DELIVERY_BUNDLING=true)..."
 
-# Helper view: Order weights (total weight per order)
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
-CREATE VIEW IF NOT EXISTS order_weights AS
-SELECT
-    ol.order_id,
-    SUM(ol.quantity * COALESCE(ol.unit_weight_grams, 0))::INT AS total_weight_grams
-FROM order_lines_flat_mv ol
-GROUP BY ol.order_id;"
+    # Helper view: Order weights (total weight per order)
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+    CREATE VIEW IF NOT EXISTS order_weights AS
+    SELECT
+        ol.order_id,
+        SUM(ol.quantity * COALESCE(ol.unit_weight_grams, 0))::INT AS total_weight_grams
+    FROM order_lines_flat_mv ol
+    GROUP BY ol.order_id;"
 
 # Main mutually recursive view for delivery bundling
 # Produces one row per bundle with JSON array of orders
@@ -1450,8 +1507,55 @@ WHERE o1.order_status = 'CREATED'
   );"
 
 # Create a unique key for compatible_pairs_mv
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_pk_idx IN CLUSTER serving ON compatible_pairs_mv (order_a, order_b);"
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_store_idx IN CLUSTER serving ON compatible_pairs_mv (store_id);"
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_pk_idx IN CLUSTER serving ON compatible_pairs_mv (order_a, order_b);"
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_store_idx IN CLUSTER serving ON compatible_pairs_mv (store_id);"
+
+else
+    echo "Skipping delivery bundling views (ENABLE_DELIVERY_BUNDLING != true)"
+    echo "To enable, run: ENABLE_DELIVERY_BUNDLING=true make up-agent-bundling"
+
+    # Drop existing bundling views if they exist (from a previous bundling-enabled run)
+    # This ensures we replace full views with stub views
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "DROP MATERIALIZED VIEW IF EXISTS compatible_pairs_mv CASCADE;" 2>/dev/null || true
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "DROP MATERIALIZED VIEW IF EXISTS delivery_bundles_mv CASCADE;" 2>/dev/null || true
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "DROP VIEW IF EXISTS order_weights CASCADE;" 2>/dev/null || true
+
+    # Create empty stub views with same schema so materialize-zero doesn't crash
+    # These views return no rows but have the expected columns
+    # IMPORTANT: Must reference an upstream table (orders_flat_mv) so the frontier advances!
+    # Without an upstream dependency, the view's frontier stays stuck and blocks Zero sync.
+
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+    CREATE MATERIALIZED VIEW IF NOT EXISTS delivery_bundles_mv IN CLUSTER compute AS
+    SELECT
+        order_id AS bundle_id,
+        store_id AS store_id,
+        ''::text AS store_name,
+        '[]'::jsonb AS orders,
+        0::bigint AS bundle_size
+    FROM orders_flat_mv
+    WHERE order_id = '__stub_never_matches__';"
+
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+    CREATE MATERIALIZED VIEW IF NOT EXISTS compatible_pairs_mv IN CLUSTER compute AS
+    SELECT
+        order_id AS pair_id,
+        order_id AS order_a,
+        order_id AS order_b,
+        store_id AS store_id,
+        ''::text AS store_name,
+        ''::text AS overlap_start,
+        ''::text AS overlap_end,
+        0::int AS order_a_weight_grams,
+        0::int AS order_b_weight_grams,
+        0::int AS combined_weight_grams
+    FROM orders_flat_mv
+    WHERE order_id = '__stub_never_matches__';"
+
+    # Create indexes on stub views
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS delivery_bundles_id_idx IN CLUSTER serving ON delivery_bundles_mv (bundle_id);"
+    psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS compatible_pairs_pk_idx IN CLUSTER serving ON compatible_pairs_mv (order_a, order_b);"
+fi
 
 echo "Verifying three-tier setup..."
 echo ""

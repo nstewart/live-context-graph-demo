@@ -582,9 +582,13 @@ export interface SystemTimeseriesPoint {
   total_queue_depth: number
   total_in_progress: number
   total_orders: number
-  avg_wait_minutes: number | null
-  max_wait_minutes: number | null
+  avg_wait_minutes: number | null  // wait time for COMPLETED pickups
+  max_wait_minutes: number | null  // max wait for COMPLETED pickups
   total_orders_picked_up: number
+  // Current queue wait: wait time for orders STILL waiting (created in this window)
+  queue_orders_waiting: number | null
+  queue_avg_wait_minutes: number | null
+  queue_max_wait_minutes: number | null
 }
 
 export interface TimeseriesResponse {
@@ -592,9 +596,32 @@ export interface TimeseriesResponse {
   system_timeseries: SystemTimeseriesPoint[]
 }
 
+// Current Queue Wait Types (real-time wait for orders still in queue)
+export interface StoreQueueWait {
+  store_id: string
+  orders_waiting: number
+  avg_wait_minutes: number | null
+  max_wait_minutes: number | null
+  min_wait_minutes: number | null
+}
+
+export interface SystemQueueWait {
+  orders_waiting: number
+  avg_wait_minutes: number | null
+  max_wait_minutes: number | null
+  min_wait_minutes: number | null
+}
+
+export interface CurrentQueueWaitResponse {
+  system: SystemQueueWait
+  by_store: StoreQueueWait[]
+}
+
 export const metricsApi = {
   getTimeseries: (params?: { store_id?: string; limit?: number }) =>
     apiClient.get<TimeseriesResponse>('/api/metrics/timeseries', { params }),
+  getCurrentQueueWait: () =>
+    apiClient.get<CurrentQueueWaitResponse>('/api/metrics/queue-wait'),
 }
 
 // Search API Types (OpenSearch proxy) - returns raw OpenSearch response
