@@ -36,9 +36,13 @@ class SystemTimeseriesPoint(BaseModel):
     total_queue_depth: int  # orders waiting (CREATED status)
     total_in_progress: int  # orders being worked (PICKING/OUT_FOR_DELIVERY)
     total_orders: int  # queue_depth + in_progress
-    avg_wait_minutes: Optional[float]  # not available in snapshot view
-    max_wait_minutes: Optional[float]  # not available in snapshot view
+    avg_wait_minutes: Optional[float]  # wait time for COMPLETED pickups in this window
+    max_wait_minutes: Optional[float]  # max wait time for COMPLETED pickups in this window
     total_orders_picked_up: int  # throughput: orders delivered this minute
+    # Current queue wait: wait time for orders STILL waiting (created in this window)
+    queue_orders_waiting: Optional[int] = None
+    queue_avg_wait_minutes: Optional[float] = None
+    queue_max_wait_minutes: Optional[float] = None
 
 
 class TimeseriesResponse(BaseModel):
@@ -137,21 +141,149 @@ async def get_timeseries(
     system_result = await session.execute(system_query, {"limit": limit})
     system_rows = system_result.fetchall()
 
-    system_timeseries = [
-        SystemTimeseriesPoint(
-            id=row.id,
-            window_end=int(row.window_end) if row.window_end else 0,
-            total_queue_depth=int(row.total_queue_depth) if row.total_queue_depth else 0,
-            total_in_progress=int(row.total_in_progress) if row.total_in_progress else 0,
-            total_orders=int(row.total_orders) if row.total_orders else 0,
-            avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
-            max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
-            total_orders_picked_up=int(row.total_orders_picked_up) if row.total_orders_picked_up else 0,
+    # Query current queue wait timeseries (orders still waiting, bucketed by creation time)
+    queue_wait_query = text("""
+        SELECT
+            window_end_ms,
+            orders_waiting,
+            queue_avg_wait_minutes,
+            queue_max_wait_minutes
+        FROM current_queue_wait_timeseries
+        ORDER BY window_end_ms DESC
+    """)
+
+    queue_wait_result = await session.execute(queue_wait_query)
+    queue_wait_rows = queue_wait_result.fetchall()
+
+    # Build a lookup map of queue wait data by window_end
+    queue_wait_by_window = {
+        int(row.window_end_ms): {
+            "orders_waiting": int(row.orders_waiting) if row.orders_waiting else 0,
+            "avg_wait": float(row.queue_avg_wait_minutes) if row.queue_avg_wait_minutes else None,
+            "max_wait": float(row.queue_max_wait_minutes) if row.queue_max_wait_minutes else None,
+        }
+        for row in queue_wait_rows
+    }
+
+    # Merge system timeseries with queue wait data
+    system_timeseries = []
+    for row in system_rows:
+        window_end = int(row.window_end) if row.window_end else 0
+        queue_data = queue_wait_by_window.get(window_end, {})
+
+        system_timeseries.append(
+            SystemTimeseriesPoint(
+                id=row.id,
+                window_end=window_end,
+                total_queue_depth=int(row.total_queue_depth) if row.total_queue_depth else 0,
+                total_in_progress=int(row.total_in_progress) if row.total_in_progress else 0,
+                total_orders=int(row.total_orders) if row.total_orders else 0,
+                avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
+                max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
+                total_orders_picked_up=int(row.total_orders_picked_up) if row.total_orders_picked_up else 0,
+                queue_orders_waiting=queue_data.get("orders_waiting"),
+                queue_avg_wait_minutes=queue_data.get("avg_wait"),
+                queue_max_wait_minutes=queue_data.get("max_wait"),
+            )
         )
-        for row in system_rows
-    ]
 
     return TimeseriesResponse(
         store_timeseries=store_timeseries,
         system_timeseries=system_timeseries,
+    )
+
+
+class StoreQueueWait(BaseModel):
+    """Current queue wait time for a single store."""
+    store_id: str
+    orders_waiting: int
+    avg_wait_minutes: Optional[float]
+    max_wait_minutes: Optional[float]
+    min_wait_minutes: Optional[float]
+
+
+class SystemQueueWait(BaseModel):
+    """System-wide current queue wait time."""
+    orders_waiting: int
+    avg_wait_minutes: Optional[float]
+    max_wait_minutes: Optional[float]
+    min_wait_minutes: Optional[float]
+
+
+class CurrentQueueWaitResponse(BaseModel):
+    """Current wait times for orders still in queue (not yet picked up)."""
+    system: SystemQueueWait
+    by_store: list[StoreQueueWait]
+
+
+@router.get("/queue-wait", response_model=CurrentQueueWaitResponse)
+async def get_current_queue_wait(
+    session: AsyncSession = Depends(get_mz_session),
+):
+    """
+    Get real-time wait times for orders currently in queue.
+
+    Unlike the historical wait time metrics which only show completed pickups,
+    this endpoint shows how long orders have been waiting RIGHT NOW.
+
+    This is useful for monitoring queue buildup when couriers are unavailable.
+    The wait times will grow continuously until orders are picked up.
+    """
+    # Query system-wide current queue wait
+    system_query = text("""
+        SELECT
+            COALESCE(orders_waiting, 0) AS orders_waiting,
+            avg_wait_minutes,
+            max_wait_minutes,
+            min_wait_minutes
+        FROM current_queue_wait_system
+    """)
+
+    system_result = await session.execute(system_query)
+    system_row = system_result.fetchone()
+
+    if system_row:
+        system_wait = SystemQueueWait(
+            orders_waiting=int(system_row.orders_waiting),
+            avg_wait_minutes=float(system_row.avg_wait_minutes) if system_row.avg_wait_minutes else None,
+            max_wait_minutes=float(system_row.max_wait_minutes) if system_row.max_wait_minutes else None,
+            min_wait_minutes=float(system_row.min_wait_minutes) if system_row.min_wait_minutes else None,
+        )
+    else:
+        system_wait = SystemQueueWait(
+            orders_waiting=0,
+            avg_wait_minutes=None,
+            max_wait_minutes=None,
+            min_wait_minutes=None,
+        )
+
+    # Query per-store current queue wait
+    store_query = text("""
+        SELECT
+            store_id,
+            orders_waiting,
+            avg_wait_minutes,
+            max_wait_minutes,
+            min_wait_minutes
+        FROM current_queue_wait_by_store
+        ORDER BY orders_waiting DESC
+    """)
+
+    store_result = await session.execute(store_query)
+    store_rows = store_result.fetchall()
+
+    store_waits = [
+        StoreQueueWait(
+            store_id=row.store_id,
+            orders_waiting=int(row.orders_waiting),
+            avg_wait_minutes=float(row.avg_wait_minutes) if row.avg_wait_minutes else None,
+            max_wait_minutes=float(row.max_wait_minutes) if row.max_wait_minutes else None,
+            min_wait_minutes=float(row.min_wait_minutes) if row.min_wait_minutes else None,
+        )
+        for row in store_rows
+    ]
+
+    return CurrentQueueWaitResponse(
+        system=system_wait,
+        by_store=store_waits,
     )

@@ -1229,6 +1229,59 @@ SELECT
 FROM store_metrics_timeseries_mv
 GROUP BY window_end;"
 
+# Current queue wait time - real-time wait for orders still waiting to be picked up
+# This uses mz_now() to calculate how long orders have been waiting
+# NOTE: These are VIEWs (not materialized) because NOW() changes constantly
+echo "Creating current queue wait time views..."
+
+# Point-in-time current queue wait (for single metric display)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_by_store AS
+SELECT
+    o.store_id,
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS max_wait_minutes,
+    MIN(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS min_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at
+GROUP BY o.store_id;"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_system AS
+SELECT
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS max_wait_minutes,
+    MIN(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS min_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at;"
+
+# Current queue wait TIMESERIES - bucketed by order creation time
+# Shows wait times for orders STILL in queue, bucketed by 1-minute windows
+# This allows comparison with completed pickup wait times on the same chart
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS current_queue_wait_timeseries AS
+SELECT
+    DATE_TRUNC('minute', o.order_created_at) AS window_end,
+    EXTRACT(EPOCH FROM DATE_TRUNC('minute', o.order_created_at))::bigint * 1000 AS window_end_ms,
+    COUNT(*) AS orders_waiting,
+    AVG(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS queue_avg_wait_minutes,
+    MAX(EXTRACT(EPOCH FROM (NOW() - o.order_created_at)) / 60.0)::numeric(10,2) AS queue_max_wait_minutes
+FROM orders_flat_mv o
+WHERE o.order_status = 'CREATED'
+  AND o.order_created_at IS NOT NULL
+  AND mz_now() >= o.order_created_at
+  AND mz_now() <= o.order_created_at + INTERVAL '30 minutes'
+GROUP BY DATE_TRUNC('minute', o.order_created_at);"
+
+# Create index for the orders_flat_mv status lookups used by current queue wait views
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_flat_status_idx IN CLUSTER serving ON orders_flat_mv (order_status);"
+
 echo "Creating indexes for timeseries queries..."
 
 # Indexes for timeseries queries

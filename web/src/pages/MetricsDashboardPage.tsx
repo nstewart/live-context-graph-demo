@@ -395,8 +395,6 @@ export default function MetricsDashboardPage() {
         queueDepth: [],
         inProgress: [],
         totalOrders: [],
-        avgWait: [],
-        maxWait: [],
         throughput: [],
       }
     }
@@ -404,8 +402,6 @@ export default function MetricsDashboardPage() {
       queueDepth: systemTimeseries.map(d => d.total_queue_depth),
       inProgress: systemTimeseries.map(d => d.total_in_progress),
       totalOrders: systemTimeseries.map(d => d.total_orders),
-      avgWait: systemTimeseries.map(d => d.avg_wait_minutes ?? 0),
-      maxWait: systemTimeseries.map(d => d.max_wait_minutes ?? 0),
       throughput: systemTimeseries.map(d => d.total_orders_picked_up),
     }
   }, [systemTimeseries]);
@@ -633,9 +629,9 @@ export default function MetricsDashboardPage() {
         <div className="grid grid-cols-3 gap-6">
           {/* Orders In Flight */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Orders In Flight</h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Orders In Flight (Historical)</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Orders currently in queue or being processed
+              Order counts per 1-minute window over the last 10 minutes
             </p>
             <StackedAreaChart
               data1={systemChartData.queueDepth}
@@ -644,24 +640,6 @@ export default function MetricsDashboardPage() {
               label2="In Progress"
               color1="#6366f1"
               color2="#a5b4fc"
-            />
-          </div>
-
-          {/* Wait Times */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Wait Times</h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Time from order creation to courier pickup (minutes)
-            </p>
-            <TimeSeriesLineChart
-              data={systemChartData.avgWait}
-              data2={systemChartData.maxWait}
-              label="Avg"
-              label2="Max"
-              color="#f59e0b"
-              color2="#fcd34d"
-              unit="m"
-              decimals={2}
             />
           </div>
 
