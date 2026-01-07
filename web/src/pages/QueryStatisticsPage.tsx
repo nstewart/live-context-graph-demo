@@ -288,6 +288,74 @@ interface OrderCardProps {
 
 const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading }: OrderCardProps) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const prevOrderRef = useRef<OrderWithLinesData | null>(null);
+  const [changedFields, setChangedFields] = useState<Set<string>>(new Set());
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Detect changes and highlight them
+  useEffect(() => {
+    if (!order) {
+      prevOrderRef.current = null;
+      return;
+    }
+
+    if (!prevOrderRef.current) {
+      prevOrderRef.current = order;
+      return;
+    }
+
+    const prev = prevOrderRef.current;
+    const changes = new Set<string>();
+
+    // Check top-level fields
+    if (prev.order_status !== order.order_status) changes.add('status');
+    if (prev.order_total_amount !== order.order_total_amount) changes.add('total');
+    if (prev.customer_name !== order.customer_name) changes.add('customer');
+    if (prev.store_name !== order.store_name) changes.add('store');
+
+    // Check line items
+    const prevLines = new Map(prev.line_items?.map(l => [l.line_id, l]) || []);
+    order.line_items?.forEach(line => {
+      const prevLine = prevLines.get(line.line_id);
+      if (!prevLine) {
+        changes.add(`line-${line.line_id}`);
+      } else {
+        if (prevLine.quantity !== line.quantity) changes.add(`line-${line.line_id}-qty`);
+        if (prevLine.unit_price !== line.unit_price) changes.add(`line-${line.line_id}-price`);
+        if (prevLine.line_amount !== line.line_amount) changes.add(`line-${line.line_id}-subtotal`);
+        if (prevLine.live_price !== line.live_price) changes.add(`line-${line.line_id}-live`);
+      }
+    });
+
+    // Update ref for next comparison
+    prevOrderRef.current = order;
+
+    if (changes.size > 0) {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      setChangedFields(changes);
+      // Clear highlights after 2 seconds
+      timeoutRef.current = setTimeout(() => {
+        setChangedFields(new Set());
+      }, 2000);
+    }
+  }, [order]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const highlightClass = (field: string) =>
+    changedFields.has(field)
+      ? 'bg-yellow-200 rounded px-1 -mx-1 transition-all duration-1000'
+      : 'transition-all duration-1000';
 
   if (!order && !isLoading) {
     return (
@@ -342,25 +410,27 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Status</span>
-                <StatusBadge status={order.order_status} />
+                <span className={highlightClass('status')}>
+                  <StatusBadge status={order.order_status} />
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <User className="h-3 w-3" />
                   Customer
                 </span>
-                <span className="text-right truncate max-w-[150px]">{order.customer_name || "-"}</span>
+                <span className={`text-right truncate max-w-[150px] ${highlightClass('customer')}`}>{order.customer_name || "-"}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <Store className="h-3 w-3" />
                   Store
                 </span>
-                <span className="text-right truncate max-w-[150px]">{order.store_name || "-"}</span>
+                <span className={`text-right truncate max-w-[150px] ${highlightClass('store')}`}>{order.store_name || "-"}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Total</span>
-                <span className="font-semibold">
+                <span className={`font-semibold ${highlightClass('total')}`}>
                   ${order.order_total_amount?.toFixed(2) || order.computed_total?.toFixed(2) || "0.00"}
                 </span>
               </div>
@@ -390,38 +460,42 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                       <span className="text-right" title="Current dynamic price">Live</span>
                       <span className="text-right" title="Quantity × Order Price">Subtotal</span>
                     </div>
-                    {order.line_items.map((item: OrderLineItem) => (
-                      <div
-                        key={item.line_id}
-                        className="text-xs py-1.5 px-2 bg-gray-50 rounded"
-                      >
-                        <div className="grid grid-cols-[1fr_40px_40px_40px_55px] gap-1 items-center">
-                          <div className="min-w-0">
-                            <span className="truncate block font-medium">
-                              {item.product_name || item.product_id}
+                    {order.line_items.map((item: OrderLineItem) => {
+                      const lineHighlight = (field: string) => highlightClass(`line-${item.line_id}-${field}`);
+                      const isNewLine = changedFields.has(`line-${item.line_id}`);
+                      return (
+                        <div
+                          key={item.line_id}
+                          className={`text-xs py-1.5 px-2 rounded transition-all duration-1000 ${isNewLine ? 'bg-yellow-200' : 'bg-gray-50'}`}
+                        >
+                          <div className="grid grid-cols-[1fr_40px_40px_40px_55px] gap-1 items-center">
+                            <div className="min-w-0">
+                              <span className="truncate block font-medium">
+                                {item.product_name || item.product_id}
+                              </span>
+                              <span className={`text-gray-500 ${lineHighlight('qty')}`}>
+                                Qty: {item.quantity}
+                              </span>
+                            </div>
+                            <span className={`text-right font-mono ${lineHighlight('price')}`}>
+                              ${item.unit_price?.toFixed(2) ?? '-'}
                             </span>
-                            <span className="text-gray-500">
-                              Qty: {item.quantity}
+                            <span className="text-right font-mono text-gray-400">
+                              ${item.base_price?.toFixed(2) ?? '-'}
+                            </span>
+                            <span className={`text-right font-mono text-blue-600 ${lineHighlight('live')}`}>
+                              ${item.live_price?.toFixed(2) ?? '-'}
+                            </span>
+                            <span className={`text-right font-mono font-medium ${lineHighlight('subtotal')}`}>
+                              ${item.line_amount?.toFixed(2) ?? '-'}
                             </span>
                           </div>
-                          <span className="text-right font-mono">
-                            ${item.unit_price?.toFixed(2) ?? '-'}
-                          </span>
-                          <span className="text-right font-mono text-gray-400">
-                            ${item.base_price?.toFixed(2) ?? '-'}
-                          </span>
-                          <span className="text-right font-mono text-blue-600">
-                            ${item.live_price?.toFixed(2) ?? '-'}
-                          </span>
-                          <span className="text-right font-mono font-medium">
-                            ${item.line_amount?.toFixed(2) ?? '-'}
-                          </span>
+                          <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                            {item.line_id}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                          {item.line_id}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
