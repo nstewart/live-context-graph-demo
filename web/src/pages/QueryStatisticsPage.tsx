@@ -41,6 +41,7 @@ import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
+import { usePropagation } from "../contexts/PropagationContext";
 
 interface ChartDataPoint {
   time: number;
@@ -513,6 +514,7 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
 };
 
 export default function QueryStatisticsPage() {
+  const { clearWrites } = usePropagation();
   const [orders, setOrders] = useState<QueryStatsOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
   const [isPolling, setIsPolling] = useState(false);
@@ -842,6 +844,7 @@ export default function QueryStatisticsPage() {
     try {
       await queryStatsApi.stopPolling();
       setIsPolling(false);
+      clearWrites(); // Clear the write propagation state
 
       if (metricsIntervalRef.current) {
         clearInterval(metricsIntervalRef.current);
