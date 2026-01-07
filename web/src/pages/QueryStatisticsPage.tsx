@@ -14,7 +14,6 @@ import {
   Play,
   Square,
   Wifi,
-  WifiOff,
   BarChart3,
   Database,
   Zap,
@@ -42,6 +41,7 @@ import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
+import { usePropagation } from "../contexts/PropagationContext";
 
 interface ChartDataPoint {
   time: number;
@@ -289,6 +289,74 @@ interface OrderCardProps {
 
 const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading }: OrderCardProps) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const prevOrderRef = useRef<OrderWithLinesData | null>(null);
+  const [changedFields, setChangedFields] = useState<Set<string>>(new Set());
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Detect changes and highlight them
+  useEffect(() => {
+    if (!order) {
+      prevOrderRef.current = null;
+      return;
+    }
+
+    if (!prevOrderRef.current) {
+      prevOrderRef.current = order;
+      return;
+    }
+
+    const prev = prevOrderRef.current;
+    const changes = new Set<string>();
+
+    // Check top-level fields
+    if (prev.order_status !== order.order_status) changes.add('status');
+    if (prev.order_total_amount !== order.order_total_amount) changes.add('total');
+    if (prev.customer_name !== order.customer_name) changes.add('customer');
+    if (prev.store_name !== order.store_name) changes.add('store');
+
+    // Check line items
+    const prevLines = new Map(prev.line_items?.map(l => [l.line_id, l]) || []);
+    order.line_items?.forEach(line => {
+      const prevLine = prevLines.get(line.line_id);
+      if (!prevLine) {
+        changes.add(`line-${line.line_id}`);
+      } else {
+        if (prevLine.quantity !== line.quantity) changes.add(`line-${line.line_id}-qty`);
+        if (prevLine.unit_price !== line.unit_price) changes.add(`line-${line.line_id}-price`);
+        if (prevLine.line_amount !== line.line_amount) changes.add(`line-${line.line_id}-subtotal`);
+        if (prevLine.live_price !== line.live_price) changes.add(`line-${line.line_id}-live`);
+      }
+    });
+
+    // Update ref for next comparison
+    prevOrderRef.current = order;
+
+    if (changes.size > 0) {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      setChangedFields(changes);
+      // Clear highlights after 2 seconds
+      timeoutRef.current = setTimeout(() => {
+        setChangedFields(new Set());
+      }, 2000);
+    }
+  }, [order]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const highlightClass = (field: string) =>
+    changedFields.has(field)
+      ? 'bg-yellow-200 rounded px-1 -mx-1 transition-all duration-1000'
+      : 'transition-all duration-1000';
 
   if (!order && !isLoading) {
     return (
@@ -343,25 +411,27 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Status</span>
-                <StatusBadge status={order.order_status} />
+                <span className={highlightClass('status')}>
+                  <StatusBadge status={order.order_status} />
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <User className="h-3 w-3" />
                   Customer
                 </span>
-                <span className="text-right truncate max-w-[150px]">{order.customer_name || "-"}</span>
+                <span className={`text-right truncate max-w-[150px] ${highlightClass('customer')}`}>{order.customer_name || "-"}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <Store className="h-3 w-3" />
                   Store
                 </span>
-                <span className="text-right truncate max-w-[150px]">{order.store_name || "-"}</span>
+                <span className={`text-right truncate max-w-[150px] ${highlightClass('store')}`}>{order.store_name || "-"}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Total</span>
-                <span className="font-semibold">
+                <span className={`font-semibold ${highlightClass('total')}`}>
                   ${order.order_total_amount?.toFixed(2) || order.computed_total?.toFixed(2) || "0.00"}
                 </span>
               </div>
@@ -384,41 +454,49 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                 {isExpanded && (
                   <div className="mt-2 space-y-1 max-h-[250px] overflow-y-auto">
                     {/* Header row */}
-                    <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_50px_50px_50px] gap-1">
+                    <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_40px_40px_40px_55px] gap-1">
                       <span>Product</span>
                       <span className="text-right" title="Price when order was placed">Order</span>
                       <span className="text-right" title="Product catalog price">Base</span>
                       <span className="text-right" title="Current dynamic price">Live</span>
+                      <span className="text-right" title="Quantity × Order Price">Subtotal</span>
                     </div>
-                    {order.line_items.map((item: OrderLineItem) => (
-                      <div
-                        key={item.line_id}
-                        className="text-xs py-1.5 px-2 bg-gray-50 rounded"
-                      >
-                        <div className="grid grid-cols-[1fr_50px_50px_50px] gap-1 items-center">
-                          <div className="min-w-0">
-                            <span className="truncate block font-medium">
-                              {item.product_name || item.product_id}
+                    {order.line_items.map((item: OrderLineItem) => {
+                      const lineHighlight = (field: string) => highlightClass(`line-${item.line_id}-${field}`);
+                      const isNewLine = changedFields.has(`line-${item.line_id}`);
+                      return (
+                        <div
+                          key={item.line_id}
+                          className={`text-xs py-1.5 px-2 rounded transition-all duration-1000 ${isNewLine ? 'bg-yellow-200' : 'bg-gray-50'}`}
+                        >
+                          <div className="grid grid-cols-[1fr_40px_40px_40px_55px] gap-1 items-center">
+                            <div className="min-w-0">
+                              <span className="truncate block font-medium">
+                                {item.product_name || item.product_id}
+                              </span>
+                              <span className={`text-gray-500 ${lineHighlight('qty')}`}>
+                                Qty: {item.quantity}
+                              </span>
+                            </div>
+                            <span className={`text-right font-mono ${lineHighlight('price')}`}>
+                              ${item.unit_price?.toFixed(2) ?? '-'}
                             </span>
-                            <span className="text-gray-500">
-                              Qty: {item.quantity}
+                            <span className="text-right font-mono text-gray-400">
+                              ${item.base_price?.toFixed(2) ?? '-'}
+                            </span>
+                            <span className={`text-right font-mono text-blue-600 ${lineHighlight('live')}`}>
+                              ${item.live_price?.toFixed(2) ?? '-'}
+                            </span>
+                            <span className={`text-right font-mono font-medium ${lineHighlight('subtotal')}`}>
+                              ${item.line_amount?.toFixed(2) ?? '-'}
                             </span>
                           </div>
-                          <span className="text-right font-mono">
-                            ${item.unit_price?.toFixed(2) ?? '-'}
-                          </span>
-                          <span className="text-right font-mono text-gray-400">
-                            ${item.base_price?.toFixed(2) ?? '-'}
-                          </span>
-                          <span className="text-right font-mono text-blue-600">
-                            ${item.live_price?.toFixed(2) ?? '-'}
-                          </span>
+                          <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                            {item.line_id}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                          {item.line_id}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -436,6 +514,7 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
 };
 
 export default function QueryStatisticsPage() {
+  const { clearWrites } = usePropagation();
   const [orders, setOrders] = useState<QueryStatsOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
   const [isPolling, setIsPolling] = useState(false);
@@ -765,6 +844,7 @@ export default function QueryStatisticsPage() {
     try {
       await queryStatsApi.stopPolling();
       setIsPolling(false);
+      clearWrites(); // Clear the write propagation state
 
       if (metricsIntervalRef.current) {
         clearInterval(metricsIntervalRef.current);
@@ -848,96 +928,76 @@ export default function QueryStatisticsPage() {
   return (
     <div className="p-6">
       {/* Header - Sticky */}
-      <div className="flex justify-between items-center mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Agent Reference Architecture</h1>
-            {isPolling ? (
-              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
-                <Wifi className="h-3 w-3" />
-                Polling
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-500 bg-gray-100 rounded-full">
-                <WifiOff className="h-3 w-3" />
-                Stopped
-              </span>
-            )}
-            {isPolling && (
-              <span className="text-xs text-gray-500">
-                Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
-              </span>
-            )}
+      <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
+        {/* Top row: Title and Controls */}
+        <div className="flex justify-between items-start">
+          <h1 className="text-2xl font-bold text-gray-900">Agent Reference Architecture</h1>
+
+          {/* Controls group */}
+          <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
+            {/* Polling control */}
+            <div className="flex items-center gap-2">
+              {!isPolling ? (
+                <button
+                  onClick={handleStartPolling}
+                  disabled={!selectedOrderId}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Start
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleStopPolling}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    Stop
+                  </button>
+                  <span className="flex items-center gap-1 text-xs text-green-600">
+                    <Wifi className="h-3 w-3" />
+                    Live
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-gray-200" />
+
+            {/* View mode */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">View</label>
+              <select
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value as ViewMode)}
+                className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white"
+              >
+                <option value="query-offload">Query Offload</option>
+                <option value="batch">Batch Computation</option>
+                <option value="materialize">Materialize</option>
+              </select>
+            </div>
           </div>
-          <p className="text-gray-600">
-            Materialize creates a foundational data layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads.
+        </div>
+
+        {/* Description row */}
+        <p className="text-gray-600 text-sm max-w-3xl">
+          Materialize creates a foundational data layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads from siloed operational databases.
+        </p>
+
+        {/* Polling status indicator */}
+        {isPolling && (
+          <p className="text-xs text-gray-400 mt-1">
+            Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-gray-600">View Mode:</label>
-          <select
-            value={viewMode}
-            onChange={(e) => setViewMode(e.target.value as ViewMode)}
-            className="px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white"
-          >
-            <option value="query-offload">Query Offload</option>
-            <option value="batch">Batch Computation</option>
-            <option value="materialize">Materialize</option>
-          </select>
-        </div>
+        )}
       </div>
 
       {error && (
         <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg">{error}</div>
       )}
-
-      {/* Order Selector */}
-      <div className="bg-white rounded-lg shadow p-4 mb-4">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <ShoppingCart className="h-4 w-4 inline mr-1" />
-              Select Order
-            </label>
-            <select
-              value={selectedOrderId}
-              onChange={(e) => {
-                setSelectedOrderId(e.target.value);
-                setTripleSubject(e.target.value);
-                userSetSubjectRef.current = false; // Reset flag when changing orders
-              }}
-              disabled={isPolling}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
-            >
-              {orders.map((order) => (
-                <option key={order.order_id} value={order.order_id}>
-                  {order.order_number || order.order_id} - {order.order_status} - {order.customer_name || "Unknown"} @ {order.store_name || "Unknown"}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-2 pt-6">
-            {!isPolling ? (
-              <button
-                onClick={handleStartPolling}
-                disabled={!selectedOrderId}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                <Play className="h-4 w-4" />
-                Start Polling
-              </button>
-            ) : (
-              <button
-                onClick={handleStopPolling}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                <Square className="h-4 w-4" />
-                Stop
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* What are Triples? Card */}
       <WhatAreTriplesCard
@@ -945,6 +1005,13 @@ export default function QueryStatisticsPage() {
         orderNumber={zeroOrder?.order_number ?? null}
         lineItemIds={zeroOrder?.line_items?.map((item) => item.line_id) ?? []}
         onTripleClick={handleTripleClick}
+        orders={orders}
+        onOrderChange={(orderId) => {
+          setSelectedOrderId(orderId);
+          setTripleSubject(orderId);
+          userSetSubjectRef.current = false;
+        }}
+        isPolling={isPolling}
         refreshTrigger={triplesRefreshTrigger}
       />
 
@@ -963,7 +1030,7 @@ export default function QueryStatisticsPage() {
             <div className="text-left">
               <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
               <p className="text-xs text-gray-500">
-                View lineage from source to materialized views powering the Orders page
+                Integrate writes from siloed operational systems and apply complex business logic to transform them into live context that can be delivered at agent scale
               </p>
             </div>
           </div>

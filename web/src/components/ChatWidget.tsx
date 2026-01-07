@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Trash2, Minimize2, Send, ChevronDown, ChevronRight } from 'lucide-react';
+import { MessageCircle, Trash2, X, Send, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useChat, ChatMessage, ThinkingEvent } from '../contexts/ChatContext';
 
@@ -157,93 +157,91 @@ export default function ChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentThinking]);
 
+  // Floating bubble when closed - positioned above the PropagationWidget (h-10 = 40px)
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-16 right-6 h-14 w-14 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
+        title="Open Operations Assistant"
+      >
+        <MessageCircle className="h-6 w-6" />
+        {messages.length > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-medium">
+            {messages.length}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  // Panel mode when open - NOT fixed positioning, fills parent container
   return (
-    <>
-      {/* Floating bubble when closed */}
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 h-14 w-14 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
-          title="Open Operations Assistant"
-        >
-          <MessageCircle className="h-6 w-6" />
-          {messages.length > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-medium">
-              {messages.length}
-            </span>
+    <div className="flex flex-col h-full bg-gray-900 border-l border-gray-700">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="h-5 w-5 text-green-500" />
+          <span className="font-medium text-white">Operations Assistant</span>
+          {isStreaming && (
+            <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
           )}
-        </button>
-      )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={clearMessages}
+            className="p-1.5 hover:bg-gray-800 rounded transition-colors"
+            title="Clear chat"
+          >
+            <Trash2 className="h-4 w-4 text-gray-400 hover:text-red-400" />
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="p-1.5 hover:bg-gray-800 rounded transition-colors"
+            title="Close panel"
+          >
+            <X className="h-4 w-4 text-gray-400" />
+          </button>
+        </div>
+      </div>
 
-      {/* Chat overlay when open */}
-      {isOpen && (
-        <div className="fixed bottom-6 right-6 w-[500px] h-[650px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col z-50">
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5 text-green-500" />
-              <span className="font-medium text-white">Operations Assistant</span>
-              {isStreaming && (
-                <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={clearMessages}
-                className="p-1.5 hover:bg-gray-800 rounded transition-colors"
-                title="Clear chat"
-              >
-                <Trash2 className="h-4 w-4 text-gray-400 hover:text-red-400" />
-              </button>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-1.5 hover:bg-gray-800 rounded transition-colors"
-                title="Minimize"
-              >
-                <Minimize2 className="h-4 w-4 text-gray-400" />
-              </button>
-            </div>
-          </div>
-
-          {/* Thread ID indicator */}
-          {threadId && (
-            <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700 shrink-0">
-              Session: <span className="font-mono">{threadId}</span>
-            </div>
-          )}
-
-          {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
-                <MessageCircle className="h-12 w-12 mb-2 opacity-50" />
-                <p>Ask me about orders, inventory,</p>
-                <p>stores, or couriers.</p>
-              </div>
-            ) : (
-              <>
-                {messages.map((message) => (
-                  <MessageBubble
-                    key={message.id}
-                    message={message}
-                    isStreaming={isStreaming}
-                  />
-                ))}
-                {/* Live thinking indicator during streaming */}
-                {isStreaming && currentThinking.length > 0 && (
-                  <div className="bg-gray-800 rounded-lg px-3 py-2">
-                    <ThinkingDisplay events={currentThinking} isLive={true} />
-                  </div>
-                )}
-              </>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input area */}
-          <ChatInput />
+      {/* Thread ID indicator */}
+      {threadId && (
+        <div className="px-3 py-1 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-700 shrink-0">
+          Session: <span className="font-mono">{threadId}</span>
         </div>
       )}
-    </>
+
+      {/* Messages area */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
+            <MessageCircle className="h-12 w-12 mb-2 opacity-50" />
+            <p>Ask me about orders, inventory,</p>
+            <p>stores, or couriers.</p>
+          </div>
+        ) : (
+          <>
+            {messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                isStreaming={isStreaming}
+              />
+            ))}
+            {/* Live thinking indicator during streaming */}
+            {isStreaming && currentThinking.length > 0 && (
+              <div className="bg-gray-800 rounded-lg px-3 py-2">
+                <ThinkingDisplay events={currentThinking} isLive={true} />
+              </div>
+            )}
+          </>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input area */}
+      <ChatInput />
+    </div>
   );
 }

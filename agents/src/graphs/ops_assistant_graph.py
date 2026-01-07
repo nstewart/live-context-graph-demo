@@ -212,6 +212,7 @@ def get_llm():
         return ChatOpenAI(
             model=settings.llm_model,
             openai_api_key=settings.openai_api_key,
+            temperature=1,  # Required for reasoning models (o1, o3)
         )
     else:
         raise ValueError("No LLM API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY")
