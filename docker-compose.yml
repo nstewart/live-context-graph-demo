@@ -316,7 +316,7 @@ services:
       - AGENT_OS_BASE=http://opensearch:9200
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-gpt-5-mini}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
     ports:
       - "${AGENT_PORT:-8081}:8081"
     depends_on:
