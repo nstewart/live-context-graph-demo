@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/audit", tags=["Audit"])
 @router.get("/writes")
 async def get_writes(
     since_ts: Optional[float] = Query(None, description="Only return events after this Unix timestamp"),
+    subject_ids: Optional[str] = Query(None, description="Comma-separated list of subject IDs to filter by"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of events to return"),
 ):
     """Get recent write events from the audit store.
@@ -20,7 +21,9 @@ async def get_writes(
     propagation through Materialize to search indexes.
     """
     store = get_write_store()
-    events = store.get_events(since_ts=since_ts, limit=limit)
+    # Parse comma-separated subject_ids if provided
+    subject_ids_list = subject_ids.split(",") if subject_ids else None
+    events = store.get_events(since_ts=since_ts, subject_ids=subject_ids_list, limit=limit)
     return {"events": events}
 
 
