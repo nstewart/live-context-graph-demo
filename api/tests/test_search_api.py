@@ -136,11 +136,16 @@ class TestSearchOrdersAPI:
         """GET /api/search/orders returns 502 for OpenSearch errors."""
         with patch("httpx.AsyncClient.post") as mock_post:
             import httpx
+            from unittest.mock import MagicMock
 
-            mock_response = AsyncMock(status_code=500, text="Internal error")
+            # Use MagicMock for the response so that .text returns a string, not a coroutine
+            mock_response = MagicMock()
+            mock_response.status_code = 500
+            mock_response.text = "Internal error"
             mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-                "Error", request=AsyncMock(), response=mock_response
+                "Error", request=MagicMock(), response=mock_response
             )
+            # Wrap in AsyncMock for awaitable post()
             mock_post.return_value = mock_response
 
             response = await async_client.get("/api/search/orders", params={"q": "test"})

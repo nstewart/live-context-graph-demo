@@ -409,3 +409,212 @@ async def test_health_endpoint_event_count(client):
     response = await client.get("/health")
     data = await response.json()
     assert data["event_count"] == 5
+
+
+# =============================================================================
+# Focus Context API Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_set_focus_endpoint(client):
+    """Test POST /propagation/focus endpoint."""
+    response = await client.post(
+        "/propagation/focus",
+        json={
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": ["product:prod001", "product:prod002"],
+        },
+    )
+
+    assert response.status == 200
+    data = await response.json()
+    assert data["status"] == "ok"
+    assert data["focus"]["order_id"] == "order:FM-1001"
+    assert data["focus"]["store_id"] == "store:BK-01"
+    assert data["focus"]["product_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_set_focus_endpoint_partial_data(client):
+    """Test POST /propagation/focus with partial data."""
+    # Only store_id, no order_id or product_ids
+    response = await client.post(
+        "/propagation/focus",
+        json={
+            "store_id": "store:BK-01",
+        },
+    )
+
+    assert response.status == 200
+    data = await response.json()
+    assert data["status"] == "ok"
+    assert data["focus"]["order_id"] is None
+    assert data["focus"]["store_id"] == "store:BK-01"
+    assert data["focus"]["product_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_set_focus_endpoint_empty_product_ids(client):
+    """Test POST /propagation/focus with empty product_ids list."""
+    response = await client.post(
+        "/propagation/focus",
+        json={
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": [],
+        },
+    )
+
+    assert response.status == 200
+    data = await response.json()
+    assert data["focus"]["product_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_set_focus_endpoint_invalid_json(client):
+    """Test POST /propagation/focus with invalid JSON."""
+    response = await client.post(
+        "/propagation/focus",
+        data="not valid json",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status == 400
+    data = await response.json()
+    assert "error" in data
+    assert "Invalid JSON" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_set_focus_endpoint_invalid_product_ids_type(client):
+    """Test POST /propagation/focus with non-list product_ids."""
+    response = await client.post(
+        "/propagation/focus",
+        json={
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": "not a list",
+        },
+    )
+
+    assert response.status == 400
+    data = await response.json()
+    assert "error" in data
+    assert "product_ids must be a list" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_clear_focus_endpoint(client):
+    """Test DELETE /propagation/focus endpoint."""
+    store = get_propagation_store()
+
+    # First set a focus context
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001"],
+    )
+    assert store.get_focus_context() is not None
+
+    # Clear it via API
+    response = await client.delete("/propagation/focus")
+
+    assert response.status == 200
+    data = await response.json()
+    assert data["status"] == "ok"
+
+    # Verify it's cleared
+    assert store.get_focus_context() is None
+
+
+@pytest.mark.asyncio
+async def test_clear_focus_endpoint_when_not_set(client):
+    """Test DELETE /propagation/focus when no focus is set."""
+    store = get_propagation_store()
+    assert store.get_focus_context() is None
+
+    # Should still succeed
+    response = await client.delete("/propagation/focus")
+
+    assert response.status == 200
+    data = await response.json()
+    assert data["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_focus_affects_event_priority(client):
+    """Test that setting focus affects event priority in responses."""
+    store = get_propagation_store()
+
+    # Add events with store_id and product_id
+    import time
+    now = time.time()
+    events = [
+        PropagationEvent(
+            mz_ts="12345-67890",
+            index_name="inventory",
+            doc_id="inventory:001",
+            operation="UPDATE",
+            timestamp=now,
+            store_id="store:MAN-01",
+            product_id="product:prod999",
+            priority=1.0,  # Low priority - cascade
+        ),
+        PropagationEvent(
+            mz_ts="12345-67891",
+            index_name="inventory",
+            doc_id="inventory:002",
+            operation="UPDATE",
+            timestamp=now,
+            store_id="store:BK-01",
+            product_id="product:prod001",
+            priority=1000.0,  # High priority - direct match
+        ),
+    ]
+    store.add_events(events)
+
+    # Set focus for store:BK-01 and product:prod001
+    await client.post(
+        "/propagation/focus",
+        json={
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": ["product:prod001"],
+        },
+    )
+
+    # Get events - high priority should come first
+    response = await client.get("/propagation/events")
+    data = await response.json()
+
+    assert len(data["events"]) == 2
+    # Direct match (high priority) should be first
+    assert data["events"][0]["doc_id"] == "inventory:002"
+    assert data["events"][0]["priority"] == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_cors_for_post_focus(client):
+    """Test CORS headers for POST /propagation/focus."""
+    response = await client.post(
+        "/propagation/focus",
+        json={"store_id": "store:BK-01"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:5173"
+
+
+@pytest.mark.asyncio
+async def test_cors_for_delete_focus(client):
+    """Test CORS headers for DELETE /propagation/focus."""
+    response = await client.delete(
+        "/propagation/focus",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:5173"

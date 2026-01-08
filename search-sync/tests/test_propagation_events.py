@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from src.propagation_events import PropagationEvent, PropagationEventStore
+from src.propagation_events import FocusContext, PropagationEvent, PropagationEventStore
 
 
 def test_propagation_event_to_dict():
@@ -22,6 +22,9 @@ def test_propagation_event_to_dict():
         },
         timestamp=1234567890.0,
         display_name="Order FM-1001",
+        priority=100.0,
+        store_id="store:BK-01",
+        product_id="product:prod001",
     )
 
     result = event.to_dict()
@@ -37,6 +40,9 @@ def test_propagation_event_to_dict():
         },
         "timestamp": 1234567890.0,
         "display_name": "Order FM-1001",
+        "priority": 100.0,
+        "store_id": "store:BK-01",
+        "product_id": "product:prod001",
     }
 
 
@@ -104,27 +110,28 @@ def test_get_events_returns_most_recent_first():
     """Test that get_events returns events in reverse chronological order."""
     store = PropagationEventStore()
 
-    # Add events with different timestamps
+    # Add events with different timestamps (using recent times to avoid TTL expiration)
+    now = time.time()
     event1 = PropagationEvent(
         mz_ts="12345-67890",
         index_name="orders",
         doc_id="order:FM-1001",
         operation="INSERT",
-        timestamp=100.0,
+        timestamp=now - 2,
     )
     event2 = PropagationEvent(
         mz_ts="12345-67891",
         index_name="orders",
         doc_id="order:FM-1002",
         operation="INSERT",
-        timestamp=200.0,
+        timestamp=now - 1,
     )
     event3 = PropagationEvent(
         mz_ts="12345-67892",
         index_name="orders",
         doc_id="order:FM-1003",
         operation="INSERT",
-        timestamp=300.0,
+        timestamp=now,
     )
 
     store.add_events([event1, event2, event3])
@@ -132,9 +139,10 @@ def test_get_events_returns_most_recent_first():
     results = store.get_events()
 
     assert len(results) == 3
-    assert results[0]["timestamp"] == 300.0
-    assert results[1]["timestamp"] == 200.0
-    assert results[2]["timestamp"] == 100.0
+    # Results are sorted by priority (all 0) then by timestamp (most recent first)
+    assert results[0]["doc_id"] == "order:FM-1003"
+    assert results[1]["doc_id"] == "order:FM-1002"
+    assert results[2]["doc_id"] == "order:FM-1001"
 
 
 def test_get_events_with_since_mz_ts_filter():
@@ -304,14 +312,15 @@ def test_max_events_limit():
     """Test that the store enforces MAX_EVENTS limit."""
     store = PropagationEventStore()
 
-    # Add more than MAX_EVENTS
+    # Add more than MAX_EVENTS (use recent timestamps to avoid TTL expiration)
+    now = time.time()
     events = [
         PropagationEvent(
             mz_ts=f"12345-{i:05d}",
             index_name="orders",
             doc_id=f"order:FM-{i:05d}",
             operation="INSERT",
-            timestamp=float(i),
+            timestamp=now + i * 0.001,  # Slight increment to maintain order
         )
         for i in range(store.MAX_EVENTS + 100)
     ]
@@ -518,3 +527,239 @@ def test_multiple_index_types():
     assert len(results) == 3
     index_names = {r["index_name"] for r in results}
     assert index_names == {"orders", "products", "customers"}
+
+
+# =============================================================================
+# FocusContext Tests
+# =============================================================================
+
+
+def test_focus_context_defaults():
+    """Test FocusContext default values."""
+    ctx = FocusContext()
+
+    assert ctx.order_id is None
+    assert ctx.store_id is None
+    assert ctx.product_ids == []
+    assert ctx.timestamp > 0
+
+
+def test_focus_context_compute_priority_direct_match():
+    """Test priority computation for direct match (same store + product in order)."""
+    ctx = FocusContext(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    # Direct match: same store AND product in order
+    priority = ctx.compute_priority(store_id="store:BK-01", product_id="product:prod001")
+    assert priority == FocusContext.TIER_DIRECT
+
+
+def test_focus_context_compute_priority_same_product_different_store():
+    """Test priority computation for same product at different store."""
+    ctx = FocusContext(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    # Same product, different store
+    priority = ctx.compute_priority(store_id="store:MAN-01", product_id="product:prod001")
+    assert priority == FocusContext.TIER_SAME_PRODUCT
+
+
+def test_focus_context_compute_priority_same_store_different_product():
+    """Test priority computation for same store but different product."""
+    ctx = FocusContext(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    # Same store, different product
+    priority = ctx.compute_priority(store_id="store:BK-01", product_id="product:prod999")
+    assert priority == FocusContext.TIER_SAME_STORE
+
+
+def test_focus_context_compute_priority_cascade():
+    """Test priority computation for cascade (different store and product)."""
+    ctx = FocusContext(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    # Different store AND different product
+    priority = ctx.compute_priority(store_id="store:MAN-01", product_id="product:prod999")
+    assert priority == FocusContext.TIER_CASCADE
+
+
+def test_focus_context_compute_priority_no_context():
+    """Test priority computation when focus context has no store/products."""
+    ctx = FocusContext()
+
+    # No store_id or product_ids set
+    priority = ctx.compute_priority(store_id="store:BK-01", product_id="product:prod001")
+    assert priority == 0.0
+
+
+def test_focus_context_compute_priority_none_values():
+    """Test priority computation with None store_id or product_id."""
+    ctx = FocusContext(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001"],
+    )
+
+    # None store_id
+    priority = ctx.compute_priority(store_id=None, product_id="product:prod001")
+    assert priority == FocusContext.TIER_SAME_PRODUCT
+
+    # None product_id
+    priority = ctx.compute_priority(store_id="store:BK-01", product_id=None)
+    assert priority == FocusContext.TIER_SAME_STORE
+
+    # Both None
+    priority = ctx.compute_priority(store_id=None, product_id=None)
+    assert priority == FocusContext.TIER_CASCADE
+
+
+# =============================================================================
+# PropagationEventStore Focus Context Tests
+# =============================================================================
+
+
+def test_set_focus_context():
+    """Test setting focus context in the store."""
+    store = PropagationEventStore()
+
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    ctx = store.get_focus_context()
+    assert ctx is not None
+    assert ctx.order_id == "order:FM-1001"
+    assert ctx.store_id == "store:BK-01"
+    assert ctx.product_ids == ["product:prod001", "product:prod002"]
+
+
+def test_get_focus_context_returns_none_when_not_set():
+    """Test that get_focus_context returns None when not set."""
+    store = PropagationEventStore()
+
+    ctx = store.get_focus_context()
+    assert ctx is None
+
+
+def test_clear_focus_context():
+    """Test clearing focus context."""
+    store = PropagationEventStore()
+
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001"],
+    )
+    assert store.get_focus_context() is not None
+
+    store.clear_focus_context()
+    assert store.get_focus_context() is None
+
+
+def test_focus_context_ttl_expiration():
+    """Test that focus context expires after TTL."""
+    store = PropagationEventStore()
+
+    # Set focus context with timestamp in the past
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001"],
+    )
+
+    # Manually set the timestamp to be expired
+    store._focus_context.timestamp = time.time() - store.FOCUS_TTL_SECONDS - 1
+
+    # Should return None because it's expired
+    ctx = store.get_focus_context()
+    assert ctx is None
+
+
+def test_events_sorted_by_priority():
+    """Test that events are sorted by priority (highest first)."""
+    store = PropagationEventStore()
+
+    # Set focus context
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001"],
+    )
+
+    # Add events with different priorities
+    now = time.time()
+    events = [
+        PropagationEvent(
+            mz_ts="12345-67890",
+            index_name="inventory",
+            doc_id="inventory:001",
+            operation="UPDATE",
+            timestamp=now,
+            store_id="store:MAN-01",  # Different store, different product = cascade
+            product_id="product:prod999",
+            priority=FocusContext.TIER_CASCADE,
+        ),
+        PropagationEvent(
+            mz_ts="12345-67891",
+            index_name="inventory",
+            doc_id="inventory:002",
+            operation="UPDATE",
+            timestamp=now,
+            store_id="store:BK-01",  # Same store, different product
+            product_id="product:prod999",
+            priority=FocusContext.TIER_SAME_STORE,
+        ),
+        PropagationEvent(
+            mz_ts="12345-67892",
+            index_name="inventory",
+            doc_id="inventory:003",
+            operation="UPDATE",
+            timestamp=now,
+            store_id="store:BK-01",  # Same store AND same product = direct
+            product_id="product:prod001",
+            priority=FocusContext.TIER_DIRECT,
+        ),
+    ]
+
+    store.add_events(events)
+
+    results = store.get_events()
+
+    # Should be sorted by priority (highest first)
+    assert results[0]["priority"] == FocusContext.TIER_DIRECT
+    assert results[1]["priority"] == FocusContext.TIER_SAME_STORE
+    assert results[2]["priority"] == FocusContext.TIER_CASCADE
+
+
+def test_propagation_event_with_store_and_product_ids():
+    """Test PropagationEvent with store_id and product_id fields."""
+    event = PropagationEvent(
+        mz_ts="12345-67890",
+        index_name="inventory",
+        doc_id="inventory:001",
+        operation="UPDATE",
+        store_id="store:BK-01",
+        product_id="product:prod001",
+        priority=100.0,
+    )
+
+    result = event.to_dict()
+
+    assert result["store_id"] == "store:BK-01"
+    assert result["product_id"] == "product:prod001"
+    assert result["priority"] == 100.0

@@ -1,8 +1,11 @@
 """FreshMart API routes for operational data."""
 
+import logging
+import os
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +34,44 @@ from src.freshmart.order_line_service import OrderLineService
 from src.freshmart.service import FreshMartService
 from src.triples.service import TripleValidationError
 
+logger = logging.getLogger(__name__)
+
+# Propagation API URL for setting focus context
+# Uses Docker service name for inter-container communication
+PROPAGATION_API_URL = os.getenv("PROPAGATION_API_URL", "http://search-sync:8083")
+
 router = APIRouter(prefix="/freshmart", tags=["FreshMart Operations"])
+
+
+async def set_propagation_focus(
+    order_id: str,
+    store_id: str,
+    product_ids: list[str],
+) -> None:
+    """Set focus context for propagation event prioritization.
+
+    This tells the propagation system to prioritize events related to this order,
+    so that inventory updates for products in the order appear first in the UI.
+
+    Args:
+        order_id: The order being updated
+        store_id: The store the order belongs to
+        product_ids: Product IDs in the order's line items
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                f"{PROPAGATION_API_URL}/propagation/focus",
+                json={
+                    "order_id": order_id,
+                    "store_id": store_id,
+                    "product_ids": product_ids,
+                },
+            )
+            logger.debug(f"Set propagation focus: order={order_id}, store={store_id}, products={len(product_ids)}")
+    except Exception as e:
+        # Non-critical - don't fail the request if propagation API is unavailable
+        logger.warning(f"Failed to set propagation focus: {e}")
 
 
 async def get_session() -> AsyncSession:
@@ -231,7 +271,9 @@ async def update_order_fields(
     Contrast with `/atomic` which always deletes and recreates all line items.
     """
     try:
-        await service.update_order_fields(
+        # Update order and get the final state (store_id, product_ids) from within the transaction
+        # This ensures the propagation focus data matches what was actually written
+        final_store_id, final_product_ids = await service.update_order_fields(
             order_id=order_id,
             order_status=data.order_status,
             customer_id=data.customer_id,
@@ -240,6 +282,10 @@ async def update_order_fields(
             delivery_window_end=data.delivery_window_end,
             line_items=data.line_items,
         )
+
+        # Set propagation focus after changes (using data from within the transaction)
+        if final_store_id and final_product_ids:
+            await set_propagation_focus(order_id, final_store_id, final_product_ids)
         return {"success": True, "order_id": order_id}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

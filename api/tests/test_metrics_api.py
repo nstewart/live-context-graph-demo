@@ -78,11 +78,14 @@ async def test_get_timeseries_without_store_filter(async_client: AsyncClient):
         ]
 
         # Configure execute to return different results for different queries
-        async def execute_side_effect(query, params):
-            if "store_metrics_timeseries_mv" in str(query):
+        async def execute_side_effect(query, params=None):
+            query_str = str(query)
+            if "store_metrics_timeseries_mv" in query_str:
                 return MockResult(store_rows)
-            elif "system_metrics_timeseries_mv" in str(query):
+            elif "system_metrics_timeseries_mv" in query_str:
                 return MockResult(system_rows)
+            elif "current_queue_wait_timeseries" in query_str:
+                return MockResult([])  # Return empty for queue wait timeseries
             else:
                 return mock_set_result
 
@@ -156,13 +159,16 @@ async def test_get_timeseries_with_store_filter(async_client: AsyncClient):
             ),
         ]
 
-        async def execute_side_effect(query, params):
-            if "store_metrics_timeseries_mv" in str(query):
+        async def execute_side_effect(query, params=None):
+            query_str = str(query)
+            if "store_metrics_timeseries_mv" in query_str:
                 # Verify store_id parameter was passed
-                assert params.get("store_id") == "store-1"
+                assert params is not None and params.get("store_id") == "store-1"
                 return MockResult(store_rows)
-            elif "system_metrics_timeseries_mv" in str(query):
+            elif "system_metrics_timeseries_mv" in query_str:
                 return MockResult(system_rows)
+            elif "current_queue_wait_timeseries" in query_str:
+                return MockResult([])  # Return empty for queue wait timeseries
             else:
                 return mock_set_result
 
@@ -194,13 +200,16 @@ async def test_get_timeseries_with_custom_limit(async_client: AsyncClient):
 
         mock_set_result = AsyncMock()
 
-        async def execute_side_effect(query, params):
-            if "store_metrics_timeseries_mv" in str(query):
-                assert params.get("limit") == 20 * 10  # limit * 10 when no store_id
+        async def execute_side_effect(query, params=None):
+            query_str = str(query)
+            if "store_metrics_timeseries_mv" in query_str:
+                assert params is not None and params.get("limit") == 20 * 10  # limit * 10 when no store_id
                 return MockResult([])
-            elif "system_metrics_timeseries_mv" in str(query):
-                assert params.get("limit") == 20
+            elif "system_metrics_timeseries_mv" in query_str:
+                assert params is not None and params.get("limit") == 20
                 return MockResult([])
+            elif "current_queue_wait_timeseries" in query_str:
+                return MockResult([])  # Return empty for queue wait timeseries
             else:
                 return mock_set_result
 
@@ -253,7 +262,7 @@ async def test_get_timeseries_handles_null_values(async_client: AsyncClient):
             MockRow(
                 id="store-1-1234567890",
                 store_id="store-1",
-                window_end=1234567890000,
+                window_end=None,  # Test null handling for window_end
                 queue_depth=None,  # Test null handling
                 in_progress=None,
                 total_orders=None,
@@ -276,11 +285,14 @@ async def test_get_timeseries_handles_null_values(async_client: AsyncClient):
             ),
         ]
 
-        async def execute_side_effect(query, params):
-            if "store_metrics_timeseries_mv" in str(query):
+        async def execute_side_effect(query, params=None):
+            query_str = str(query)
+            if "store_metrics_timeseries_mv" in query_str:
                 return MockResult(store_rows)
-            elif "system_metrics_timeseries_mv" in str(query):
+            elif "system_metrics_timeseries_mv" in query_str:
                 return MockResult(system_rows)
+            elif "current_queue_wait_timeseries" in query_str:
+                return MockResult([])  # Return empty for queue wait timeseries
             else:
                 return mock_set_result
 
@@ -306,23 +318,22 @@ async def test_get_timeseries_handles_null_values(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_get_timeseries_transaction_ensures_consistency(async_client: AsyncClient):
-    """Test that both queries execute within a transaction for consistency."""
+async def test_get_timeseries_uses_single_session_for_consistency(async_client: AsyncClient):
+    """Test that all queries execute within the same session context for consistency."""
     with patch("src.routes.metrics.get_mz_session_factory") as mock_factory:
         mock_session = AsyncMock()
 
-        # Mock transaction context manager
-        mock_transaction = AsyncMock()
-        mock_transaction.__aenter__ = AsyncMock(return_value=None)
-        mock_transaction.__aexit__ = AsyncMock(return_value=None)
-        mock_session.begin.return_value = mock_transaction
-
         mock_set_result = AsyncMock()
+        executed_queries = []
 
-        async def execute_side_effect(query, params):
-            if "store_metrics_timeseries_mv" in str(query):
+        async def execute_side_effect(query, params=None):
+            query_str = str(query)
+            executed_queries.append(query_str)
+            if "store_metrics_timeseries_mv" in query_str:
                 return MockResult([])
-            elif "system_metrics_timeseries_mv" in str(query):
+            elif "system_metrics_timeseries_mv" in query_str:
+                return MockResult([])
+            elif "current_queue_wait_timeseries" in query_str:
                 return MockResult([])
             else:
                 return mock_set_result
@@ -338,9 +349,10 @@ async def test_get_timeseries_transaction_ensures_consistency(async_client: Asyn
 
         assert response.status_code == 200
 
-        # Verify that session.begin() was called to start a transaction
-        mock_session.begin.assert_called_once()
+        # Verify all queries were executed on the same session
+        # The route should execute: SET CLUSTER, store query, system query, queue wait query
+        assert mock_session.execute.call_count >= 3  # At least 3 queries executed
 
-        # Verify transaction context manager was entered and exited
-        mock_transaction.__aenter__.assert_called_once()
-        mock_transaction.__aexit__.assert_called_once()
+        # Verify session context manager was properly entered and exited
+        mock_context.__aenter__.assert_called_once()
+        mock_context.__aexit__.assert_called_once()

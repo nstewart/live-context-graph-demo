@@ -1,4 +1,74 @@
-"""Simple HTTP API for exposing propagation events."""
+"""HTTP API for exposing propagation events to the frontend.
+
+Propagation API
+===============
+
+This module provides an HTTP API for the frontend to query propagation events
+and manage focus context. It runs as part of the search-sync service on port 8083.
+
+Endpoints
+---------
+
+**GET /propagation/events**
+    Query propagation events with optional filters.
+
+    Query Parameters:
+        - since_mz_ts: Only return events after this Materialize timestamp
+        - subject_ids: Comma-separated list of document IDs to filter by
+        - limit: Maximum number of events to return (default: 100)
+
+    Returns: {"events": [...]}
+
+**GET /propagation/events/all**
+    Get all recent propagation events without subject_id filtering.
+    Useful for showing cascading effects across all entity types.
+
+    Query Parameters:
+        - since_mz_ts: Only return events after this Materialize timestamp
+        - limit: Maximum number of events to return (default: 100)
+
+    Returns: {"events": [...]}
+
+**POST /propagation/focus**
+    Set the focus context for prioritizing related events.
+
+    Request Body (JSON):
+        {
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": ["product:prod001", "product:prod002"]
+        }
+
+    Returns: {"status": "ok", "focus": {...}}
+
+**DELETE /propagation/focus**
+    Clear the focus context.
+
+    Returns: {"status": "ok"}
+
+**GET /health**
+    Health check endpoint.
+
+    Returns: {"status": "healthy", "event_count": N}
+
+Security
+--------
+
+CORS is configured to only allow requests from specific localhost origins
+(ports 3000, 5173, 8080) for development security. Production deployments
+should configure appropriate origins.
+
+Usage
+-----
+
+The API is typically started automatically as part of the search-sync service:
+
+    from propagation_api import start_api_server
+
+    runner = await start_api_server(host="0.0.0.0", port=8083)
+    # ... do other work ...
+    await runner.cleanup()  # Clean shutdown
+"""
 
 import json
 import logging
@@ -66,8 +136,79 @@ async def handle_health(request: web.Request) -> web.Response:
     })
 
 
+async def handle_set_focus(request: web.Request) -> web.Response:
+    """Handle POST /propagation/focus endpoint.
+
+    Sets the focus context for prioritizing related propagation events.
+    When an order status changes, call this with the order details so that
+    events related to that order appear first in the propagation list.
+
+    Request body (JSON):
+        order_id: The order that triggered the change (e.g., "order:FM-1001")
+        store_id: The store the order belongs to (e.g., "store:BK-01")
+        product_ids: List of product IDs in the order's line items
+
+    Example:
+        POST /propagation/focus
+        {
+            "order_id": "order:FM-296117f3",
+            "store_id": "store:BK-01",
+            "product_ids": ["product:prod0169", "product:prod0064", ...]
+        }
+    """
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    order_id = data.get("order_id")
+    store_id = data.get("store_id")
+    product_ids = data.get("product_ids", [])
+
+    if not isinstance(product_ids, list):
+        return web.json_response({"error": "product_ids must be a list"}, status=400)
+
+    store = get_propagation_store()
+    store.set_focus_context(
+        order_id=order_id,
+        store_id=store_id,
+        product_ids=product_ids,
+    )
+
+    logger.info(f"Focus context set: order={order_id}, store={store_id}, products={len(product_ids)}")
+
+    return web.json_response({
+        "status": "ok",
+        "focus": {
+            "order_id": order_id,
+            "store_id": store_id,
+            "product_count": len(product_ids),
+        }
+    })
+
+
+async def handle_clear_focus(request: web.Request) -> web.Response:
+    """Handle DELETE /propagation/focus endpoint.
+
+    Clears the focus context.
+    """
+    store = get_propagation_store()
+    store.clear_focus_context()
+    logger.info("Focus context cleared")
+    return web.json_response({"status": "ok"})
+
+
 def create_app() -> web.Application:
-    """Create the aiohttp application."""
+    """Create the aiohttp application with CORS middleware and routes.
+
+    Creates and configures the propagation API application with:
+    - CORS middleware for browser security (whitelist-based origins)
+    - All propagation event endpoints
+    - Health check endpoint
+
+    Returns:
+        Configured aiohttp Application ready to be served.
+    """
     app = web.Application()
 
     # Add CORS middleware
@@ -88,7 +229,7 @@ def create_app() -> web.Application:
         origin = request.headers.get("Origin", "")
         if origin in ALLOWED_ORIGINS:
             response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return response
 
@@ -97,6 +238,8 @@ def create_app() -> web.Application:
     # Add routes
     app.router.add_get("/propagation/events", handle_get_events)
     app.router.add_get("/propagation/events/all", handle_get_all_events)
+    app.router.add_post("/propagation/focus", handle_set_focus)
+    app.router.add_delete("/propagation/focus", handle_clear_focus)
     app.router.add_get("/health", handle_health)
 
     return app

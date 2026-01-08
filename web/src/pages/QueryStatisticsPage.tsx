@@ -25,6 +25,8 @@ import {
   Package,
   ChevronDown,
   ChevronRight,
+  Code,
+  X,
 } from "lucide-react";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema } from "../schema";
@@ -36,12 +38,15 @@ import {
   OrderDataResponse,
   OrderWithLinesData,
   OrderLineItem,
+  ViewDefinitionResponse,
 } from "../api/client";
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
 import { usePropagation } from "../contexts/PropagationContext";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface ChartDataPoint {
   time: number;
@@ -528,6 +533,11 @@ export default function QueryStatisticsPage() {
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
+  // View definition state for SQL viewer
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [viewDefinition, setViewDefinition] = useState<ViewDefinitionResponse | null>(null);
+  const [viewDefLoading, setViewDefLoading] = useState(false);
+
   // Zero for real-time Materialize data
   const z = useZero<Schema>();
 
@@ -855,14 +865,21 @@ export default function QueryStatisticsPage() {
     }
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount - stop both local interval and backend polling
   useEffect(() => {
     return () => {
       if (metricsIntervalRef.current) {
         clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
       }
+      // Stop backend polling when navigating away
+      queryStatsApi.stopPolling().catch(() => {
+        // Ignore errors on unmount
+      });
+      // Clear propagation state
+      clearWrites();
     };
-  }, []);
+  }, [clearWrites]);
 
   // Handle triple row click - pre-populate the form
   const handleTripleClick = useCallback((subject: string, predicate: string, value: string) => {
@@ -917,6 +934,30 @@ export default function QueryStatisticsPage() {
       setWriteStatus("Write failed");
     }
   };
+
+  // Handle lineage graph node click
+  const handleNodeClick = useCallback(async (nodeId: string) => {
+    // Toggle selection if clicking the same node
+    if (nodeId === selectedNodeId) {
+      setSelectedNodeId(null);
+      setViewDefinition(null);
+      return;
+    }
+
+    setSelectedNodeId(nodeId);
+    setViewDefLoading(true);
+    setViewDefinition(null);
+
+    try {
+      const response = await queryStatsApi.getViewDefinition(nodeId);
+      setViewDefinition(response.data);
+    } catch (err) {
+      console.error("Failed to fetch view definition:", err);
+      setViewDefinition(null);
+    } finally {
+      setViewDefLoading(false);
+    }
+  }, [selectedNodeId]);
 
   // Format milliseconds for display
   const formatMs = (ms: number | undefined): string => {
@@ -1037,6 +1078,44 @@ export default function QueryStatisticsPage() {
         </button>
         {lineageGraphOpen && (
           <div className="p-6 pt-0">
+            {/* Order Cards - conditional rendering based on view mode */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* PostgreSQL VIEW - shown in all modes */}
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 60s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {/* Materialize - shown only in materialize mode */}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+
             {/* Write Triple Form */}
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <div className="flex items-center gap-2 mb-3">
@@ -1099,44 +1178,6 @@ export default function QueryStatisticsPage() {
                   </span>
                 )}
               </div>
-            </div>
-
-            {/* Order Cards - conditional rendering based on view mode */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {/* PostgreSQL VIEW - shown in all modes */}
-              <OrderCard
-                title="PostgreSQL VIEW"
-                subtitle="Fresh but SLOW (computes every query)"
-                icon={<Database className="h-5 w-5" />}
-                iconColor="text-orange-500"
-                bgColor="border-orange-500"
-                order={orderData?.postgresql_view || null}
-                isLoading={isPolling}
-              />
-              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <OrderCard
-                  title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 60s)"
-                  icon={<Clock className="h-5 w-5" />}
-                  iconColor="text-green-500"
-                  bgColor="border-green-500"
-                  order={orderData?.batch_cache || null}
-                  isLoading={isPolling}
-                />
-              )}
-              {/* Materialize - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <OrderCard
-                  title="Materialize (via Zero)"
-                  subtitle="Real-time sync - updates instantly"
-                  icon={<Zap className="h-5 w-5" />}
-                  iconColor="text-blue-500"
-                  bgColor="border-blue-500"
-                  order={zeroMaterializeOrder}
-                  isLoading={false}
-                />
-              )}
             </div>
 
             {/* Statistics Table */}
@@ -1506,14 +1547,20 @@ export default function QueryStatisticsPage() {
               </div>
             </div>
 
-            {/* Lineage Graph and JSON API Response */}
+            {/* Lineage Graph and API Response - 2 column layout */}
             <div className="flex gap-6">
               {/* Left: Lineage Graph */}
               <div className="flex-[3]">
-                <LineageGraph />
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively</h4>
+                <LineageGraph
+                  selectedNodeId={selectedNodeId}
+                  onNodeClick={handleNodeClick}
+                />
               </div>
-              {/* Right: JSON API Response - height matches LineageGraph (legend + 350px graph + description) */}
+
+              {/* Right: JSON API Response */}
               <div className="flex-[2] flex flex-col">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
                 <div className="bg-gray-900 rounded-lg overflow-hidden flex flex-col h-[430px]">
                   {/* Header */}
                   <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
@@ -1521,10 +1568,10 @@ export default function QueryStatisticsPage() {
                       <Database className="h-4 w-4 text-blue-400" />
                       <span className="text-sm font-medium text-gray-200">API Response</span>
                     </div>
-                    <div className="mt-2 font-mono text-xs text-gray-400">
-                      <span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv
-                      <br />
-                      <span className="text-purple-400">WHERE</span> order_id = <span className="text-green-400">'{selectedOrderId || '...'}'</span>
+                    <div className="mt-2 font-mono text-xs text-gray-400 space-y-0.5">
+                      <div><span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
+                      <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
+                      <div className="text-gray-500 pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id <span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
                     </div>
                   </div>
                   {/* JSON Content */}
@@ -1538,6 +1585,75 @@ export default function QueryStatisticsPage() {
                 </div>
               </div>
             </div>
+
+            {/* View Definition Modal */}
+            {selectedNodeId && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                {/* Backdrop */}
+                <div
+                  className="absolute inset-0 bg-black/50"
+                  onClick={() => {
+                    setSelectedNodeId(null);
+                    setViewDefinition(null);
+                  }}
+                />
+                {/* Modal */}
+                <div className="relative bg-gray-900 rounded-lg overflow-hidden w-full max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
+                  {/* Header */}
+                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Code className="h-4 w-4 text-yellow-400" />
+                        <span className="text-sm font-medium text-gray-200">View Definition</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSelectedNodeId(null);
+                          setViewDefinition(null);
+                        }}
+                        className="text-gray-400 hover:text-gray-200 transition-colors"
+                        title="Close"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <div className="mt-2 font-mono text-xs text-gray-400">
+                      <span className="text-purple-400">SHOW CREATE</span>{' '}
+                      <span className="text-blue-400">
+                        {viewDefinition?.object_type === 'materialized_view' ? 'MATERIALIZED VIEW' :
+                         viewDefinition?.object_type === 'source' ? 'SOURCE' :
+                         viewDefinition?.object_type === 'table' ? 'TABLE' : 'VIEW'}
+                      </span>{' '}
+                      <span className="text-green-400">{selectedNodeId}</span>
+                    </div>
+                  </div>
+                  {/* SQL Content */}
+                  <div className="flex-1 overflow-auto p-4">
+                    {viewDefLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-yellow-400"></div>
+                      </div>
+                    ) : viewDefinition ? (
+                      <SyntaxHighlighter
+                        language="sql"
+                        style={vscDarkPlus}
+                        customStyle={{
+                          margin: 0,
+                          padding: 0,
+                          background: 'transparent',
+                          fontSize: '0.875rem',
+                        }}
+                        wrapLongLines={true}
+                      >
+                        {viewDefinition.sql}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <pre className="text-xs font-mono text-gray-500">Failed to load view definition</pre>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

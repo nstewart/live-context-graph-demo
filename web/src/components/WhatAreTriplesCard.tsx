@@ -146,7 +146,7 @@ export const WhatAreTriplesCard = ({
                 Triples for Order {orderNumber || selectedOrderId}
               </span>
               <span className="text-xs text-gray-500">
-                {isLoading ? "Loading..." : `${triples.length} triples`}
+                {triples.length} triples
               </span>
             </div>
 

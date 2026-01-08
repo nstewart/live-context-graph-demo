@@ -475,7 +475,7 @@ class BaseSubscribeWorker(ABC):
         Args:
             events: List of SubscribeEvent to process
         """
-        insert_ids = []
+        insert_docs = []  # Track (doc_id, doc) for inserts
         delete_ids = []
 
         for event in events:
@@ -486,7 +486,7 @@ class BaseSubscribeWorker(ABC):
                     self.pending_upserts.append(doc)
                     doc_id = self.get_doc_id(event.data)
                     if doc_id:
-                        insert_ids.append(doc_id)
+                        insert_docs.append((doc_id, doc))
             elif event.is_delete():
                 # Delete - extract ID and queue for deletion
                 doc_id = self.get_doc_id(event.data)
@@ -498,29 +498,14 @@ class BaseSubscribeWorker(ABC):
         timestamp = events[0].timestamp if events else "unknown"
         index_name = self.get_index_name()
 
-        if insert_ids:
+        if insert_docs:
+            insert_ids = [doc_id for doc_id, _ in insert_docs]
             logger.info(f"  Inserts @ mz_ts={timestamp} -> {index_name}: {len(insert_ids)} docs {insert_ids}")
         if delete_ids:
             logger.info(f"  Deletes @ mz_ts={timestamp} -> {index_name}: {len(delete_ids)} docs {delete_ids}")
 
-        # Emit propagation events for tracking
-        prop_store = get_propagation_store()
-        for doc_id in insert_ids:
-            prop_store.add_event(PropagationEvent(
-                mz_ts=str(timestamp),
-                index_name=index_name,
-                doc_id=doc_id,
-                operation="INSERT",
-                field_changes={},
-            ))
-        for doc_id in delete_ids:
-            prop_store.add_event(PropagationEvent(
-                mz_ts=str(timestamp),
-                index_name=index_name,
-                doc_id=doc_id,
-                operation="DELETE",
-                field_changes={},
-            ))
+        # Emit propagation events for tracking (no update_diffs in simple mode)
+        self._emit_propagation_events(timestamp, index_name, insert_docs, [], delete_ids)
 
     async def _handle_events_with_consolidation(self, events: list[SubscribeEvent]):
         """Complex event processing: consolidate DELETE + INSERT = UPDATE.
@@ -558,8 +543,8 @@ class BaseSubscribeWorker(ABC):
                     new_data = event.data
                 consolidated[doc_id] = (net_diff, old_data, new_data)
 
-        # Process consolidated events and track document IDs by operation type
-        upsert_ids = []
+        # Process consolidated events and track documents by operation type
+        insert_docs = []  # Track (doc_id, doc) for inserts
         delete_ids = []
         update_diffs = []  # Track (doc_id, old_doc, new_doc) for updates to show diffs
 
@@ -569,7 +554,7 @@ class BaseSubscribeWorker(ABC):
                 doc = self.transform_event_to_doc(new_data)
                 if doc:
                     self.pending_upserts.append(doc)
-                    upsert_ids.append(doc_id)
+                    insert_docs.append((doc_id, doc))
             elif net_diff < 0:
                 # Net delete
                 self.pending_deletes.append(doc_id)
@@ -587,8 +572,9 @@ class BaseSubscribeWorker(ABC):
         timestamp = events[0].timestamp if events else "unknown"
         index_name = self.get_index_name()
 
-        if upsert_ids:
-            logger.info(f"  Inserts @ mz_ts={timestamp} -> {index_name}: {len(upsert_ids)} docs {upsert_ids}")
+        if insert_docs:
+            insert_ids = [doc_id for doc_id, _ in insert_docs]
+            logger.info(f"  Inserts @ mz_ts={timestamp} -> {index_name}: {len(insert_ids)} docs {insert_ids}")
 
         if update_diffs:
             logger.info(f"  Updates @ mz_ts={timestamp} -> {index_name}:")
@@ -601,7 +587,7 @@ class BaseSubscribeWorker(ABC):
             logger.info(f"  Deletes @ mz_ts={timestamp} -> {index_name}: {len(delete_ids)} docs {delete_ids}")
 
         # Emit propagation events for tracking
-        self._emit_propagation_events(timestamp, index_name, upsert_ids, update_diffs, delete_ids)
+        self._emit_propagation_events(timestamp, index_name, insert_docs, update_diffs, delete_ids)
 
     def _log_doc_diff(self, old_doc: dict, new_doc: dict, indent: int = 10):
         """Log field differences between two documents in a clean format."""
@@ -713,25 +699,61 @@ class BaseSubscribeWorker(ABC):
 
         return None
 
-    def _emit_propagation_events(self, timestamp, index_name: str, upsert_ids: list,
+    def _emit_propagation_events(self, timestamp, index_name: str, insert_docs: list,
                                   update_diffs: list, delete_ids: list):
-        """Emit propagation events for the widget to display."""
+        """Emit propagation events for the widget to display.
+
+        Events are prioritized based on relationship to the current focus context:
+        - Tier 1 (1000): Same store + product in focus order (direct impact)
+        - Tier 2 (500): Product in focus order at different store
+        - Tier 3 (100): Same store, different product
+        - Tier 4 (1): Everything else (cascade effects)
+
+        Args:
+            timestamp: Materialize timestamp
+            index_name: OpenSearch index name
+            insert_docs: List of (doc_id, doc) tuples for inserts
+            update_diffs: List of (doc_id, old_doc, new_doc) tuples for updates
+            delete_ids: List of doc_ids for deletes
+        """
         prop_store = get_propagation_store()
+        focus_context = prop_store.get_focus_context()
+
+        def compute_priority(doc: dict) -> float:
+            """Compute priority based on focus context."""
+            if not focus_context:
+                return 0.0
+            store_id = doc.get("store_id")
+            product_id = doc.get("product_id")
+            return focus_context.compute_priority(store_id, product_id)
+
+        def extract_ids(doc: dict) -> tuple:
+            """Extract store_id and product_id from doc."""
+            return doc.get("store_id"), doc.get("product_id")
 
         # Inserts
-        for doc_id in upsert_ids:
+        for doc_id, doc in insert_docs:
+            store_id, product_id = extract_ids(doc)
+            priority = compute_priority(doc)
+            display_name = self._get_display_name(doc)
             prop_store.add_event(PropagationEvent(
                 mz_ts=str(timestamp),
                 index_name=index_name,
                 doc_id=doc_id,
                 operation="INSERT",
                 field_changes={},
+                display_name=display_name,
+                priority=priority,
+                store_id=store_id,
+                product_id=product_id,
             ))
 
         # Updates with field diffs
         for doc_id, old_doc, new_doc in update_diffs:
             field_changes = self._compute_field_changes(old_doc, new_doc)
             display_name = self._get_display_name(new_doc)
+            store_id, product_id = extract_ids(new_doc) if new_doc else (None, None)
+            priority = compute_priority(new_doc) if new_doc else 0.0
             prop_store.add_event(PropagationEvent(
                 mz_ts=str(timestamp),
                 index_name=index_name,
@@ -739,9 +761,12 @@ class BaseSubscribeWorker(ABC):
                 operation="UPDATE",
                 field_changes=field_changes,
                 display_name=display_name,
+                priority=priority,
+                store_id=store_id,
+                product_id=product_id,
             ))
 
-        # Deletes
+        # Deletes (no doc available, so priority based on doc_id patterns if possible)
         for doc_id in delete_ids:
             prop_store.add_event(PropagationEvent(
                 mz_ts=str(timestamp),
@@ -749,6 +774,7 @@ class BaseSubscribeWorker(ABC):
                 doc_id=doc_id,
                 operation="DELETE",
                 field_changes={},
+                priority=0.0,  # Can't compute priority without doc
             ))
 
     def _compute_field_changes(self, old_doc: dict, new_doc: dict) -> dict:

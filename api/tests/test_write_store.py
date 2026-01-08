@@ -111,14 +111,15 @@ def test_get_events_returns_most_recent_first():
     """Test that get_events returns events in reverse chronological order."""
     store = WriteEventStore()
 
-    # Add events with different timestamps
+    # Add events with different timestamps (using recent timestamps to avoid TTL expiration)
+    base_time = time.time()
     event1 = WriteEvent(
         subject_id="order:FM-1001",
         predicate="order_status",
         old_value=None,
         new_value="CREATED",
         operation="INSERT",
-        timestamp=100.0,
+        timestamp=base_time - 20,  # 20 seconds ago
     )
     event2 = WriteEvent(
         subject_id="order:FM-1002",
@@ -126,7 +127,7 @@ def test_get_events_returns_most_recent_first():
         old_value=None,
         new_value="CREATED",
         operation="INSERT",
-        timestamp=200.0,
+        timestamp=base_time - 10,  # 10 seconds ago
     )
     event3 = WriteEvent(
         subject_id="order:FM-1003",
@@ -134,7 +135,7 @@ def test_get_events_returns_most_recent_first():
         old_value=None,
         new_value="CREATED",
         operation="INSERT",
-        timestamp=300.0,
+        timestamp=base_time,  # now
     )
 
     store.add_events([event1, event2, event3])
@@ -142,22 +143,24 @@ def test_get_events_returns_most_recent_first():
     results = store.get_events()
 
     assert len(results) == 3
-    assert results[0]["timestamp"] == 300.0
-    assert results[1]["timestamp"] == 200.0
-    assert results[2]["timestamp"] == 100.0
+    assert results[0]["timestamp"] == base_time
+    assert results[1]["timestamp"] == base_time - 10
+    assert results[2]["timestamp"] == base_time - 20
 
 
 def test_get_events_with_since_ts_filter():
     """Test filtering events by timestamp."""
     store = WriteEventStore()
 
+    # Use recent timestamps to avoid TTL expiration
+    base_time = time.time()
     event1 = WriteEvent(
         subject_id="order:FM-1001",
         predicate="order_status",
         old_value=None,
         new_value="CREATED",
         operation="INSERT",
-        timestamp=100.0,
+        timestamp=base_time - 20,  # 20 seconds ago
     )
     event2 = WriteEvent(
         subject_id="order:FM-1002",
@@ -165,13 +168,13 @@ def test_get_events_with_since_ts_filter():
         old_value=None,
         new_value="CREATED",
         operation="INSERT",
-        timestamp=200.0,
+        timestamp=base_time - 10,  # 10 seconds ago
     )
 
     store.add_events([event1, event2])
 
-    # Get events after timestamp 150
-    results = store.get_events(since_ts=150.0)
+    # Get events after timestamp (should only get event2)
+    results = store.get_events(since_ts=base_time - 15)
 
     assert len(results) == 1
     assert results[0]["subject_id"] == "order:FM-1002"
@@ -271,7 +274,8 @@ def test_max_events_limit():
     """Test that the store enforces MAX_EVENTS limit."""
     store = WriteEventStore()
 
-    # Add more than MAX_EVENTS
+    # Add more than MAX_EVENTS with recent timestamps to avoid TTL expiration
+    base_time = time.time()
     events = [
         WriteEvent(
             subject_id=f"order:FM-{i:05d}",
@@ -279,7 +283,7 @@ def test_max_events_limit():
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=float(i),
+            timestamp=base_time + i * 0.001,  # Incrementing timestamps within recent time
         )
         for i in range(store.MAX_EVENTS + 100)
     ]

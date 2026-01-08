@@ -387,12 +387,25 @@ class TestUpdateOrderFields:
         # Mock order exists
         mock_order_check = MagicMock()
         mock_order_check.fetchone.return_value = (1,)
-        mock_session.execute.return_value = mock_order_check
+
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = []
+
+        mock_session.execute.side_effect = [
+            mock_order_check,
+            mock_store_query,
+            mock_product_query,
+        ]
 
         with patch.object(
             service.triple_service, "upsert_triples_batch", new_callable=AsyncMock
         ) as mock_upsert:
-            await service.update_order_fields("order:FM-1001", order_status="DELIVERED")
+            store_id, product_ids = await service.update_order_fields("order:FM-1001", order_status="DELIVERED")
 
             # Verify upsert was called with order status triple
             assert mock_upsert.called
@@ -400,6 +413,10 @@ class TestUpdateOrderFields:
             assert len(call_args) == 1
             assert call_args[0].predicate == "order_status"
             assert call_args[0].object_value == "DELIVERED"
+
+            # Verify returned values
+            assert store_id == "store:BK-01"
+            assert product_ids == []
 
     @pytest.mark.asyncio
     async def test_creates_new_line_items(self, service, mock_session):
@@ -412,9 +429,19 @@ class TestUpdateOrderFields:
         mock_existing_lines = MagicMock()
         mock_existing_lines.fetchall.return_value = []
 
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = [MagicMock(product_id="product:PROD-001")]
+
         mock_session.execute.side_effect = [
             mock_order_check,
             mock_existing_lines,
+            mock_store_query,
+            mock_product_query,
         ]
 
         line_items = [
@@ -429,10 +456,14 @@ class TestUpdateOrderFields:
         with patch.object(
             service, "_create_single_line_item", new_callable=AsyncMock
         ) as mock_create:
-            await service.update_order_fields("order:FM-1001", line_items=line_items)
+            store_id, product_ids = await service.update_order_fields("order:FM-1001", line_items=line_items)
 
             # Verify create was called for new line item
             assert mock_create.called
+
+            # Verify returned values
+            assert store_id == "store:BK-01"
+            assert product_ids == ["product:PROD-001"]
 
     @pytest.mark.asyncio
     async def test_updates_changed_line_item_fields_only(self, service, mock_session):
@@ -475,11 +506,21 @@ class TestUpdateOrderFields:
             ),
         ]
 
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = [MagicMock(product_id="product:PROD-001")]
+
         mock_session.execute.side_effect = [
             mock_order_check,
             mock_existing_lines,
             mock_line_seq,
             mock_existing_vals,
+            mock_store_query,
+            mock_product_query,
         ]
 
         # New line item with quantity changed
@@ -495,7 +536,7 @@ class TestUpdateOrderFields:
         with patch.object(
             service.triple_service, "upsert_triples_batch", new_callable=AsyncMock
         ) as mock_upsert:
-            await service.update_order_fields("order:FM-1001", line_items=line_items)
+            store_id, product_ids = await service.update_order_fields("order:FM-1001", line_items=line_items)
 
             # Verify upsert was called with only changed triples
             assert mock_upsert.called
@@ -569,12 +610,22 @@ class TestUpdateOrderFields:
         mock_delete_result = MagicMock()
         mock_delete_result.rowcount = 5
 
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = [MagicMock(product_id="product:PROD-001")]
+
         mock_session.execute.side_effect = [
             mock_order_check,
             mock_existing_lines,
             mock_line_seq,
             mock_existing_vals,
             mock_delete_result,  # Delete query
+            mock_store_query,
+            mock_product_query,
         ]
 
         # New line items - only keep first one
@@ -587,11 +638,11 @@ class TestUpdateOrderFields:
             ),
         ]
 
-        await service.update_order_fields("order:FM-1001", line_items=line_items)
+        store_id, product_ids = await service.update_order_fields("order:FM-1001", line_items=line_items)
 
-        # Verify session.execute was called 5 times (includes delete call)
-        # 1. Order check, 2. Get existing lines, 3. Get sequences, 4. Get values, 5. Delete
-        assert mock_session.execute.call_count == 5
+        # Verify session.execute was called 7 times (includes delete call and propagation queries)
+        # 1. Order check, 2. Get existing lines, 3. Get sequences, 4. Get values, 5. Delete, 6. Store query, 7. Products query
+        assert mock_session.execute.call_count == 7
 
     @pytest.mark.asyncio
     async def test_handles_empty_line_items_list(self, service, mock_session):
@@ -626,20 +677,30 @@ class TestUpdateOrderFields:
         # 3. Get line sequences (for existing items)
         # 4. Get existing values (for existing items)
         # 5. Delete all existing (since new list is empty)
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result (empty since all line items deleted)
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = []
+
         mock_session.execute.side_effect = [
             mock_order_check,
             mock_existing_lines,
             mock_line_seq,
             mock_existing_vals,
             mock_delete_result,
+            mock_store_query,
+            mock_product_query,
         ]
 
         # Empty line items list
-        await service.update_order_fields("order:FM-1001", line_items=[])
+        store_id, product_ids = await service.update_order_fields("order:FM-1001", line_items=[])
 
-        # Verify session.execute was called 5 times (includes delete call)
-        # 1. Order check, 2. Get existing lines, 3. Get sequences, 4. Get values, 5. Delete
-        assert mock_session.execute.call_count == 5
+        # Verify session.execute was called 7 times (includes delete call and propagation queries)
+        # 1. Order check, 2. Get existing lines, 3. Get sequences, 4. Get values, 5. Delete, 6. Store query, 7. Products query
+        assert mock_session.execute.call_count == 7
 
     @pytest.mark.asyncio
     async def test_decimal_comparison_handles_precision(self, service, mock_session):
@@ -682,11 +743,21 @@ class TestUpdateOrderFields:
             ),
         ]
 
+        # Mock store_id query result
+        mock_store_query = MagicMock()
+        mock_store_query.fetchone.return_value = MagicMock(store_id="store:BK-01")
+
+        # Mock product_ids query result
+        mock_product_query = MagicMock()
+        mock_product_query.fetchall.return_value = [MagicMock(product_id="product:PROD-001")]
+
         mock_session.execute.side_effect = [
             mock_order_check,
             mock_existing_lines,
             mock_line_seq,
             mock_existing_vals,
+            mock_store_query,
+            mock_product_query,
         ]
 
         # New line item with same values - Decimal("10") normalizes to "10"
@@ -702,7 +773,11 @@ class TestUpdateOrderFields:
         with patch.object(
             service.triple_service, "upsert_triples_batch", new_callable=AsyncMock
         ) as mock_upsert:
-            await service.update_order_fields("order:FM-1001", line_items=line_items)
+            store_id, product_ids = await service.update_order_fields("order:FM-1001", line_items=line_items)
 
             # Should NOT call upsert since values are the same after normalization
             assert not mock_upsert.called
+
+            # Verify returned values
+            assert store_id == "store:BK-01"
+            assert product_ids == ["product:PROD-001"]

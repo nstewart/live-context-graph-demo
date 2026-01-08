@@ -38,8 +38,8 @@ except ImportError:
 
 # Initialize Faker with seed for reproducibility
 fake = Faker()
-Faker.seed(42)
-random.seed(42)
+Faker.seed(43)
+random.seed(43)
 
 # Realistic product catalog (965 hardcoded grocery items)
 # Format: (name, category, price, weight_grams, perishable)

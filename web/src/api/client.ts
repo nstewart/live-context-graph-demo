@@ -387,6 +387,12 @@ export interface TripleWriteRequest {
   object_value: string
 }
 
+export interface ViewDefinitionResponse {
+  view_name: string
+  object_type: string
+  sql: string
+}
+
 export const queryStatsApi = {
   // Get orders for dropdown selection
   getOrders: () =>
@@ -408,6 +414,9 @@ export const queryStatsApi = {
     apiClient.get<OrderDataResponse>('/api/query-stats/order-data'),
   writeTriple: (data: TripleWriteRequest) =>
     apiClient.post('/api/query-stats/write-triple', data),
+  // Get view definition from Materialize
+  getViewDefinition: (viewName: string) =>
+    apiClient.get<ViewDefinitionResponse>(`/api/query-stats/view-definition/${encodeURIComponent(viewName)}`),
 }
 
 // Load Generator Types

@@ -327,25 +327,30 @@ class TestCreateTriplesBatch:
         """Creates multiple triples in batch."""
         now = datetime.now()
 
-        call_count = 0
-
-        def make_mock_result():
-            nonlocal call_count
-            call_count += 1
-            row = MagicMock(
-                id=call_count,
-                subject_id=f"customer:{100 + call_count}",
+        # The service uses bulk insert with fetchall() to get all returned rows
+        rows = [
+            MagicMock(
+                id=1,
+                subject_id="customer:101",
                 predicate="customer_name",
-                object_value=f"Name {call_count}",
+                object_value="Name 1",
                 object_type="string",
                 created_at=now,
                 updated_at=now,
-            )
-            result = MagicMock()
-            result.fetchone.return_value = row
-            return result
-
-        mock_session.execute = AsyncMock(side_effect=lambda *a, **kw: make_mock_result())
+            ),
+            MagicMock(
+                id=2,
+                subject_id="customer:102",
+                predicate="customer_name",
+                object_value="Name 2",
+                object_type="string",
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = rows
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         triples = [
             TripleCreate(
@@ -373,17 +378,16 @@ class TestUpsertTriplesBatch:
     @pytest.mark.asyncio
     async def test_validates_subject_id_format(self, service, mock_session):
         """Validates subject_id contains colon separator."""
-        triples = [
+        from pydantic import ValidationError
+
+        # Validation happens at model creation time (Pydantic field_validator)
+        with pytest.raises(ValidationError, match="subject_id must be in format"):
             TripleCreate(
                 subject_id="invalid_no_colon",
                 predicate="test_prop",
                 object_value="value",
                 object_type=ObjectType.STRING,
             )
-        ]
-
-        with pytest.raises(ValueError, match="Invalid subject_id format"):
-            await service.upsert_triples_batch(triples)
 
     @pytest.mark.asyncio
     async def test_validates_subject_id_has_prefix(self, service, mock_session):
@@ -405,10 +409,16 @@ class TestUpsertTriplesBatch:
         """Upserts multiple triples in single transaction."""
         now = datetime.now()
 
-        # Mock delete and insert operations
+        # Mock select (for existing values), delete, and insert operations
+        # 1. SELECT existing values
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []  # No existing values
+
+        # 2. DELETE
         delete_result = MagicMock()
         delete_result.rowcount = 2
 
+        # 3. INSERT
         insert_rows = [
             MagicMock(
                 id=1,
@@ -432,8 +442,8 @@ class TestUpsertTriplesBatch:
         insert_result = MagicMock()
         insert_result.fetchall.return_value = insert_rows
 
-        # First call is delete, second is insert
-        mock_session.execute = AsyncMock(side_effect=[delete_result, insert_result])
+        # Order: select existing, delete, insert
+        mock_session.execute = AsyncMock(side_effect=[select_result, delete_result, insert_result])
 
         triples = [
             TripleCreate(
@@ -458,8 +468,8 @@ class TestUpsertTriplesBatch:
         assert result[1].subject_id == "order:2"
         assert result[1].object_value == "pending"
 
-        # Verify both delete and insert were called
-        assert mock_session.execute.call_count == 2
+        # Verify select, delete, and insert were called
+        assert mock_session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_upsert_with_validation_enabled(self, validating_service, mock_session):
@@ -472,8 +482,14 @@ class TestUpsertTriplesBatch:
             errors=[ValidationErrorDetail(error_type="test_error", message="Test error")]
         )
         mock_validator = AsyncMock()
-        mock_validator.validate.return_value = mock_validation_result
+        # The validate method needs to return the result directly (it's awaited)
+        mock_validator.validate = AsyncMock(return_value=mock_validation_result)
         validating_service._validator = mock_validator
+
+        # Need to mock the select query that happens before validation
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=select_result)
 
         triples = [
             TripleCreate(
@@ -501,9 +517,15 @@ class TestUpsertTriplesBatch:
         """Deduplicates (subject_id, predicate) pairs for deletion."""
         now = datetime.now()
 
+        # 1. SELECT existing values
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []  # No existing values
+
+        # 2. DELETE
         delete_result = MagicMock()
         delete_result.rowcount = 1
 
+        # 3. INSERT
         insert_rows = [
             MagicMock(
                 id=1,
@@ -527,7 +549,8 @@ class TestUpsertTriplesBatch:
         insert_result = MagicMock()
         insert_result.fetchall.return_value = insert_rows
 
-        mock_session.execute = AsyncMock(side_effect=[delete_result, insert_result])
+        # Order: select existing, delete, insert
+        mock_session.execute = AsyncMock(side_effect=[select_result, delete_result, insert_result])
 
         # Two triples with same subject_id and predicate
         triples = [
@@ -549,8 +572,8 @@ class TestUpsertTriplesBatch:
 
         # Should still insert both
         assert len(result) == 2
-        # But delete should only be called once per unique (subject, predicate) pair
-        assert mock_session.execute.call_count == 2
+        # Verify all 3 operations were called: select, delete, insert
+        assert mock_session.execute.call_count == 3
 
 
 class TestTripleValidationError:

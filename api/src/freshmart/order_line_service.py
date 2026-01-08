@@ -645,7 +645,7 @@ class OrderLineService:
         delivery_window_start: Optional[str] = None,
         delivery_window_end: Optional[str] = None,
         line_items: Optional[list[OrderLineCreate]] = None,
-    ) -> None:
+    ) -> tuple[Optional[str], list[str]]:
         """Update order fields and optionally patch line items.
 
         This method only updates what changed:
@@ -660,6 +660,10 @@ class OrderLineService:
             delivery_window_start: New delivery window start (optional)
             delivery_window_end: New delivery window end (optional)
             line_items: New line items to patch (optional). If provided, will smart-patch.
+
+        Returns:
+            Tuple of (store_id, product_ids) from the order after update, for propagation focus.
+            These values are queried within the same transaction as the update.
 
         Raises:
             ValueError: If order not found
@@ -876,7 +880,33 @@ class OrderLineService:
                     {"line_ids": list(line_ids_to_delete)},
                 )
 
-        return None
+        # Query the final state of the order for propagation focus
+        # This must be done within the same transaction to ensure consistency
+        order_data = await self.session.execute(
+            text("""
+                SELECT
+                    MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id
+                FROM triples
+                WHERE subject_id = :order_id
+            """),
+            {"order_id": order_id}
+        )
+        order_row = order_data.fetchone()
+        final_store_id = order_row.store_id if order_row else None
+
+        # Get product_ids from order lines
+        line_data = await self.session.execute(
+            text("""
+                SELECT DISTINCT t2.object_value AS product_id
+                FROM triples t1
+                JOIN triples t2 ON t2.subject_id = t1.subject_id AND t2.predicate = 'line_product'
+                WHERE t1.predicate = 'line_of_order' AND t1.object_value = :order_id
+            """),
+            {"order_id": order_id}
+        )
+        final_product_ids = [row.product_id for row in line_data.fetchall()]
+
+        return (final_store_id, final_product_ids)
 
     async def _create_single_line_item(
         self, order_id: str, line_id: str, line_item: OrderLineCreate, batch_id: Optional[str] = None

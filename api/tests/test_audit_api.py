@@ -1,5 +1,7 @@
 """Tests for the audit API routes."""
 
+import time
+
 import pytest
 from httpx import AsyncClient
 
@@ -65,7 +67,8 @@ async def test_get_writes_with_since_ts_filter(async_client: AsyncClient):
     """Test filtering writes by timestamp."""
     store = get_write_store()
 
-    # Add events with different timestamps
+    # Add events with recent timestamps to avoid TTL expiration
+    base_time = time.time()
     events = [
         WriteEvent(
             subject_id="order:FM-1001",
@@ -73,7 +76,7 @@ async def test_get_writes_with_since_ts_filter(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=100.0,
+            timestamp=base_time - 30,  # 30 seconds ago
         ),
         WriteEvent(
             subject_id="order:FM-1002",
@@ -81,7 +84,7 @@ async def test_get_writes_with_since_ts_filter(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=200.0,
+            timestamp=base_time - 20,  # 20 seconds ago
         ),
         WriteEvent(
             subject_id="order:FM-1003",
@@ -89,19 +92,20 @@ async def test_get_writes_with_since_ts_filter(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=300.0,
+            timestamp=base_time - 10,  # 10 seconds ago
         ),
     ]
     store.add_events(events)
 
-    # Filter by timestamp
-    response = await async_client.get("/api/audit/writes?since_ts=150.0")
+    # Filter by timestamp - should get events from last 25 seconds
+    since_ts = base_time - 25
+    response = await async_client.get(f"/api/audit/writes?since_ts={since_ts}")
 
     assert response.status_code == 200
     data = response.json()
     assert len(data["events"]) == 2
-    # Should only return events with timestamp > 150
-    assert all(e["timestamp"] > 150.0 for e in data["events"])
+    # Should only return events with timestamp > since_ts
+    assert all(e["timestamp"] > since_ts for e in data["events"])
 
 
 @pytest.mark.asyncio
@@ -109,7 +113,8 @@ async def test_get_writes_with_subject_ids_filter(async_client: AsyncClient):
     """Test filtering writes by subject IDs."""
     store = get_write_store()
 
-    # Add events with different subject IDs
+    # Add events with different subject IDs (use recent timestamps)
+    base_time = time.time()
     events = [
         WriteEvent(
             subject_id="order:FM-1001",
@@ -117,6 +122,7 @@ async def test_get_writes_with_subject_ids_filter(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
+            timestamp=base_time - 10,
         ),
         WriteEvent(
             subject_id="order:FM-1002",
@@ -124,6 +130,7 @@ async def test_get_writes_with_subject_ids_filter(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
+            timestamp=base_time - 5,
         ),
         WriteEvent(
             subject_id="customer:123",
@@ -131,6 +138,7 @@ async def test_get_writes_with_subject_ids_filter(async_client: AsyncClient):
             old_value=None,
             new_value="John Doe",
             operation="INSERT",
+            timestamp=base_time,
         ),
     ]
     store.add_events(events)
@@ -191,7 +199,8 @@ async def test_get_writes_combined_filters(async_client: AsyncClient):
     """Test using multiple filters together."""
     store = get_write_store()
 
-    # Add events with different attributes
+    # Add events with recent timestamps to avoid TTL expiration
+    base_time = time.time()
     events = [
         WriteEvent(
             subject_id="order:FM-1001",
@@ -199,7 +208,7 @@ async def test_get_writes_combined_filters(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=100.0,
+            timestamp=base_time - 30,  # 30 seconds ago
         ),
         WriteEvent(
             subject_id="order:FM-1002",
@@ -207,7 +216,7 @@ async def test_get_writes_combined_filters(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=200.0,
+            timestamp=base_time - 20,  # 20 seconds ago
         ),
         WriteEvent(
             subject_id="customer:123",
@@ -215,14 +224,15 @@ async def test_get_writes_combined_filters(async_client: AsyncClient):
             old_value=None,
             new_value="John Doe",
             operation="INSERT",
-            timestamp=300.0,
+            timestamp=base_time - 10,  # 10 seconds ago
         ),
     ]
     store.add_events(events)
 
     # Filter by timestamp AND subject_ids AND limit
+    since_ts = base_time - 60  # Everything within last minute
     response = await async_client.get(
-        "/api/audit/writes?since_ts=50.0&subject_ids=order:FM-1001,order:FM-1002&limit=1"
+        f"/api/audit/writes?since_ts={since_ts}&subject_ids=order:FM-1001,order:FM-1002&limit=1"
     )
 
     assert response.status_code == 200
@@ -236,7 +246,11 @@ async def test_get_writes_returns_most_recent_first(async_client: AsyncClient):
     """Test that events are returned in reverse chronological order."""
     store = get_write_store()
 
-    # Add events with different timestamps
+    # Add events with recent timestamps to avoid TTL expiration
+    base_time = time.time()
+    ts1 = base_time - 30  # 30 seconds ago
+    ts2 = base_time - 20  # 20 seconds ago
+    ts3 = base_time - 10  # 10 seconds ago
     events = [
         WriteEvent(
             subject_id="order:FM-1001",
@@ -244,7 +258,7 @@ async def test_get_writes_returns_most_recent_first(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=100.0,
+            timestamp=ts1,
         ),
         WriteEvent(
             subject_id="order:FM-1002",
@@ -252,7 +266,7 @@ async def test_get_writes_returns_most_recent_first(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=200.0,
+            timestamp=ts2,
         ),
         WriteEvent(
             subject_id="order:FM-1003",
@@ -260,7 +274,7 @@ async def test_get_writes_returns_most_recent_first(async_client: AsyncClient):
             old_value=None,
             new_value="CREATED",
             operation="INSERT",
-            timestamp=300.0,
+            timestamp=ts3,
         ),
     ]
     store.add_events(events)
@@ -270,10 +284,10 @@ async def test_get_writes_returns_most_recent_first(async_client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert len(data["events"]) == 3
-    # Should be in descending order
-    assert data["events"][0]["timestamp"] == 300.0
-    assert data["events"][1]["timestamp"] == 200.0
-    assert data["events"][2]["timestamp"] == 100.0
+    # Should be in descending order (most recent first)
+    assert data["events"][0]["timestamp"] == ts3
+    assert data["events"][1]["timestamp"] == ts2
+    assert data["events"][2]["timestamp"] == ts1
 
 
 @pytest.mark.asyncio
