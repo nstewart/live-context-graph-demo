@@ -1,13 +1,22 @@
 """FreshMart API routes for operational data."""
 
+import logging
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+# Propagation API URL for setting focus context
+# Uses Docker service name for inter-container communication
+import os
+PROPAGATION_API_URL = os.getenv("PROPAGATION_API_URL", "http://search-sync:8083")
 from src.db.client import get_mz_session_factory, get_pg_session_factory
 from src.freshmart.models import (
     CourierAvailable,
@@ -32,6 +41,37 @@ from src.freshmart.service import FreshMartService
 from src.triples.service import TripleValidationError
 
 router = APIRouter(prefix="/freshmart", tags=["FreshMart Operations"])
+
+
+async def set_propagation_focus(
+    order_id: str,
+    store_id: str,
+    product_ids: list[str],
+) -> None:
+    """Set focus context for propagation event prioritization.
+
+    This tells the propagation system to prioritize events related to this order,
+    so that inventory updates for products in the order appear first in the UI.
+
+    Args:
+        order_id: The order being updated
+        store_id: The store the order belongs to
+        product_ids: Product IDs in the order's line items
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                f"{PROPAGATION_API_URL}/propagation/focus",
+                json={
+                    "order_id": order_id,
+                    "store_id": store_id,
+                    "product_ids": product_ids,
+                },
+            )
+            logger.debug(f"Set propagation focus: order={order_id}, store={store_id}, products={len(product_ids)}")
+    except Exception as e:
+        # Non-critical - don't fail the request if propagation API is unavailable
+        logger.warning(f"Failed to set propagation focus: {e}")
 
 
 async def get_session() -> AsyncSession:
@@ -204,6 +244,7 @@ async def update_order_fields(
     order_id: str,
     data: OrderFieldsUpdate,
     service: OrderLineService = Depends(get_order_line_service),
+    session: AsyncSession = Depends(get_pg_write_session),
 ):
     """
     Smart-patch order fields and line items.
@@ -231,6 +272,36 @@ async def update_order_fields(
     Contrast with `/atomic` which always deletes and recreates all line items.
     """
     try:
+        # Query order's current store_id and product_ids for propagation focus
+        # This ensures the propagation widget prioritizes events related to this order
+        order_data = await session.execute(
+            text("""
+                SELECT
+                    MAX(CASE WHEN predicate = 'order_store' THEN object_value END) AS store_id
+                FROM triples
+                WHERE subject_id = :order_id
+            """),
+            {"order_id": order_id}
+        )
+        order_row = order_data.fetchone()
+        store_id = order_row.store_id if order_row else None
+
+        # Get product_ids from order lines
+        line_data = await session.execute(
+            text("""
+                SELECT DISTINCT t2.object_value AS product_id
+                FROM triples t1
+                JOIN triples t2 ON t2.subject_id = t1.subject_id AND t2.predicate = 'line_product'
+                WHERE t1.predicate = 'line_of_order' AND t1.object_value = :order_id
+            """),
+            {"order_id": order_id}
+        )
+        product_ids = [row.product_id for row in line_data.fetchall()]
+
+        # Set propagation focus before making changes
+        if store_id and product_ids:
+            await set_propagation_focus(order_id, store_id, product_ids)
+
         await service.update_order_fields(
             order_id=order_id,
             order_status=data.order_status,

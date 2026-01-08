@@ -1037,6 +1037,44 @@ export default function QueryStatisticsPage() {
         </button>
         {lineageGraphOpen && (
           <div className="p-6 pt-0">
+            {/* Order Cards - conditional rendering based on view mode */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* PostgreSQL VIEW - shown in all modes */}
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 60s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {/* Materialize - shown only in materialize mode */}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+
             {/* Write Triple Form */}
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <div className="flex items-center gap-2 mb-3">
@@ -1099,44 +1137,6 @@ export default function QueryStatisticsPage() {
                   </span>
                 )}
               </div>
-            </div>
-
-            {/* Order Cards - conditional rendering based on view mode */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {/* PostgreSQL VIEW - shown in all modes */}
-              <OrderCard
-                title="PostgreSQL VIEW"
-                subtitle="Fresh but SLOW (computes every query)"
-                icon={<Database className="h-5 w-5" />}
-                iconColor="text-orange-500"
-                bgColor="border-orange-500"
-                order={orderData?.postgresql_view || null}
-                isLoading={isPolling}
-              />
-              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <OrderCard
-                  title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 60s)"
-                  icon={<Clock className="h-5 w-5" />}
-                  iconColor="text-green-500"
-                  bgColor="border-green-500"
-                  order={orderData?.batch_cache || null}
-                  isLoading={isPolling}
-                />
-              )}
-              {/* Materialize - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <OrderCard
-                  title="Materialize (via Zero)"
-                  subtitle="Real-time sync - updates instantly"
-                  icon={<Zap className="h-5 w-5" />}
-                  iconColor="text-blue-500"
-                  bgColor="border-blue-500"
-                  order={zeroMaterializeOrder}
-                  isLoading={false}
-                />
-              )}
             </div>
 
             {/* Statistics Table */}
