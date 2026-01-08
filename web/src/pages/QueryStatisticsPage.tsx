@@ -45,6 +45,8 @@ import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
 import { usePropagation } from "../contexts/PropagationContext";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface ChartDataPoint {
   time: number;
@@ -1632,7 +1634,19 @@ export default function QueryStatisticsPage() {
                         <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-yellow-400"></div>
                       </div>
                     ) : viewDefinition ? (
-                      <pre className="text-sm font-mono text-gray-300 whitespace-pre-wrap">{viewDefinition.sql}</pre>
+                      <SyntaxHighlighter
+                        language="sql"
+                        style={vscDarkPlus}
+                        customStyle={{
+                          margin: 0,
+                          padding: 0,
+                          background: 'transparent',
+                          fontSize: '0.875rem',
+                        }}
+                        wrapLongLines={true}
+                      >
+                        {viewDefinition.sql}
+                      </SyntaxHighlighter>
                     ) : (
                       <pre className="text-xs font-mono text-gray-500">Failed to load view definition</pre>
                     )}
