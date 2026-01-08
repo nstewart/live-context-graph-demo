@@ -13,13 +13,28 @@ Key design decisions:
 
 import asyncio
 import pytest
+import pytest_asyncio
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
 
+import src.db.client as db_client
 from src.db.client import get_mz_session, get_pg_session
 from tests.conftest import requires_db
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def reset_db_connections():
+    """Reset database connections before each test to avoid event loop issues."""
+    # Reset global database engines
+    db_client._pg_engine = None
+    db_client._mz_engine = None
+    db_client._pg_session_factory = None
+    db_client._mz_session_factory = None
+    yield
+    # Cleanup connections after test
+    await db_client.close_connections()
 
 
 def normalize_value(value: Any) -> Any:
@@ -50,7 +65,11 @@ def normalize_line_item(item: dict) -> dict:
 
 
 def normalize_order_data(order: dict) -> dict:
-    """Normalize order data for comparison, excluding timestamp fields."""
+    """Normalize order data for comparison, excluding timestamp fields.
+
+    Note: We exclude total_weight_kg as it only exists in Materialize views,
+    not in the PostgreSQL views.
+    """
     # Parse line_items if it's a string (JSON)
     line_items = order.get("line_items", [])
     if isinstance(line_items, str):
@@ -74,24 +93,25 @@ def normalize_order_data(order: dict) -> dict:
         "line_item_count": order.get("line_item_count"),
         "computed_total": normalize_value(order.get("computed_total")),
         "has_perishable_items": order.get("has_perishable_items"),
-        "total_weight_kg": normalize_value(order.get("total_weight_kg")),
+        # Note: total_weight_kg excluded - only in Materialize views
         "line_items": normalized_lines,
     }
 
 
-# Common query structure used by all three views (matches query_stats.py)
-ORDER_QUERY_TEMPLATE = """
+# Common query structure for PostgreSQL views (orders_with_lines_full, orders_with_lines_batch)
+# Note: PG views don't have order_created_at or total_weight_kg columns
+PG_ORDER_QUERY_TEMPLATE = """
     WITH order_data AS (
         SELECT * FROM {orders_view} WHERE order_id = :order_id
     ),
     line_items_expanded AS (
         SELECT
             o.order_id, o.order_number, o.order_status, o.store_id, o.customer_id,
-            o.delivery_window_start, o.delivery_window_end, o.order_created_at, o.order_total_amount,
+            o.delivery_window_start, o.delivery_window_end, o.order_total_amount,
             o.customer_name, o.customer_email, o.customer_address,
             o.store_name, o.store_zone, o.store_address,
             o.assigned_courier_id, o.delivery_task_status, o.delivery_eta,
-            o.line_item_count, o.computed_total, o.has_perishable_items, o.total_weight_kg,
+            o.line_item_count, o.computed_total, o.has_perishable_items,
             o.effective_updated_at,
             li.value as line_item,
             li.value->>'product_id' as li_product_id
@@ -113,11 +133,11 @@ ORDER_QUERY_TEMPLATE = """
     )
     SELECT
         order_id, order_number, order_status, store_id, customer_id,
-        delivery_window_start, delivery_window_end, order_created_at, order_total_amount,
+        delivery_window_start, delivery_window_end, order_total_amount,
         customer_name, customer_email, customer_address,
         store_name, store_zone, store_address,
         assigned_courier_id, delivery_task_status, delivery_eta,
-        line_item_count, computed_total, has_perishable_items, total_weight_kg,
+        line_item_count, computed_total, has_perishable_items,
         GREATEST(effective_updated_at, MAX(pricing_updated_at)) as effective_updated_at,
         jsonb_agg(
             jsonb_build_object(
@@ -139,18 +159,86 @@ ORDER_QUERY_TEMPLATE = """
     FROM enriched
     GROUP BY
         order_id, order_number, order_status, store_id, customer_id,
-        delivery_window_start, delivery_window_end, order_created_at, order_total_amount,
+        delivery_window_start, delivery_window_end, order_total_amount,
         customer_name, customer_email, customer_address,
         store_name, store_zone, store_address,
         assigned_courier_id, delivery_task_status, delivery_eta,
-        line_item_count, computed_total, has_perishable_items, total_weight_kg,
+        line_item_count, computed_total, has_perishable_items,
+        effective_updated_at
+"""
+
+# Query structure for Materialize views (has additional columns but we select same as PG for consistency)
+MZ_ORDER_QUERY_TEMPLATE = """
+    WITH order_data AS (
+        SELECT * FROM {orders_view} WHERE order_id = :order_id
+    ),
+    line_items_expanded AS (
+        SELECT
+            o.order_id, o.order_number, o.order_status, o.store_id, o.customer_id,
+            o.delivery_window_start, o.delivery_window_end, o.order_total_amount,
+            o.customer_name, o.customer_email, o.customer_address,
+            o.store_name, o.store_zone, o.store_address,
+            o.assigned_courier_id, o.delivery_task_status, o.delivery_eta,
+            o.line_item_count, o.computed_total, o.has_perishable_items,
+            o.effective_updated_at,
+            li.value as line_item,
+            li.value->>'product_id' as li_product_id
+        FROM order_data o,
+        LATERAL jsonb_array_elements(o.line_items) AS li(value)
+    ),
+    enriched AS (
+        SELECT
+            lie.*,
+            p.live_price,
+            p.base_price,
+            p.price_change,
+            p.stock_level as current_stock,
+            p.effective_updated_at as pricing_updated_at
+        FROM line_items_expanded lie
+        LEFT JOIN {pricing_view} p
+            ON p.product_id = lie.li_product_id
+            AND p.store_id = lie.store_id
+    )
+    SELECT
+        order_id, order_number, order_status, store_id, customer_id,
+        delivery_window_start, delivery_window_end, order_total_amount,
+        customer_name, customer_email, customer_address,
+        store_name, store_zone, store_address,
+        assigned_courier_id, delivery_task_status, delivery_eta,
+        line_item_count, computed_total, has_perishable_items,
+        GREATEST(effective_updated_at, MAX(pricing_updated_at)) as effective_updated_at,
+        jsonb_agg(
+            jsonb_build_object(
+                'line_id', line_item->>'line_id',
+                'product_id', line_item->>'product_id',
+                'product_name', line_item->>'product_name',
+                'category', line_item->>'category',
+                'quantity', (line_item->>'quantity')::int,
+                'unit_price', (line_item->>'unit_price')::numeric,
+                'line_amount', (line_item->>'line_amount')::numeric,
+                'line_sequence', (line_item->>'line_sequence')::int,
+                'perishable_flag', (line_item->>'perishable_flag')::boolean,
+                'live_price', live_price,
+                'base_price', base_price,
+                'price_change', price_change,
+                'current_stock', current_stock
+            )
+        ) as line_items
+    FROM enriched
+    GROUP BY
+        order_id, order_number, order_status, store_id, customer_id,
+        delivery_window_start, delivery_window_end, order_total_amount,
+        customer_name, customer_email, customer_address,
+        store_name, store_zone, store_address,
+        assigned_courier_id, delivery_task_status, delivery_eta,
+        line_item_count, computed_total, has_perishable_items,
         effective_updated_at
 """
 
 
 async def get_order_from_pg_view(order_id: str) -> dict | None:
     """Query order data from PostgreSQL VIEW (fresh, slow)."""
-    query = ORDER_QUERY_TEMPLATE.format(
+    query = PG_ORDER_QUERY_TEMPLATE.format(
         orders_view="orders_with_lines_full",
         pricing_view="inventory_items_with_dynamic_pricing",
     )
@@ -162,7 +250,7 @@ async def get_order_from_pg_view(order_id: str) -> dict | None:
 
 async def get_order_from_batch_view(order_id: str) -> dict | None:
     """Query order data from Batch MATERIALIZED VIEW (fast, stale)."""
-    query = ORDER_QUERY_TEMPLATE.format(
+    query = PG_ORDER_QUERY_TEMPLATE.format(
         orders_view="orders_with_lines_batch",
         pricing_view="inventory_items_with_dynamic_pricing_batch",
     )
@@ -174,7 +262,7 @@ async def get_order_from_batch_view(order_id: str) -> dict | None:
 
 async def get_order_from_materialize(order_id: str) -> dict | None:
     """Query order data from Materialize VIEW (fast, fresh)."""
-    query = ORDER_QUERY_TEMPLATE.format(
+    query = MZ_ORDER_QUERY_TEMPLATE.format(
         orders_view="orders_with_lines_mv",
         pricing_view="inventory_items_with_dynamic_pricing_mv",
     )
@@ -363,7 +451,9 @@ async def test_order_level_fields_consistency():
     - customer_name, customer_email
     - store_name, store_zone
     - line_item_count, computed_total
-    - has_perishable_items, total_weight_kg
+    - has_perishable_items
+
+    Note: total_weight_kg is excluded as it only exists in Materialize views.
     """
     # Get a sample order
     order_id = await get_sample_order_id()
@@ -407,8 +497,8 @@ async def test_order_level_fields_consistency():
             f"Order field '{field}' mismatch between PG VIEW and Materialize: PG={pg_val}, MZ={mz_val}"
         )
 
-    # Numeric fields with tolerance
-    numeric_fields = ["computed_total", "total_weight_kg"]
+    # Numeric fields with tolerance (excluding total_weight_kg - only in Materialize)
+    numeric_fields = ["computed_total"]
     for field in numeric_fields:
         pg_val = normalize_value(pg_data.get(field))
         batch_val = normalize_value(batch_data.get(field))
