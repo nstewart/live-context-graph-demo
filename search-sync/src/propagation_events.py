@@ -1,4 +1,71 @@
-"""In-memory event store for tracking write propagation to search indexes."""
+"""In-memory event store for tracking write propagation to search indexes.
+
+Propagation Event System
+========================
+
+This module provides the core data structures and storage for tracking how changes
+propagate from the PostgreSQL triples table through Materialize to OpenSearch indexes.
+
+Architecture Overview
+---------------------
+
+The propagation tracking system enables real-time visibility into data flow:
+
+    PostgreSQL (triples) -> Materialize (CDC) -> OpenSearch (search indexes)
+                                    |
+                                    v
+                           PropagationEventStore
+                                    |
+                                    v
+                           Web UI (real-time updates)
+
+Key Components
+--------------
+
+1. **PropagationEvent**: Represents a single index update with:
+   - Materialize timestamp (mz_ts) for ordering
+   - Document ID and index name
+   - Field-level change tracking (old/new values)
+   - Priority for UI sorting based on focus context
+
+2. **FocusContext**: Tracks which order/store/products are currently "in focus"
+   for the UI, allowing related events to be prioritized higher in the display.
+
+3. **PropagationEventStore**: Thread-safe in-memory store with:
+   - TTL-based expiration (default: 5 minutes)
+   - Maximum event limit (10,000 events)
+   - Priority-based sorting for queries
+   - Focus context management
+
+Usage Example
+-------------
+
+    from propagation_events import get_propagation_store, PropagationEvent
+
+    # Get the global singleton store
+    store = get_propagation_store()
+
+    # Record an event when a document is updated in OpenSearch
+    event = PropagationEvent(
+        mz_ts="12345-67890",
+        index_name="orders",
+        doc_id="order:FM-1001",
+        operation="UPDATE",
+        field_changes={"status": {"old": "CREATED", "new": "PICKING"}},
+        display_name="Order FM-1001",
+    )
+    store.add_event(event)
+
+    # Set focus context when user interacts with an order
+    store.set_focus_context(
+        order_id="order:FM-1001",
+        store_id="store:BK-01",
+        product_ids=["product:prod001", "product:prod002"],
+    )
+
+    # Query events (returns priority-sorted list)
+    events = store.get_events(limit=50)
+"""
 
 import threading
 import time
@@ -8,18 +75,42 @@ from typing import Optional
 
 @dataclass
 class PropagationEvent:
-    """A single propagation event representing an index update."""
+    """A single propagation event representing an index update.
 
-    mz_ts: str  # Materialize timestamp
-    index_name: str  # OpenSearch index name
-    doc_id: str  # Document ID (e.g., "order:FM-1001")
-    operation: str  # INSERT, UPDATE, or DELETE
-    field_changes: dict[str, dict[str, str]] = field(default_factory=dict)  # {field: {old, new}}
-    timestamp: float = field(default_factory=time.time)  # Unix timestamp when event was recorded
-    display_name: Optional[str] = None  # Human-readable name (e.g., product name, order number)
-    priority: float = 0.0  # Higher = more interesting (used for sorting)
-    store_id: Optional[str] = None  # Store ID for relationship-based prioritization
-    product_id: Optional[str] = None  # Product ID for relationship-based prioritization
+    When a document is created, updated, or deleted in OpenSearch as a result
+    of changes flowing through Materialize, a PropagationEvent is recorded to
+    track this change for real-time UI display.
+
+    Attributes:
+        mz_ts: Materialize timestamp string for ordering events chronologically.
+            Format is typically "epoch-sequence" (e.g., "1704067200000-12345").
+        index_name: The OpenSearch index that was updated (e.g., "orders", "products").
+        doc_id: The document ID in the format "type:id" (e.g., "order:FM-1001").
+        operation: The type of change - "INSERT", "UPDATE", or "DELETE".
+        field_changes: Dictionary mapping field names to {"old": value, "new": value}.
+            Only populated for UPDATE operations.
+        timestamp: Unix timestamp (seconds since epoch) when the event was recorded.
+            Defaults to current time.
+        display_name: Human-readable name for the entity (e.g., "Fresh Groceries Order").
+            Used in the UI for better readability.
+        priority: Numeric priority score for sorting in the UI. Higher values appear first.
+            Set based on FocusContext relationship (see FocusContext.compute_priority).
+        store_id: The store this event relates to, if applicable. Used for priority
+            computation based on focus context.
+        product_id: The product this event relates to, if applicable. Used for priority
+            computation based on focus context.
+    """
+
+    mz_ts: str
+    index_name: str
+    doc_id: str
+    operation: str
+    field_changes: dict[str, dict[str, str]] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+    display_name: Optional[str] = None
+    priority: float = 0.0
+    store_id: Optional[str] = None
+    product_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
@@ -41,12 +132,37 @@ class PropagationEvent:
 class FocusContext:
     """Context about what triggered updates - used for prioritizing related events.
 
-    When an order status changes, this tracks:
-    - The order that changed
+    When a user interacts with an order in the UI (e.g., updating its status),
+    the FocusContext tracks:
+    - The order that was changed
     - The store the order belongs to
     - The product IDs in the order's line items
 
-    Events related to these entities get higher priority in the propagation list.
+    Events related to these entities get higher priority in the propagation list,
+    making it easier for users to see the immediate effects of their changes.
+
+    Priority Tiers
+    --------------
+    Events are assigned priority scores based on their relationship to the focus:
+
+    - **TIER_DIRECT (1000)**: Same store AND product in order - direct impact
+      Example: Updating stock level for a product that's in the focused order
+      at the same store.
+
+    - **TIER_SAME_PRODUCT (500)**: Product in order at a different store
+      Example: Stock update for the same product at a different location.
+
+    - **TIER_SAME_STORE (100)**: Same store but different product
+      Example: Another product's inventory at the same store was updated.
+
+    - **TIER_CASCADE (1)**: Different store and different product
+      Example: Unrelated inventory changes that happened at the same time.
+
+    Attributes:
+        order_id: The order ID that triggered the focus (e.g., "order:FM-1001").
+        store_id: The store ID the order belongs to (e.g., "store:BK-01").
+        product_ids: List of product IDs in the order's line items.
+        timestamp: When the focus was set (for TTL expiration).
     """
     order_id: Optional[str] = None
     store_id: Optional[str] = None
@@ -90,7 +206,50 @@ class FocusContext:
 
 
 class PropagationEventStore:
-    """Thread-safe in-memory store for propagation events with TTL-based expiration."""
+    """Thread-safe in-memory store for propagation events with TTL-based expiration.
+
+    The PropagationEventStore is the central component for tracking and querying
+    propagation events. It provides:
+
+    - **Thread-safe access**: All operations are protected by a lock for safe
+      concurrent access from multiple sync workers.
+
+    - **Automatic TTL expiration**: Events older than `ttl_seconds` are automatically
+      removed during query operations to prevent unbounded memory growth.
+
+    - **Event count limiting**: A maximum of MAX_EVENTS (10,000) are kept in memory.
+      When exceeded, oldest events are evicted.
+
+    - **Priority-based sorting**: Events are returned sorted by priority (highest first),
+      then by timestamp (most recent first within same priority).
+
+    - **Focus context management**: Tracks which order/store/products are currently
+      in focus for the UI, enabling priority-based event sorting.
+
+    Configuration Constants
+    -----------------------
+    - MAX_EVENTS: Maximum events to keep in memory (10,000)
+    - FOCUS_TTL_SECONDS: Focus context expires after 60 seconds of inactivity
+
+    Example
+    -------
+        store = PropagationEventStore(ttl_seconds=300)  # 5 minute TTL
+
+        # Add events
+        store.add_event(event)
+        store.add_events([event1, event2, event3])
+
+        # Query events with filtering
+        events = store.get_events(
+            since_mz_ts="12345-67890",  # Only newer events
+            subject_ids=["order:FM-1001"],  # Filter by document ID
+            limit=50,
+        )
+
+        # Manage focus context
+        store.set_focus_context(order_id="order:FM-1001", store_id="store:BK-01")
+        store.clear_focus_context()
+    """
 
     MAX_EVENTS = 10000  # Maximum number of events to keep in memory
     FOCUS_TTL_SECONDS = 60.0  # Focus context expires after 60 seconds
@@ -99,7 +258,8 @@ class PropagationEventStore:
         """Initialize the store.
 
         Args:
-            ttl_seconds: Time-to-live for events in seconds (default: 5 minutes)
+            ttl_seconds: Time-to-live for events in seconds (default: 5 minutes).
+                Events older than this are automatically removed during queries.
         """
         self._events: list[PropagationEvent] = []
         self._lock = threading.Lock()

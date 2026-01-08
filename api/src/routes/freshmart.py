@@ -1,6 +1,7 @@
 """FreshMart API routes for operational data."""
 
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -10,13 +11,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-
-logger = logging.getLogger(__name__)
-
-# Propagation API URL for setting focus context
-# Uses Docker service name for inter-container communication
-import os
-PROPAGATION_API_URL = os.getenv("PROPAGATION_API_URL", "http://search-sync:8083")
 from src.db.client import get_mz_session_factory, get_pg_session_factory
 from src.freshmart.models import (
     CourierAvailable,
@@ -39,6 +33,12 @@ from src.freshmart.models import (
 from src.freshmart.order_line_service import OrderLineService
 from src.freshmart.service import FreshMartService
 from src.triples.service import TripleValidationError
+
+logger = logging.getLogger(__name__)
+
+# Propagation API URL for setting focus context
+# Uses Docker service name for inter-container communication
+PROPAGATION_API_URL = os.getenv("PROPAGATION_API_URL", "http://search-sync:8083")
 
 router = APIRouter(prefix="/freshmart", tags=["FreshMart Operations"])
 

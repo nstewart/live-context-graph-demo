@@ -1,4 +1,74 @@
-"""Simple HTTP API for exposing propagation events."""
+"""HTTP API for exposing propagation events to the frontend.
+
+Propagation API
+===============
+
+This module provides an HTTP API for the frontend to query propagation events
+and manage focus context. It runs as part of the search-sync service on port 8083.
+
+Endpoints
+---------
+
+**GET /propagation/events**
+    Query propagation events with optional filters.
+
+    Query Parameters:
+        - since_mz_ts: Only return events after this Materialize timestamp
+        - subject_ids: Comma-separated list of document IDs to filter by
+        - limit: Maximum number of events to return (default: 100)
+
+    Returns: {"events": [...]}
+
+**GET /propagation/events/all**
+    Get all recent propagation events without subject_id filtering.
+    Useful for showing cascading effects across all entity types.
+
+    Query Parameters:
+        - since_mz_ts: Only return events after this Materialize timestamp
+        - limit: Maximum number of events to return (default: 100)
+
+    Returns: {"events": [...]}
+
+**POST /propagation/focus**
+    Set the focus context for prioritizing related events.
+
+    Request Body (JSON):
+        {
+            "order_id": "order:FM-1001",
+            "store_id": "store:BK-01",
+            "product_ids": ["product:prod001", "product:prod002"]
+        }
+
+    Returns: {"status": "ok", "focus": {...}}
+
+**DELETE /propagation/focus**
+    Clear the focus context.
+
+    Returns: {"status": "ok"}
+
+**GET /health**
+    Health check endpoint.
+
+    Returns: {"status": "healthy", "event_count": N}
+
+Security
+--------
+
+CORS is configured to only allow requests from specific localhost origins
+(ports 3000, 5173, 8080) for development security. Production deployments
+should configure appropriate origins.
+
+Usage
+-----
+
+The API is typically started automatically as part of the search-sync service:
+
+    from propagation_api import start_api_server
+
+    runner = await start_api_server(host="0.0.0.0", port=8083)
+    # ... do other work ...
+    await runner.cleanup()  # Clean shutdown
+"""
 
 import json
 import logging
@@ -129,7 +199,16 @@ async def handle_clear_focus(request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
-    """Create the aiohttp application."""
+    """Create the aiohttp application with CORS middleware and routes.
+
+    Creates and configures the propagation API application with:
+    - CORS middleware for browser security (whitelist-based origins)
+    - All propagation event endpoints
+    - Health check endpoint
+
+    Returns:
+        Configured aiohttp Application ready to be served.
+    """
     app = web.Application()
 
     # Add CORS middleware
