@@ -18,9 +18,9 @@ export const WhatIsKnowledgeGraphCard = () => {
             <ChevronRight className="h-5 w-5 text-gray-500" />
           )}
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">Leveraging Knowledge Graphs</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Leveraging Context Graphs</h3>
             <p className="text-xs text-gray-500">
-              The schema that gives structure and meaning to triples
+              The relationships that give agents and humans understanding about what to do next and why
             </p>
           </div>
         </div>
@@ -38,10 +38,12 @@ export const WhatIsKnowledgeGraphCard = () => {
               entities <span className="font-medium">relate</span> to one another.
             </p>
             <p>
-              For AI agents, the knowledge graph serves as a map: it tells them what kinds of
-              facts exist in the system, which updates are valid, and how to traverse
-              relationships to gather context. Without this schema, triples are just disconnected
-              facts&mdash;with it, agents can reason about the domain and make informed decisions.
+              For AI agents, the knowledge graph becomes a context graph, which is always available
+              and serves as a trusted map: it tells them what kinds of facts exist in the system,
+              which updates are valid, and how to traverse relationships to gather context. Without
+              this schema, triples are just disconnected facts&mdash;with it, agents can reason
+              about the domain and make informed decisions. In production, agents log their
+              decisions as triples, which can also update the edges of the context graph live.
             </p>
           </div>
 
