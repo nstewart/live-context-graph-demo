@@ -16,13 +16,13 @@ import { useLayout } from '../contexts/LayoutContext'
 
 const navItems = [
   { path: '/', icon: BarChart3, label: 'Agent Ref. Architecture' },
-  { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
-  { path: '/bundling', icon: Layers, label: 'Delivery Bundling' },
   { path: '/orders', icon: ShoppingCart, label: 'Orders' },
-  { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },
+  { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
+  { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
   { path: '/ontology', icon: Database, label: 'Knowledge Graph (Ontology)' },
   { path: '/triples', icon: Package, label: 'Triples Browser' },
+  { path: '/bundling', icon: Layers, label: 'Delivery Bundling' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ]
 
