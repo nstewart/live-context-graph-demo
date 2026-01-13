@@ -17,7 +17,7 @@ import ChatWidget from './components/ChatWidget'
 import Sidebar from './components/Sidebar'
 
 function AppLayout() {
-  const { isOpen: chatOpen } = useChat()
+  const { isOpen: chatOpen, isExpanded: chatExpanded } = useChat()
 
   return (
     <div className="flex h-screen">
@@ -39,15 +39,15 @@ function AppLayout() {
         </Routes>
       </main>
 
-      {/* Chat Panel - part of flex layout when open */}
-      {chatOpen && (
+      {/* Chat Panel - part of flex layout when open and not expanded */}
+      {chatOpen && !chatExpanded && (
         <div className="w-[400px] flex-shrink-0 transition-all duration-300">
           <ChatWidget />
         </div>
       )}
 
-      {/* Floating button when chat is closed */}
-      {!chatOpen && <ChatWidget />}
+      {/* Chat Widget handles its own modal when expanded, or shows floating button when closed */}
+      {(!chatOpen || chatExpanded) && <ChatWidget />}
 
       {/* Propagation Widget */}
       <PropagationWidget />

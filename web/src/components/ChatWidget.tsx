@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Trash2, X, Send, ChevronDown, ChevronRight } from 'lucide-react';
+import { MessageCircle, Trash2, X, Send, ChevronDown, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useChat, ChatMessage, ThinkingEvent } from '../contexts/ChatContext';
 
@@ -147,9 +147,15 @@ function ChatInput() {
   );
 }
 
-// Main widget component
-export default function ChatWidget() {
-  const { messages, isOpen, setIsOpen, isStreaming, clearMessages, currentThinking, threadId } = useChat();
+// Chat panel content - shared between normal and expanded views
+function ChatPanelContent({
+  isExpanded,
+  onToggleExpand
+}: {
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+}) {
+  const { messages, setIsOpen, isStreaming, clearMessages, currentThinking, threadId } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -157,25 +163,6 @@ export default function ChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentThinking]);
 
-  // Floating bubble when closed - positioned above the PropagationWidget (h-10 = 40px)
-  if (!isOpen) {
-    return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-16 right-6 h-14 w-14 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
-        title="Open Operations Assistant"
-      >
-        <MessageCircle className="h-6 w-6" />
-        {messages.length > 0 && (
-          <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-medium">
-            {messages.length}
-          </span>
-        )}
-      </button>
-    );
-  }
-
-  // Panel mode when open - NOT fixed positioning, fills parent container
   return (
     <div className="flex flex-col h-full bg-gray-900 border-l border-gray-700">
       {/* Header */}
@@ -188,6 +175,17 @@ export default function ChatWidget() {
           )}
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={onToggleExpand}
+            className="p-1.5 hover:bg-gray-800 rounded transition-colors"
+            title={isExpanded ? "Collapse to panel" : "Expand to full screen"}
+          >
+            {isExpanded ? (
+              <Minimize2 className="h-4 w-4 text-gray-400 hover:text-green-400" />
+            ) : (
+              <Maximize2 className="h-4 w-4 text-gray-400 hover:text-green-400" />
+            )}
+          </button>
           <button
             onClick={clearMessages}
             className="p-1.5 hover:bg-gray-800 rounded transition-colors"
@@ -243,5 +241,69 @@ export default function ChatWidget() {
       {/* Input area */}
       <ChatInput />
     </div>
+  );
+}
+
+// Main widget component
+export default function ChatWidget() {
+  const { messages, isOpen, setIsOpen, isExpanded, setIsExpanded } = useChat();
+
+  // Handle escape key to close expanded view
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isExpanded) {
+        setIsExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isExpanded, setIsExpanded]);
+
+  // Floating bubble when closed - positioned above the PropagationWidget (h-10 = 40px)
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-16 right-6 h-14 w-14 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
+        title="Open Operations Assistant"
+      >
+        <MessageCircle className="h-6 w-6" />
+        {messages.length > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-medium">
+            {messages.length}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  // Expanded modal mode
+  if (isExpanded) {
+    return (
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/60 z-50"
+          onClick={() => setIsExpanded(false)}
+        />
+        {/* Modal */}
+        <div className="fixed inset-4 md:inset-8 lg:inset-12 z-50 flex items-center justify-center">
+          <div className="w-full h-full max-w-6xl bg-gray-900 rounded-lg shadow-2xl overflow-hidden">
+            <ChatPanelContent
+              isExpanded={true}
+              onToggleExpand={() => setIsExpanded(false)}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Panel mode when open - NOT fixed positioning, fills parent container
+  return (
+    <ChatPanelContent
+      isExpanded={false}
+      onToggleExpand={() => setIsExpanded(true)}
+    />
   );
 }

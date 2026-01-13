@@ -338,7 +338,7 @@ function SourceWriteBatch({
 export default function PropagationWidget() {
   const { events, sourceWrites, clearWrites, isPolling, totalIndexUpdates, propagationLimitHit } = usePropagation();
   const { sidebarCollapsed } = useLayout();
-  const { isOpen: chatOpen } = useChat();
+  const { isOpen: chatOpen, isExpanded: chatExpanded } = useChat();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedTimestamps, setExpandedTimestamps] = useState<Set<string>>(new Set());
   const [expandedEntities, setExpandedEntities] = useState<Set<string>>(new Set());
@@ -442,7 +442,7 @@ export default function PropagationWidget() {
   // Always show the widget (it polls continuously)
   return (
     <div
-      className={`fixed bottom-0 ${sidebarCollapsed ? 'left-16' : 'left-64'} ${chatOpen ? 'right-[400px]' : 'right-0'} bg-gray-900 border-t border-gray-700 transition-all duration-300 z-50 ${
+      className={`fixed bottom-0 ${sidebarCollapsed ? 'left-16' : 'left-64'} ${chatOpen && !chatExpanded ? 'right-[400px]' : 'right-0'} bg-gray-900 border-t border-gray-700 transition-all duration-300 z-50 ${
         isExpanded ? 'h-[40vh]' : 'h-10'
       }`}
     >

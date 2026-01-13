@@ -24,10 +24,12 @@ export interface ChatMessage {
 interface ChatContextValue {
   messages: ChatMessage[];
   isOpen: boolean;
+  isExpanded: boolean;
   isStreaming: boolean;
   threadId: string | null;
   currentThinking: ThinkingEvent[];
   setIsOpen: (open: boolean) => void;
+  setIsExpanded: (expanded: boolean) => void;
   sendMessage: (content: string) => Promise<void>;
   clearMessages: () => void;
 }
@@ -49,10 +51,18 @@ const AGENT_API_URL = getAgentApiUrl();
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [currentThinking, setCurrentThinking] = useState<ThinkingEvent[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Close expanded view when panel is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setIsExpanded(false);
+    }
+  }, [isOpen]);
 
   // Generate unique ID for messages
   const generateId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -273,10 +283,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       value={{
         messages,
         isOpen,
+        isExpanded,
         isStreaming,
         threadId,
         currentThinking,
         setIsOpen,
+        setIsExpanded,
         sendMessage,
         clearMessages,
       }}
