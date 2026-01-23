@@ -16,7 +16,7 @@ async def write_triples(
     """
     Write one or more triples to the FreshMart knowledge graph.
 
-    **IMPORTANT: You MUST call get_ontology BEFORE using this tool to verify
+    **IMPORTANT: You MUST call get_context_graph BEFORE using this tool to verify
     that the predicates you want to use exist in the ontology schema.**
 
     Use this tool to:
@@ -42,7 +42,7 @@ async def write_triples(
 
     Example:
         # First check ontology:
-        ontology = get_ontology()
+        ontology = get_context_graph()
         # Verify "order_status" exists in properties
         # Then write:
         write_triples([{
@@ -92,7 +92,7 @@ async def write_triples(
                     results.append({
                         "success": False,
                         "error": f"Predicate '{triple['predicate']}' does not exist in ontology",
-                        "suggestion": "Check get_ontology() for available predicates, or use a high-level tool like manage_order_lines",
+                        "suggestion": "Check get_context_graph() for available predicates, or use a high-level tool like manage_order_lines",
                         "available_predicates_sample": available_predicates[:10],  # Show first 10
                         "triple": triple,
                     })

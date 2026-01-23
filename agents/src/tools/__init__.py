@@ -2,7 +2,7 @@
 from src.tools.tool_create_customer import create_customer
 from src.tools.tool_create_order import create_order
 from src.tools.tool_fetch_order_context import fetch_order_context
-from src.tools.tool_get_ontology import get_ontology
+from src.tools.tool_get_context_graph import get_context_graph
 from src.tools.tool_get_store_health import get_store_health
 from src.tools.tool_list_couriers import list_couriers
 from src.tools.tool_list_stores import list_stores
@@ -15,7 +15,7 @@ __all__ = [
     "create_customer",
     "create_order",
     "fetch_order_context",
-    "get_ontology",
+    "get_context_graph",
     "get_store_health",
     "list_couriers",
     "list_stores",

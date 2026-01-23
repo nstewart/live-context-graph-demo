@@ -205,13 +205,13 @@ class TestFetchOrderContext:
                 assert "error" in results[0]
 
 
-class TestGetOntology:
-    """Tests for get_ontology tool."""
+class TestGetContextGraph:
+    """Tests for get_context_graph tool."""
 
     @pytest.mark.asyncio
     async def test_returns_simplified_schema(self, mock_settings, sample_ontology_schema):
         """Returns simplified ontology schema."""
-        with patch("src.tools.tool_get_ontology.get_settings", return_value=mock_settings):
+        with patch("src.tools.tool_get_context_graph.get_settings", return_value=mock_settings):
             with patch("httpx.AsyncClient") as mock_client_class:
                 mock_response = MagicMock()
                 mock_response.json.return_value = sample_ontology_schema
@@ -223,9 +223,9 @@ class TestGetOntology:
                 mock_client.__aexit__ = AsyncMock()
                 mock_client_class.return_value = mock_client
 
-                from src.tools.tool_get_ontology import get_ontology
+                from src.tools.tool_get_context_graph import get_context_graph
 
-                result = await get_ontology.ainvoke({})
+                result = await get_context_graph.ainvoke({})
 
                 assert "classes" in result
                 assert "properties" in result
@@ -235,7 +235,7 @@ class TestGetOntology:
     @pytest.mark.asyncio
     async def test_simplifies_property_format(self, mock_settings, sample_ontology_schema):
         """Simplifies property format for agent."""
-        with patch("src.tools.tool_get_ontology.get_settings", return_value=mock_settings):
+        with patch("src.tools.tool_get_context_graph.get_settings", return_value=mock_settings):
             with patch("httpx.AsyncClient") as mock_client_class:
                 mock_response = MagicMock()
                 mock_response.json.return_value = sample_ontology_schema
@@ -247,9 +247,9 @@ class TestGetOntology:
                 mock_client.__aexit__ = AsyncMock()
                 mock_client_class.return_value = mock_client
 
-                from src.tools.tool_get_ontology import get_ontology
+                from src.tools.tool_get_context_graph import get_context_graph
 
-                result = await get_ontology.ainvoke({})
+                result = await get_context_graph.ainvoke({})
 
                 # Check property format is simplified
                 customer_name_prop = next(
@@ -262,7 +262,7 @@ class TestGetOntology:
     @pytest.mark.asyncio
     async def test_handles_http_error(self, mock_settings):
         """Returns error on HTTP failure."""
-        with patch("src.tools.tool_get_ontology.get_settings", return_value=mock_settings):
+        with patch("src.tools.tool_get_context_graph.get_settings", return_value=mock_settings):
             with patch("httpx.AsyncClient") as mock_client_class:
                 mock_client = AsyncMock()
                 mock_client.get = AsyncMock(
@@ -272,9 +272,9 @@ class TestGetOntology:
                 mock_client.__aexit__ = AsyncMock()
                 mock_client_class.return_value = mock_client
 
-                from src.tools.tool_get_ontology import get_ontology
+                from src.tools.tool_get_context_graph import get_context_graph
 
-                result = await get_ontology.ainvoke({})
+                result = await get_context_graph.ainvoke({})
 
                 assert "error" in result
 

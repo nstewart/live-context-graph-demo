@@ -1,4 +1,4 @@
-"""Tool for retrieving the ontology schema."""
+"""Tool for retrieving the context graph schema."""
 
 import httpx
 from langchain_core.tools import tool
@@ -7,9 +7,9 @@ from src.config import get_settings
 
 
 @tool
-async def get_ontology() -> dict:
+async def get_context_graph() -> dict:
     """
-    Get the complete ontology schema (classes and properties).
+    Get the complete context graph schema (classes and properties).
 
     Use this tool to understand what entities and relationships exist
     in the FreshMart knowledge graph. Returns:
@@ -56,4 +56,4 @@ async def get_ontology() -> dict:
             }
 
         except httpx.HTTPError as e:
-            return {"error": f"Failed to fetch ontology: {str(e)}"}
+            return {"error": f"Failed to fetch context graph: {str(e)}"}
