@@ -341,7 +341,7 @@ order = await create_order(
 - Uses live dynamic prices
 - Returns error if insufficient inventory
 
-### get_ontology
+### get_context_graph
 
 Retrieve the knowledge graph schema.
 
@@ -351,7 +351,7 @@ Retrieve the knowledge graph schema.
 
 **Example:**
 ```python
-schema = await get_ontology()
+schema = await get_context_graph()
 # Returns classes and properties
 ```
 
@@ -477,7 +477,7 @@ TOOLS = [
     search_inventory,
     fetch_order_context,
     create_order,
-    get_ontology,
+    get_context_graph,
     write_triples,
     check_store_capacity,  # Add new tool
 ]
