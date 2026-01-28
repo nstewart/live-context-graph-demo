@@ -727,7 +727,7 @@ export default function QueryStatisticsPage() {
       // Update chart data with the latest reaction times using actual timestamps
       const history = historyRes.data as QueryStatsHistoryResponse;
       const now = Date.now();
-      const threeMinutesAgo = now - 180000; // 3 minutes in ms
+      const ninetySecondsAgo = now - 90000; // 90 seconds in ms
 
       // Build chart data from history using actual timestamps
       // Each source may have different sample rates, so we combine them all
@@ -754,7 +754,7 @@ export default function QueryStatisticsPage() {
         value: number,
         source: 'postgresql' | 'batch' | 'materialize'
       ) => {
-        if (timestamp < threeMinutesAgo) return; // Skip old data
+        if (timestamp < ninetySecondsAgo) return; // Skip old data
         const bucket = Math.floor(timestamp / 1000) * 1000; // Round to nearest second
         if (!dataMap.has(bucket)) {
           dataMap.set(bucket, { time: bucket, postgresql: [], batch: [], materialize: [] });
@@ -1215,9 +1215,9 @@ export default function QueryStatisticsPage() {
                         const date = new Date(t);
                         return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                       }}
-                      domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                      domain={[lastUpdateTime - 90000, lastUpdateTime]}
                       type="number"
-                      fontSize={10}
+                      fontSize={15}
                       tick={{ fill: "#6b7280" }}
                       interval="preserveStartEnd"
                     />
@@ -1227,7 +1227,7 @@ export default function QueryStatisticsPage() {
                       tickFormatter={(v) =>
                         v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
                       }
-                      fontSize={10}
+                      fontSize={15}
                       tick={{ fill: "#6b7280" }}
                       allowDataOverflow={useLogScaleResponseTime}
                     />
@@ -1311,9 +1311,9 @@ export default function QueryStatisticsPage() {
                         const date = new Date(t);
                         return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}:${date.getUTCSeconds().toString().padStart(2, '0')}`;
                       }}
-                      domain={[lastUpdateTime - 180000, lastUpdateTime]}
+                      domain={[lastUpdateTime - 90000, lastUpdateTime]}
                       type="number"
-                      fontSize={10}
+                      fontSize={15}
                       tick={{ fill: "#6b7280" }}
                       interval="preserveStartEnd"
                     />
@@ -1323,7 +1323,7 @@ export default function QueryStatisticsPage() {
                       tickFormatter={(v) =>
                         v >= 1000 ? `${(v / 1000).toFixed(0)}s` : `${v.toFixed(0)}ms`
                       }
-                      fontSize={10}
+                      fontSize={15}
                       tick={{ fill: "#6b7280" }}
                       allowDataOverflow={useLogScale}
                     />

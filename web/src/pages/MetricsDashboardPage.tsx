@@ -54,122 +54,6 @@ function Sparkline({
   )
 }
 
-// Stacked area chart for system-wide metrics (responsive)
-function StackedAreaChart({
-  data1,
-  data2,
-  label1,
-  label2,
-  color1 = '#6366f1',
-  color2 = '#a5b4fc',
-}: {
-  data1: number[],
-  data2: number[],
-  label1: string,
-  label2: string,
-  color1?: string,
-  color2?: string,
-}) {
-  if (data1.length < 2) {
-    return <div className="w-full h-32 bg-gray-100 rounded animate-pulse" />
-  }
-
-  // Use fixed viewBox dimensions for consistent rendering
-  const viewWidth = 400
-  const viewHeight = 120
-  const padding = { top: 10, right: 10, bottom: 20, left: 35 }
-  const chartWidth = viewWidth - padding.left - padding.right
-  const chartHeight = viewHeight - padding.top - padding.bottom
-
-  // Stack the data
-  const stacked = data1.map((v, i) => v + (data2[i] || 0))
-  const maxVal = Math.max(...stacked, 1)
-  const currentTotal = stacked[stacked.length - 1] || 0
-
-  // Generate area paths
-  const getY = (val: number) => chartHeight - (val / maxVal) * chartHeight
-
-  // Bottom area (data1)
-  const area1Points = data1.map((v, i) => {
-    const x = (i / (data1.length - 1)) * chartWidth
-    const y = getY(v)
-    return `${x},${y}`
-  })
-  const area1Path = `M0,${chartHeight} L${area1Points.join(' L')} L${chartWidth},${chartHeight} Z`
-
-  // Top area (stacked)
-  const area2Points = stacked.map((v, i) => {
-    const x = (i / (stacked.length - 1)) * chartWidth
-    const y = getY(v)
-    return `${x},${y}`
-  })
-  const area2BottomPoints = [...data1].reverse().map((v, i) => {
-    const x = ((data1.length - 1 - i) / (data1.length - 1)) * chartWidth
-    const y = getY(v)
-    return `${x},${y}`
-  })
-  const area2Path = `M${area2Points.join(' L')} L${area2BottomPoints.join(' L')} Z`
-
-  // Y-axis ticks
-  const yTicks = [0, Math.round(maxVal / 2), Math.round(maxVal)]
-
-  return (
-    <div className="relative w-full">
-      <svg
-        viewBox={`0 0 ${viewWidth} ${viewHeight}`}
-        className="w-full h-auto"
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <g transform={`translate(${padding.left}, ${padding.top})`}>
-          {/* Y-axis */}
-          {yTicks.map((tick, i) => (
-            <g key={i}>
-              <line
-                x1={0}
-                y1={getY(tick)}
-                x2={chartWidth}
-                y2={getY(tick)}
-                stroke="#e5e7eb"
-                strokeDasharray="2,2"
-              />
-              <text
-                x={-5}
-                y={getY(tick)}
-                textAnchor="end"
-                alignmentBaseline="middle"
-                className="text-[10px] fill-gray-400"
-              >
-                {tick}
-              </text>
-            </g>
-          ))}
-
-          {/* Stacked areas */}
-          <path d={area2Path} fill={color2} opacity={0.7} />
-          <path d={area1Path} fill={color1} opacity={0.9} />
-        </g>
-      </svg>
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-1">
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: color1 }} />
-          <span className="text-[10px] text-gray-500">{label1}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: color2 }} />
-          <span className="text-[10px] text-gray-500">{label2}</span>
-        </div>
-      </div>
-
-      {/* Current value badge */}
-      <div className="absolute top-1 right-1 bg-gray-900 text-white text-xs px-2 py-0.5 rounded">
-        {currentTotal}
-      </div>
-    </div>
-  )
-}
-
 // Line chart with optional secondary line (responsive)
 function TimeSeriesLineChart({
   data,
@@ -392,16 +276,10 @@ export default function MetricsDashboardPage() {
   const systemChartData = useMemo(() => {
     if (systemTimeseries.length === 0) {
       return {
-        queueDepth: [],
-        inProgress: [],
-        totalOrders: [],
         throughput: [],
       }
     }
     return {
-      queueDepth: systemTimeseries.map(d => d.total_queue_depth),
-      inProgress: systemTimeseries.map(d => d.total_in_progress),
-      totalOrders: systemTimeseries.map(d => d.total_orders),
       throughput: systemTimeseries.map(d => d.total_orders_picked_up),
     }
   }, [systemTimeseries]);
@@ -562,7 +440,7 @@ export default function MetricsDashboardPage() {
       </div>
 
       {/* Top-line KPIs */}
-      <div className="grid grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-4 gap-6 mb-6">
         {/* Pricing Yield */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-2">
@@ -616,182 +494,25 @@ export default function MetricsDashboardPage() {
             {metrics.capacityHealth.criticalStores} critical, {metrics.capacityHealth.strainedStores} strained stores
           </div>
         </div>
-      </div>
 
-      {/* System Throughput Panel - Rolled up time-series from all stores */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-900">System Throughput</h2>
-          <span className="text-xs text-gray-500">
-            Rolled up from {Object.keys(storeTimeseries).length} stores
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-6">
-          {/* Orders In Flight */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Orders In Flight (Historical)</h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Order counts per 1-minute window over the last 10 minutes
-            </p>
-            <StackedAreaChart
-              data1={systemChartData.queueDepth}
-              data2={systemChartData.inProgress}
-              label1="In Queue"
-              label2="In Progress"
-              color1="#6366f1"
-              color2="#a5b4fc"
-            />
+        {/* Throughput */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-500">Throughput</h3>
+            <TrendingUp className="h-5 w-5 text-emerald-600" />
           </div>
-
-          {/* Throughput */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Throughput</h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Orders picked up per minute window
-            </p>
-            <TimeSeriesLineChart
-              data={systemChartData.throughput}
-              label="Picked Up"
-              color="#10b981"
-              unit=""
-              decimals={0}
-            />
-          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Orders picked up per minute window
+          </p>
+          <TimeSeriesLineChart
+            data={systemChartData.throughput}
+            label="Picked Up"
+            color="#10b981"
+            unit=""
+            decimals={0}
+          />
         </div>
       </div>
-
-      {/* Store Demand vs Capacity Table */}
-      {storeMetrics.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Store Demand vs Capacity</h2>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Store
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Health
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3.5 w-3.5" />
-                        Couriers
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Package className="h-3.5 w-3.5" />
-                        Queue
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Queue Trend
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <span className="flex items-center justify-end gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        Avg Wait
-                      </span>
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Wait Trend
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      At Risk
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {storeMetrics.map((metrics) => {
-                    const queueData = getStoreSparklineData(metrics.store_id, 'queue_depth')
-                    const waitData = getStoreSparklineData(metrics.store_id, 'avg_wait_minutes')
-                    const queueDelta = getStoreDelta(metrics.store_id, 'queue_depth')
-                    const waitDelta = getStoreDelta(metrics.store_id, 'avg_wait_minutes')
-
-                    return (
-                      <tr key={metrics.store_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
-                          <div className="text-xs text-gray-500">{metrics.store_zone}</div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
-                          <span
-                            className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
-                            title={metrics.health_status}
-                          />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="text-sm text-gray-900">
-                            {metrics.available_couriers}/{metrics.total_couriers}
-                          </span>
-                          <span className="text-xs text-gray-500 ml-1">avail</span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.orders_in_queue}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            {timeseriesLoading ? (
-                              <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
-                            ) : queueData.length >= 2 ? (
-                              <>
-                                <Sparkline data={queueData} color="#6366f1" />
-                                <DeltaIndicator
-                                  current={queueDelta.current}
-                                  previous={queueDelta.previous}
-                                  higherIsBetter={false}
-                                />
-                              </>
-                            ) : (
-                              <span className="text-xs text-gray-400">--</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            {timeseriesLoading ? (
-                              <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
-                            ) : waitData.length >= 2 ? (
-                              <>
-                                <Sparkline data={waitData} color="#f59e0b" />
-                                <DeltaIndicator
-                                  current={waitDelta.current}
-                                  previous={waitDelta.previous}
-                                  suffix="m"
-                                  higherIsBetter={false}
-                                />
-                              </>
-                            ) : (
-                              <span className="text-xs text-gray-400">--</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <span className={`text-sm font-medium ${
-                            metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
-                          }`}>
-                            {metrics.orders_at_risk}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Detailed Tables */}
       <div className="grid grid-cols-2 gap-6">
@@ -904,6 +625,116 @@ export default function MetricsDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Store Demand vs Capacity Table */}
+      {storeMetrics.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Store Demand vs Capacity</h2>
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Store
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Health
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3.5 w-3.5" />
+                        Couriers
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-end gap-1">
+                        <Package className="h-3.5 w-3.5" />
+                        Queue
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <span className="flex items-center justify-end gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        Avg Wait
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Wait Trend
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      At Risk
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {storeMetrics.map((metrics) => {
+                    const waitData = getStoreSparklineData(metrics.store_id, 'avg_wait_minutes')
+                    const waitDelta = getStoreDelta(metrics.store_id, 'avg_wait_minutes')
+
+                    return (
+                      <tr key={metrics.store_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
+                          <div className="text-xs text-gray-500">{metrics.store_zone}</div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <span
+                            className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
+                            title={metrics.health_status}
+                          />
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="text-sm text-gray-900">
+                            {metrics.available_couriers}/{metrics.total_couriers}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-1">avail</span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${metrics.orders_in_queue > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {metrics.orders_in_queue}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm ${metrics.avg_wait_minutes !== null ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {metrics.avg_wait_minutes !== null ? `${metrics.avg_wait_minutes.toFixed(1)}m` : '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {timeseriesLoading ? (
+                              <div className="w-20 h-6 bg-gray-100 rounded animate-pulse" />
+                            ) : waitData.length >= 2 ? (
+                              <>
+                                <Sparkline data={waitData} color="#f59e0b" />
+                                <DeltaIndicator
+                                  current={waitDelta.current}
+                                  previous={waitDelta.previous}
+                                  suffix="m"
+                                  higherIsBetter={false}
+                                />
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">--</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-right">
+                          <span className={`text-sm font-medium ${
+                            metrics.orders_at_risk > 0 ? 'text-red-600' : 'text-gray-400'
+                          }`}>
+                            {metrics.orders_at_risk}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
