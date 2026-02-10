@@ -49,7 +49,9 @@ services:
   # Materialize Emulator (Real Materialize with admin console)
   mz:
     image: materialize/materialized:v26.0.0
-    command: --system-parameter-default=pg_offset_known_interval=100ms
+    command: >
+      --system-parameter-default=pg_offset_known_interval=100ms
+      --system-parameter-default=enable_create_table_from_source=true
     ports:
       - "${MZ_CONSOLE_PORT:-6874}:6874"  # Admin Console
       - "${MZ_PORT:-6875}:6875"          # SQL interface

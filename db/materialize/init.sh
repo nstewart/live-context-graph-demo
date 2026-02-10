@@ -87,8 +87,12 @@ echo "Creating source IN CLUSTER ingest..."
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
-    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source')
-    FOR ALL TABLES;"
+    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source');"
+
+# Create table from source (new v26 syntax, replaces FOR ALL TABLES)
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE TABLE IF NOT EXISTS triples
+    FROM SOURCE pg_source (REFERENCE public.triples);"
 
 echo "Waiting for source to hydrate..."
 sleep 5
