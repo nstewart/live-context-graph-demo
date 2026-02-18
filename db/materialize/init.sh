@@ -27,40 +27,47 @@ echo "Materialize is ready!"
 
 echo "Setting up Three-Tier Architecture clusters..."
 
-# Determine compute cluster size based on available CPUs (subtract 2 for non-MZ services)
-CPUS=$(($(nproc) - 2))
-if (( CPUS < 1 )); then
-    CPUS=1
+# Size Materialize clusters to use at most 50% of available CPUs.
+# Each 50cc = 1 core. Fixed clusters: ingest (50cc/1 core) + serving (100cc/2 cores) = 3 cores.
+# Compute gets the remainder of the 50% budget, capped at 400cc.
+TOTAL_CPUS=$(nproc)
+MZ_BUDGET=$(( TOTAL_CPUS / 2 ))
+FIXED_CORES=3  # ingest (1) + serving (2)
+COMPUTE_CORES=$(( MZ_BUDGET - FIXED_CORES ))
+if (( COMPUTE_CORES < 1 )); then
+    COMPUTE_CORES=1
 fi
 
-if (( CPUS >= 64 )); then
-    COMPUTE_CLUSTER_SIZE="3200cc"
-elif (( CPUS >= 32 )); then
-    COMPUTE_CLUSTER_SIZE="1600cc"
-elif (( CPUS >= 24 )); then
-    COMPUTE_CLUSTER_SIZE="1200cc"
-elif (( CPUS >= 16 )); then
-    COMPUTE_CLUSTER_SIZE="800cc"
-elif (( CPUS >= 12 )); then
-    COMPUTE_CLUSTER_SIZE="600cc"
-elif (( CPUS >= 8 )); then
+# Convert cores to cc (1 core = 50cc), capped at 400cc
+COMPUTE_CC=$(( COMPUTE_CORES * 50 ))
+if (( COMPUTE_CC > 400 )); then
+    COMPUTE_CC=400
+fi
+
+# Snap to nearest valid cc size (50, 100, 200, 300, 400)
+if (( COMPUTE_CC >= 400 )); then
     COMPUTE_CLUSTER_SIZE="400cc"
-elif (( CPUS >= 6 )); then
+elif (( COMPUTE_CC >= 300 )); then
     COMPUTE_CLUSTER_SIZE="300cc"
-elif (( CPUS >= 4 )); then
+elif (( COMPUTE_CC >= 200 )); then
     COMPUTE_CLUSTER_SIZE="200cc"
-elif (( CPUS >= 2 )); then
+elif (( COMPUTE_CC >= 100 )); then
     COMPUTE_CLUSTER_SIZE="100cc"
 else
     COMPUTE_CLUSTER_SIZE="50cc"
 fi
 
-echo "Detected $((CPUS + 2)) CPUs, using $COMPUTE_CLUSTER_SIZE for compute cluster"
+echo "Detected $TOTAL_CPUS CPUs, MZ budget: $MZ_BUDGET cores (50%), compute: $COMPUTE_CLUSTER_SIZE"
 
 # Create clusters (ignore errors if already exist)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER ingest (SIZE = '50cc');" 2>/dev/null || echo "ingest cluster already exists"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER compute (SIZE = '$COMPUTE_CLUSTER_SIZE');" 2>/dev/null || echo "compute cluster already exists"
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER serving (SIZE = '50cc');" 2>/dev/null || echo "serving cluster already exists"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER serving (SIZE = '100cc');" 2>/dev/null || echo "serving cluster already exists"
+
+# Grant usage on all clusters to materialize user
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "GRANT USAGE ON CLUSTER ingest TO materialize;" 2>/dev/null || echo "ingest usage already granted"
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "GRANT USAGE ON CLUSTER compute TO materialize;" 2>/dev/null || echo "compute usage already granted"
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "GRANT USAGE ON CLUSTER serving TO materialize;" 2>/dev/null || echo "serving usage already granted"
 
 # Set serving as the default cluster and drop quickstart
 psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "ALTER SYSTEM SET cluster = 'serving';" 2>/dev/null || echo "default cluster already set"

@@ -62,3 +62,6 @@ logs/
 # Test
 coverage/
 .nyc_output/
+
+# AWS deployment state
+aws/.state/
