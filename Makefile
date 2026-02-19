@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen
+.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -36,6 +36,17 @@ help:
 	@echo "  make load-gen-supply   - Start supply-only generator (courier dispatch)"
 	@echo "  make load-gen-health   - Check API health for load generator"
 	@echo "  make test-load-gen     - Run load generator tests"
+	@echo ""
+	@echo "AWS Deployment:"
+	@echo "  make up-aws                - Deploy to EC2 (without agent)"
+	@echo "  make up-agent-aws          - Deploy to EC2 (with agent)"
+	@echo "  make up-agent-bundling-aws - Deploy to EC2 (with agent + bundling)"
+	@echo "  make down-aws              - Tear down EC2 instance and resources"
+	@echo "  make aws-tunnel            - Re-establish SSH tunnel"
+	@echo "  make aws-ssh               - SSH into the EC2 instance"
+	@echo "  make aws-logs              - Tail remote Docker Compose logs"
+	@echo "  make aws-debug             - Preflight check (AWS CLI, IAM, region, tools)"
+	@echo "  make aws-status            - Check tunnel and instance status"
 	@echo ""
 	@echo "Development:"
 	@echo "  make test       - Run all tests"
@@ -287,3 +298,57 @@ load-gen-health: setup-load-gen
 test-load-gen: setup-load-gen
 	@echo "Running load generator tests..."
 	@cd load-generator && uv run --no-sync pytest -v
+
+# AWS Deployment
+aws-debug:
+	@bash aws/debug.sh
+
+up-aws:
+	@bash aws/deploy.sh "docker compose up -d"
+
+up-agent-aws:
+	@bash aws/deploy.sh "docker compose --profile agent up -d"
+
+up-agent-bundling-aws:
+	@ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d"
+
+down-aws:
+	@bash aws/teardown.sh
+
+aws-tunnel:
+	@bash aws/ssh-tunnel.sh stop 2>/dev/null || true
+	@bash aws/ssh-tunnel.sh start
+
+aws-ssh:
+	@if [ ! -f aws/.state/public-ip ] || [ ! -f aws/.state/key-file ]; then \
+		echo "Error: No instance state found. Run 'make up-aws' first."; \
+		exit 1; \
+	fi
+	ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+		-i "$$(cat aws/.state/key-file)" \
+		ec2-user@"$$(cat aws/.state/public-ip)"
+
+aws-logs:
+	@if [ ! -f aws/.state/public-ip ] || [ ! -f aws/.state/key-file ]; then \
+		echo "Error: No instance state found. Run 'make up-aws' first."; \
+		exit 1; \
+	fi
+	ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+		-i "$$(cat aws/.state/key-file)" \
+		ec2-user@"$$(cat aws/.state/public-ip)" \
+		"cd ~/app && docker compose --profile agent logs -f"
+
+aws-status:
+	@echo "=== Instance Status ==="
+	@if [ -f aws/.state/instance-id ]; then \
+		INSTANCE_ID=$$(cat aws/.state/instance-id); \
+		echo "Instance ID: $$INSTANCE_ID"; \
+		aws ec2 describe-instances --instance-ids "$$INSTANCE_ID" \
+			--query "Reservations[0].Instances[0].{State:State.Name,IP:PublicIpAddress,Type:InstanceType}" \
+			--output table 2>/dev/null || echo "  Instance not found"; \
+	else \
+		echo "  No instance state found"; \
+	fi
+	@echo ""
+	@echo "=== SSH Tunnel Status ==="
+	@bash aws/ssh-tunnel.sh status 2>/dev/null || true
