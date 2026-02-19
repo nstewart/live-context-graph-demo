@@ -34,8 +34,10 @@ CREATE CONNECTION IF NOT EXISTS pg_connection TO POSTGRES (
 -- =============================================================================
 CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
-    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source')
-    FOR ALL TABLES;
+    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source');
+
+CREATE TABLE IF NOT EXISTS triples
+    FROM SOURCE pg_source (REFERENCE public.triples);
 
 -- =============================================================================
 -- Regular Views for Intermediate Transformations

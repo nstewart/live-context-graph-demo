@@ -444,6 +444,28 @@ Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) fo
 - Pull request process
 - Community guidelines
 
+## Agent Skills
+
+This project includes the [materialize-docs](https://github.com/MaterializeInc/agent-skills) skill, which provides AI agents with comprehensive Materialize documentation covering SQL syntax, data ingestion, concepts, and best practices. The skill activates automatically when your prompt involves Materialize topics, or can be invoked explicitly with `/materialize-docs`.
+
+**Install the skill** (already included in this repo):
+
+```bash
+npx skills add MaterializeInc/agent-skills --yes --agent claude-code
+```
+
+**Update to the latest version:**
+
+```bash
+npx skills update
+```
+
+**Check for available updates:**
+
+```bash
+npx skills check
+```
+
 ## Support
 
 - **GitHub Issues**: Bug reports and feature requests
