@@ -227,10 +227,10 @@ See [AGENTS.md](docs/AGENTS.md) for complete agent capabilities, tool descriptio
 
 ## Development
 
-### Essential Commands
-
+### Essential Commands to Run Locally
+**Note:** This doesn't run well with Zoom in parallel. Use aws version below for zoom demos!
 ```bash
-# Start all services
+# Start all services locally
 make up
 
 # Start with agents
@@ -254,6 +254,23 @@ docker compose exec api python -m pytest tests/ -v
 
 # See all commands
 make help
+```
+### Essential Commands to Run in AWS
+**Note:** See aws subfolder readme for more details
+```bash
+# 1. Verify your setup
+make aws-debug
+
+# 2. Deploy (pick one)
+make up-aws                  # without agent
+make up-agent-aws            # with agent
+make up-agent-bundling-aws   # with agent + delivery bundling
+
+# 3. Open the app
+open http://localhost:5173
+
+# 4. Tear down when done
+make down-aws
 ```
 
 ### Generate Load Test Data
