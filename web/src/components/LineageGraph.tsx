@@ -64,7 +64,6 @@ const BandNode = ({ data }: { data: { layer: MedallionLayer } }) => {
         alignItems: 'flex-start',
         justifyContent: 'center',
         paddingTop: '6px',
-        pointerEvents: 'none',
         userSelect: 'none',
       }}
     >
@@ -103,19 +102,25 @@ const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false
 
 // Node definitions (without positions - dagre will compute them)
 // Based on actual Materialize dependencies from mz_internal.mz_object_dependencies
-const nodeDefinitions = [
-  { id: 'triples', label: 'triples', type: 'source' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'customers_flat', label: 'customers_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'stores_flat', label: 'stores_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'products_flat', label: 'products_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'order_lines_base', label: 'order_lines_base', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'delivery_tasks_flat', label: 'delivery_tasks_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'orders_flat_mv', label: 'orders_flat_mv', type: 'mv' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'order_lines_flat_mv', label: 'order_lines_flat_mv', type: 'mv' as const, medallionLayer: 'bronze' as MedallionLayer },
-  { id: 'store_inventory_mv', label: 'store_inventory_mv', type: 'mv' as const, medallionLayer: 'silver' as MedallionLayer },
-  { id: 'orders_with_lines_mv', label: 'orders_with_lines_mv', type: 'mv' as const, highlighted: true, medallionLayer: 'silver' as MedallionLayer },
-  { id: 'inventory_items_with_dynamic_pricing', label: 'dynamic_pricing', type: 'view' as const, medallionLayer: 'gold' as MedallionLayer },
-  { id: 'inventory_items_with_dynamic_pricing_mv', label: 'dynamic_pricing_mv', type: 'mv' as const, highlighted: true, medallionLayer: 'gold' as MedallionLayer },
+const nodeDefinitions: Array<{
+  id: string;
+  label: string;
+  type: keyof typeof nodeColors;
+  medallionLayer: MedallionLayer;
+  highlighted?: boolean;
+}> = [
+  { id: 'triples', label: 'triples', type: 'source', medallionLayer: 'bronze' },
+  { id: 'customers_flat', label: 'customers_flat', type: 'view', medallionLayer: 'bronze' },
+  { id: 'stores_flat', label: 'stores_flat', type: 'view', medallionLayer: 'bronze' },
+  { id: 'products_flat', label: 'products_flat', type: 'view', medallionLayer: 'bronze' },
+  { id: 'order_lines_base', label: 'order_lines_base', type: 'view', medallionLayer: 'bronze' },
+  { id: 'delivery_tasks_flat', label: 'delivery_tasks_flat', type: 'view', medallionLayer: 'bronze' },
+  { id: 'orders_flat_mv', label: 'orders_flat_mv', type: 'mv', medallionLayer: 'bronze' },
+  { id: 'order_lines_flat_mv', label: 'order_lines_flat_mv', type: 'mv', medallionLayer: 'bronze' },
+  { id: 'store_inventory_mv', label: 'store_inventory_mv', type: 'mv', medallionLayer: 'silver' },
+  { id: 'orders_with_lines_mv', label: 'orders_with_lines_mv', type: 'mv', highlighted: true, medallionLayer: 'silver' },
+  { id: 'inventory_items_with_dynamic_pricing', label: 'dynamic_pricing', type: 'view', medallionLayer: 'gold' },
+  { id: 'inventory_items_with_dynamic_pricing_mv', label: 'dynamic_pricing_mv', type: 'mv', highlighted: true, medallionLayer: 'gold' },
 ];
 
 // Edge definitions based on actual Materialize dependencies
@@ -216,11 +221,13 @@ function getLayoutedElements(
   });
 
   // Create swim-lane band nodes (rendered behind via zIndex: -1)
-  const bandNodes: Node[] = (Object.keys(layerBounds) as MedallionLayer[]).map((layer) => {
+  const bandNodes: Node[] = (Object.keys(layerBounds) as MedallionLayer[])
+    .filter((layer) => layerBounds[layer].minX !== Infinity) // skip empty layers to avoid NaN dimensions
+    .map((layer) => {
     const bounds = layerBounds[layer];
     const colors = medallionColors[layer];
     return {
-      id: `band-${layer}`,
+      id: `__band__${layer}`,
       type: 'band',
       position: {
         x: bounds.minX - BAND_PADDING_X,
@@ -260,6 +267,7 @@ function getLayoutedElements(
     return {
       id: nodeDef.id,
       position: {
+        // Dagre gives center position, React Flow uses top-left
         x: nodeWithPosition.x - NODE_WIDTH / 2,
         y: nodeWithPosition.y - NODE_HEIGHT / 2,
       },
@@ -297,7 +305,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
       // Ignore clicks on band nodes
-      if (node.id.startsWith('band-')) return;
+      if (node.id.startsWith('__band__')) return;
       if (onNodeClick) {
         onNodeClick(node.id);
       }
