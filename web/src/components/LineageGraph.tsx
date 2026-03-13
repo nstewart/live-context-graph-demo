@@ -6,17 +6,85 @@ import {
   Background,
   Position,
   NodeMouseHandler,
+  NodeTypes,
 } from '@xyflow/react';
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 
-// Node type colors
+type MedallionLayer = 'bronze' | 'silver' | 'gold';
+
+// Node type colors (object type)
 const nodeColors = {
   source: { bg: '#3b82f6', border: '#1d4ed8', text: '#ffffff' }, // Blue
   view: { bg: '#6b7280', border: '#374151', text: '#ffffff' }, // Gray
   mv: { bg: '#10b981', border: '#059669', text: '#ffffff' }, // Green
   index: { bg: '#8b5cf6', border: '#6d28d9', text: '#ffffff' }, // Purple
 };
+
+// Medallion layer colors
+const medallionColors: Record<MedallionLayer, {
+  bg: string;
+  border: string;
+  labelColor: string;
+  legendDot: string;
+  legendLabel: string;
+}> = {
+  bronze: {
+    bg: 'rgba(180, 83, 9, 0.07)',
+    border: 'rgba(180, 83, 9, 0.28)',
+    labelColor: '#92400e',
+    legendDot: '#b45309',
+    legendLabel: 'Bronze',
+  },
+  silver: {
+    bg: 'rgba(100, 116, 139, 0.07)',
+    border: 'rgba(100, 116, 139, 0.28)',
+    labelColor: '#475569',
+    legendDot: '#64748b',
+    legendLabel: 'Silver',
+  },
+  gold: {
+    bg: 'rgba(234, 179, 8, 0.09)',
+    border: 'rgba(234, 179, 8, 0.5)',
+    labelColor: '#854d0e',
+    legendDot: '#d97706',
+    legendLabel: 'Gold',
+  },
+};
+
+// Custom band node rendered behind the graph nodes
+const BandNode = ({ data }: { data: { layer: MedallionLayer } }) => {
+  const colors = medallionColors[data.layer];
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        paddingTop: '6px',
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}
+    >
+      <span
+        style={{
+          fontSize: '10px',
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: colors.labelColor,
+          opacity: 0.75,
+        }}
+      >
+        {colors.legendLabel}
+      </span>
+    </div>
+  );
+};
+
+const nodeTypes: NodeTypes = { band: BandNode };
 
 // Custom node styles
 const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false) => ({
@@ -36,18 +104,18 @@ const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false
 // Node definitions (without positions - dagre will compute them)
 // Based on actual Materialize dependencies from mz_internal.mz_object_dependencies
 const nodeDefinitions = [
-  { id: 'triples', label: 'triples', type: 'source' as const },
-  { id: 'customers_flat', label: 'customers_flat', type: 'view' as const },
-  { id: 'stores_flat', label: 'stores_flat', type: 'view' as const },
-  { id: 'products_flat', label: 'products_flat', type: 'view' as const },
-  { id: 'order_lines_base', label: 'order_lines_base', type: 'view' as const },
-  { id: 'delivery_tasks_flat', label: 'delivery_tasks_flat', type: 'view' as const },
-  { id: 'orders_flat_mv', label: 'orders_flat_mv', type: 'mv' as const },
-  { id: 'order_lines_flat_mv', label: 'order_lines_flat_mv', type: 'mv' as const },
-  { id: 'store_inventory_mv', label: 'store_inventory_mv', type: 'mv' as const },
-  { id: 'orders_with_lines_mv', label: 'orders_with_lines_mv', type: 'mv' as const, highlighted: true },
-  { id: 'inventory_items_with_dynamic_pricing', label: 'dynamic_pricing', type: 'view' as const },
-  { id: 'inventory_items_with_dynamic_pricing_mv', label: 'dynamic_pricing_mv', type: 'mv' as const, highlighted: true },
+  { id: 'triples', label: 'triples', type: 'source' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'customers_flat', label: 'customers_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'stores_flat', label: 'stores_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'products_flat', label: 'products_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'order_lines_base', label: 'order_lines_base', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'delivery_tasks_flat', label: 'delivery_tasks_flat', type: 'view' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'orders_flat_mv', label: 'orders_flat_mv', type: 'mv' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'order_lines_flat_mv', label: 'order_lines_flat_mv', type: 'mv' as const, medallionLayer: 'bronze' as MedallionLayer },
+  { id: 'store_inventory_mv', label: 'store_inventory_mv', type: 'mv' as const, medallionLayer: 'silver' as MedallionLayer },
+  { id: 'orders_with_lines_mv', label: 'orders_with_lines_mv', type: 'mv' as const, highlighted: true, medallionLayer: 'silver' as MedallionLayer },
+  { id: 'inventory_items_with_dynamic_pricing', label: 'dynamic_pricing', type: 'view' as const, medallionLayer: 'gold' as MedallionLayer },
+  { id: 'inventory_items_with_dynamic_pricing_mv', label: 'dynamic_pricing_mv', type: 'mv' as const, highlighted: true, medallionLayer: 'gold' as MedallionLayer },
 ];
 
 // Edge definitions based on actual Materialize dependencies
@@ -92,8 +160,10 @@ const edgeStyle = {
 // Node dimensions for dagre layout
 const NODE_WIDTH = 150;
 const NODE_HEIGHT = 40;
+const BAND_PADDING_X = 18;
+const BAND_PADDING_Y = 28;
 
-// Use dagre to compute node positions
+// Use dagre to compute node positions, then build swim-lane band nodes
 function getLayoutedElements(
   nodeDefs: typeof nodeDefinitions,
   edgeDefs: typeof edgeDefinitions,
@@ -104,25 +174,73 @@ function getLayoutedElements(
 
   // Configure dagre for left-to-right layout with good spacing
   dagreGraph.setGraph({
-    rankdir: 'LR',      // Left to right
-    nodesep: 50,        // Vertical separation between nodes
-    ranksep: 100,       // Horizontal separation between ranks
+    rankdir: 'LR',
+    nodesep: 50,
+    ranksep: 100,
     marginx: 20,
     marginy: 20,
   });
 
-  // Add nodes to dagre
   nodeDefs.forEach((node) => {
     dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   });
 
-  // Add edges to dagre
   edgeDefs.forEach((edge) => {
     dagreGraph.setEdge(edge.source, edge.target);
   });
 
-  // Run the layout algorithm
   dagre.layout(dagreGraph);
+
+  // Compute bounding boxes per medallion layer and overall graph
+  const layerBounds: Record<MedallionLayer, { minX: number; maxX: number }> = {
+    bronze: { minX: Infinity, maxX: -Infinity },
+    silver: { minX: Infinity, maxX: -Infinity },
+    gold: { minX: Infinity, maxX: -Infinity },
+  };
+  let graphMinY = Infinity;
+  let graphMaxY = -Infinity;
+
+  nodeDefs.forEach((nodeDef) => {
+    const pos = dagreGraph.node(nodeDef.id);
+    const leftEdge = pos.x - NODE_WIDTH / 2;
+    const rightEdge = pos.x + NODE_WIDTH / 2;
+    const topEdge = pos.y - NODE_HEIGHT / 2;
+    const bottomEdge = pos.y + NODE_HEIGHT / 2;
+
+    graphMinY = Math.min(graphMinY, topEdge);
+    graphMaxY = Math.max(graphMaxY, bottomEdge);
+
+    const bounds = layerBounds[nodeDef.medallionLayer];
+    bounds.minX = Math.min(bounds.minX, leftEdge);
+    bounds.maxX = Math.max(bounds.maxX, rightEdge);
+  });
+
+  // Create swim-lane band nodes (rendered behind via zIndex: -1)
+  const bandNodes: Node[] = (Object.keys(layerBounds) as MedallionLayer[]).map((layer) => {
+    const bounds = layerBounds[layer];
+    const colors = medallionColors[layer];
+    return {
+      id: `band-${layer}`,
+      type: 'band',
+      position: {
+        x: bounds.minX - BAND_PADDING_X,
+        y: graphMinY - BAND_PADDING_Y,
+      },
+      style: {
+        width: bounds.maxX - bounds.minX + BAND_PADDING_X * 2,
+        height: graphMaxY - graphMinY + BAND_PADDING_Y * 2,
+        background: colors.bg,
+        border: `1.5px solid ${colors.border}`,
+        borderRadius: '10px',
+        pointerEvents: 'none' as const,
+      },
+      data: { label: '', layer },
+      zIndex: -1,
+      selectable: false,
+      draggable: false,
+      focusable: false,
+    };
+  });
 
   // Create React Flow nodes with computed positions
   const nodes: Node[] = nodeDefs.map((nodeDef) => {
@@ -142,7 +260,6 @@ function getLayoutedElements(
     return {
       id: nodeDef.id,
       position: {
-        // Dagre gives center position, React Flow uses top-left
         x: nodeWithPosition.x - NODE_WIDTH / 2,
         y: nodeWithPosition.y - NODE_HEIGHT / 2,
       },
@@ -150,19 +267,20 @@ function getLayoutedElements(
       style,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
+      zIndex: 1,
     };
   });
 
-  // Create React Flow edges
   const edges: Edge[] = edgeDefs.map((edgeDef, index) => ({
     id: `e-${edgeDef.source}-${edgeDef.target}-${index}`,
     source: edgeDef.source,
     target: edgeDef.target,
     style: edgeStyle,
     animated: true,
+    zIndex: 1,
   }));
 
-  return { nodes, edges };
+  return { nodes: [...bandNodes, ...nodes], edges };
 }
 
 interface LineageGraphProps {
@@ -171,7 +289,6 @@ interface LineageGraphProps {
 }
 
 export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps) {
-  // Compute layout with dagre - memoized to avoid recalculating on every render
   const { nodes, edges } = useMemo(
     () => getLayoutedElements(nodeDefinitions, edgeDefinitions, selectedNodeId),
     [selectedNodeId]
@@ -179,6 +296,8 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
+      // Ignore clicks on band nodes
+      if (node.id.startsWith('band-')) return;
       if (onNodeClick) {
         onNodeClick(node.id);
       }
@@ -193,6 +312,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={nodeTypes}
           onNodeClick={handleNodeClick}
           fitView
           fitViewOptions={{ padding: 0.2 }}
@@ -210,7 +330,8 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
       </div>
 
       {/* Legend */}
-      <div className="flex gap-6 mt-3 text-sm">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm">
+        {/* Object type legend */}
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded" style={{ background: nodeColors.source.bg }} />
           <span className="text-gray-600">Source (CDC)</span>
@@ -223,6 +344,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
           <div className="w-4 h-4 rounded" style={{ background: nodeColors.mv.bg }} />
           <span className="text-gray-600">Materialized View</span>
         </div>
+
         {selectedNodeId && (
           <div className="flex items-center gap-2 ml-auto">
             <div className="w-4 h-4 rounded border-2 border-yellow-400" style={{ background: 'transparent' }} />
@@ -233,8 +355,9 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
 
       {/* Description */}
       <p className="mt-3 text-sm text-gray-500">
-        Two data products from the same <span className="font-medium text-blue-600">triples</span> source:{' '}
-        <span className="font-medium text-green-600">orders_with_lines_mv</span> (order details) and{' '}
+        Three data products from the same <span className="font-medium text-blue-600">triples</span> source:{' '}
+        <span className="font-medium text-green-600">store_inventory_mv</span> (stock levels),{' '}
+        <span className="font-medium text-green-600">orders_with_lines_mv</span> (order details), and{' '}
         <span className="font-medium text-green-600">dynamic_pricing_mv</span> (live pricing with 9 factors).
         The API joins them at query time for a consistent snapshot. Click any node to view its SQL.
       </p>
