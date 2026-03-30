@@ -1551,7 +1551,7 @@ export default function QueryStatisticsPage() {
             <div className="flex gap-6">
               {/* Left: Lineage Graph */}
               <div className="flex-[3]">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively</h4>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
                 <LineageGraph
                   selectedNodeId={selectedNodeId}
                   onNodeClick={handleNodeClick}
