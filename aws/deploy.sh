@@ -132,16 +132,24 @@ if [[ -n "$SG_ID" ]]; then
 fi
 
 if [[ -z "$SG_ID" ]]; then
-  log "Creating security group..."
-  SG_ID=$(aws ec2 create-security-group \
-    --group-name "$TAG_NAME" \
-    --description "SSH access for live-context-graph deployment" \
-    --tag-specifications "$TAG_SPECS_SG" \
-    --query "GroupId" --output text)
-  aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
-    --protocol tcp --port 22 --cidr "${MY_IP}/32" >/dev/null
+  # Check if a security group with this name already exists in AWS (e.g. state file was lost)
+  SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=group-name,Values=${TAG_NAME}" \
+    --query "SecurityGroups[0].GroupId" --output text 2>/dev/null)
+  if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
+    log "Creating security group..."
+    SG_ID=$(aws ec2 create-security-group \
+      --group-name "$TAG_NAME" \
+      --description "SSH access for live-context-graph deployment" \
+      --tag-specifications "$TAG_SPECS_SG" \
+      --query "GroupId" --output text)
+    aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
+      --protocol tcp --port 22 --cidr "${MY_IP}/32" >/dev/null
+    log "Created security group: $SG_ID (SSH from $MY_IP)"
+  else
+    log "Recovered existing security group: $SG_ID"
+  fi
   save_state "security-group-id" "$SG_ID"
-  log "Created security group: $SG_ID (SSH from $MY_IP)"
 fi
 
 # -------------------------------------------------------------------
