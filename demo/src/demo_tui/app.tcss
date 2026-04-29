@@ -1,0 +1,35 @@
+/* Three-over-two layout. Left to right reads: write -> think -> read. */
+
+Screen {
+    background: $surface-darken-1;
+}
+
+#top_row {
+    height: 70%;
+    layout: horizontal;
+}
+
+#bottom_row {
+    height: 30%;
+    layout: horizontal;
+}
+
+InputPane {
+    width: 28%;
+}
+
+AgentPanel {
+    width: 32%;
+}
+
+MzPanel {
+    width: 1fr;
+}
+
+LoadPanel {
+    width: 40%;
+}
+
+TimingPanel {
+    width: 1fr;
+}

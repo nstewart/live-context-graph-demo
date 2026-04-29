@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
+.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug demo-tui
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -53,6 +53,9 @@ help:
 	@echo "  make test-api   - Run API tests"
 	@echo "  make test-web   - Run Web UI tests"
 	@echo "  make lint       - Run linters"
+	@echo ""
+	@echo "Demo:"
+	@echo "  make demo-tui      - Launch terminal CQRS dashboard (companion to web UI)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make clean         - Remove all containers, volumes, and build artifacts"
@@ -298,6 +301,10 @@ load-gen-health: setup-load-gen
 test-load-gen: setup-load-gen
 	@echo "Running load generator tests..."
 	@cd load-generator && uv run --no-sync pytest -v
+
+# Demo TUI (terminal-based CQRS dashboard companion to the React UI)
+demo-tui:
+	@cd demo && uv sync --quiet && uv run -m demo_tui $(ARGS)
 
 # AWS Deployment
 aws-debug:
