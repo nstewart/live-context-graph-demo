@@ -49,6 +49,14 @@ services:
   # Materialize Emulator (Real Materialize with admin console)
   mz:
     image: materialize/materialized:v26.0.0
+    # When the host laptop sleeps, MZ's persist-client heartbeat lease can
+    # expire and the process self-halts (exit 166). Without a restart policy
+    # the whole stack stays down on wake — and the materialize-zero sidecar
+    # then drives zero-cache into a reset loop trying to subscribe at
+    # timestamps MZ has compacted past. unless-stopped lets the host bring
+    # MZ back up automatically; if it does crash mid-session the recovery
+    # procedure is `docker compose down -v` + re-seed.
+    restart: unless-stopped
     command: >
       --system-parameter-default=pg_offset_known_interval=100ms
       --system-parameter-default=enable_create_table_from_source=true
