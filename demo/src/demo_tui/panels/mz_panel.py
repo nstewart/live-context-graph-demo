@@ -1,21 +1,41 @@
-"""Right column: live Materialize SUBSCRIBE feed."""
+"""Right column: live-read side, mirroring web's PropagationWidget.
+
+Renders two stacked sections inside a VerticalScroll:
+
+  POSTGRESQL WRITES   (N transactions, M triples)     <- /api/audit/writes
+   ...
+  INDEX PROPAGATION   (K updates)                      <- /propagation/events/all
+   ...
+
+Logic is a 1:1 port of web/src/components/PropagationWidget.tsx + the polling
+in web/src/contexts/PropagationContext.tsx. The two sections poll independently
+and dedupe by the same keys the React widget uses.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime
+from typing import Iterable
 
-from textual.widgets import RichLog
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import VerticalScroll
+from textual.widgets import Static
 
-from ..feeds.types import MzAnnotation, MzRow
+from ..feeds.types import PropagationEvent, SourceWriteEvent
 
-# Short labels per view so the line stays narrow.
-VIEW_LABEL = {
-    "inventory_items_with_dynamic_pricing_mv": "pricing",
-    "orders_with_lines_mv": "orders ",
-}
+# Display caps -- match React's UI bounds (web/src/contexts/PropagationContext.tsx)
+MAX_SOURCE_WRITES = 1000
+MAX_PROPAGATION_EVENTS = 1000
+DISPLAY_BATCHES = 10
+DISPLAY_TIMESTAMPS = 10
+DISPLAY_DOCS_PER_TIMESTAMP = 5
 
 
-class MzPanel(RichLog):
+class MzPanel(VerticalScroll):
+    """Two-section panel: PG source writes on top, index propagation below."""
+
     DEFAULT_CSS = """
     MzPanel {
         border: round $accent;
@@ -25,132 +45,302 @@ class MzPanel(RichLog):
     MzPanel:focus {
         border: heavy $success;
     }
+    MzPanel > .section_header {
+        height: 1;
+        color: $text;
+        text-style: bold;
+        background: $boost;
+        padding: 0 1;
+    }
+    MzPanel > .section_body {
+        height: auto;
+        padding: 0 1;
+    }
     """
 
     can_focus = True
     BORDER_TITLE = "(3) MATERIALIZE -- live read side"
+    BINDINGS = [
+        Binding("left", "scroll_left", "scroll left", show=False),
+        Binding("right", "scroll_right", "scroll right", show=False),
+        Binding("ctrl+pageup", "page_left", "page left", show=False),
+        Binding("ctrl+pagedown", "page_right", "page right", show=False),
+    ]
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, markup=True, wrap=False, highlight=False, max_lines=400, **kwargs)
-        self._views_seen: set[str] = set()
-        self._heartbeat_ts: dict[str, int] = {}
-        self._subscribed: set[str] = set()
-        self._plain: list[str] = []
+        super().__init__(*args, **kwargs)
+        self._writes: list[SourceWriteEvent] = []
+        self._props: list[PropagationEvent] = []
+        self._writes_seen: set[str] = set()
+        self._props_seen: set[str] = set()
+        self._tracked_pks: set[str] = set()  # set by app from WriteTracker.open_writes
+        # Counters that survive memory eviction (match React's totalIndexUpdates)
+        self._writes_total = 0
+        self._props_total = 0
 
-    def to_plaintext(self) -> str:
-        return "\n".join(self._plain[-400:])
-
-    def _log(self, line: str, plain: str) -> None:
-        self._plain.append(plain)
-        self.write(line)
+    def compose(self) -> ComposeResult:
+        yield Static("", id="pg_header", classes="section_header")
+        yield Static("[dim](no PG writes yet)[/dim]", id="pg_section", classes="section_body")
+        yield Static("", id="prop_header", classes="section_header")
+        yield Static(
+            "[dim](no index propagation events yet)[/dim]",
+            id="prop_section",
+            classes="section_body",
+        )
 
     def on_mount(self) -> None:
         self.border_title = self.BORDER_TITLE
-        self._refresh_subtitle()
-        self._log(
-            "[dim](waiting for changes -- snapshot discarded; only post-launch deltas show here)[/dim]",
-            "(waiting for changes -- snapshot discarded; only post-launch deltas show here)",
+        self.border_subtitle = "polling /api/audit/writes + /propagation/events/all"
+        self._refresh()
+
+    # ----- inputs -----
+
+    def on_source_write(self, event: SourceWriteEvent) -> None:
+        if event.dedup_key in self._writes_seen:
+            return
+        self._writes_seen.add(event.dedup_key)
+        self._writes.insert(0, event)
+        self._writes_total += 1
+        if len(self._writes) > MAX_SOURCE_WRITES:
+            evicted = self._writes[MAX_SOURCE_WRITES:]
+            self._writes = self._writes[:MAX_SOURCE_WRITES]
+            for ev in evicted:
+                self._writes_seen.discard(ev.dedup_key)
+        self._refresh()
+
+    def on_propagation_event(self, event: PropagationEvent) -> None:
+        if event.dedup_key in self._props_seen:
+            return
+        self._props_seen.add(event.dedup_key)
+        self._props.insert(0, event)
+        self._props_total += 1
+        if len(self._props) > MAX_PROPAGATION_EVENTS:
+            evicted = self._props[MAX_PROPAGATION_EVENTS:]
+            self._props = self._props[:MAX_PROPAGATION_EVENTS]
+            for ev in evicted:
+                self._props_seen.discard(ev.dedup_key)
+        self._refresh()
+
+    def set_tracked_pks(self, pks: Iterable[str]) -> None:
+        """The app passes in PKs the agent has recently written, for highlight."""
+        self._tracked_pks = set(pks)
+
+    # ----- render -----
+
+    def _refresh(self) -> None:
+        try:
+            self.query_one("#pg_header", Static).update(self._render_pg_header())
+            self.query_one("#pg_section", Static).update(self._render_pg_section())
+            self.query_one("#prop_header", Static).update(self._render_prop_header())
+            self.query_one("#prop_section", Static).update(self._render_prop_section())
+        except Exception:
+            # Widget may not be mounted yet; skip silently.
+            pass
+
+    # PG WRITES section ------------------------------------------------------
+
+    def _render_pg_header(self) -> str:
+        batches = self._group_writes_by_batch(self._writes)
+        n_tx = len(batches)
+        n_triples = len(self._writes)
+        return (
+            f"POSTGRESQL WRITES  [dim]({n_tx} transaction{'s' if n_tx != 1 else ''}, "
+            f"{n_triples} triple{'s' if n_triples != 1 else ''}, {self._writes_total} total)[/dim]"
         )
 
-    def on_mz_row(self, row: MzRow, annotation: MzAnnotation | None = None) -> None:
-        if "_status" in row.columns:
-            status = row.columns["_status"]
-            if status == "subscribed":
-                self._subscribed.add(row.view)
-                line = f". subscribed: {row.view}"
-                self._log(f"[dim cyan]{line}[/dim cyan]", line)
-                self._refresh_subtitle()
-            return
-        if row.is_heartbeat:
-            self._heartbeat_ts[row.view] = row.mz_timestamp
-            self._refresh_subtitle()
-            return
-        if "_error" in row.columns:
-            line = f"! {row.view}: {row.columns['_error']}"
-            self._log(f"[red]{line}[/red]", line)
-            return
+    def _render_pg_section(self) -> str:
+        if not self._writes:
+            return "[dim](no PG writes yet -- waiting for /api/audit/writes)[/dim]"
+        batches = self._group_writes_by_batch(self._writes)
+        lines: list[str] = []
+        for batch in batches[:DISPLAY_BATCHES]:
+            lines.append(self._render_batch(batch))
+        if len(batches) > DISPLAY_BATCHES:
+            lines.append(f"[dim]  ... and {len(batches) - DISPLAY_BATCHES} more transactions[/dim]")
+        return "\n".join(lines)
 
-        sign_plain = "+" if row.diff > 0 else "-" if row.diff < 0 else "?"
-        sign = f"[green]{sign_plain}[/green]" if row.diff > 0 else f"[red]{sign_plain}[/red]" if row.diff < 0 else f"[dim]{sign_plain}[/dim]"
-        ts = _fmt_mz_ts(row.mz_timestamp)
-        label = VIEW_LABEL.get(row.view, row.view[:8])
-        body = _format_columns(row.view, row.columns)
+    @staticmethod
+    def _group_writes_by_batch(writes: list[SourceWriteEvent]) -> list[list[SourceWriteEvent]]:
+        """Group writes by batch_id; preserve descending-time order."""
+        # writes is already sorted desc (newest at index 0)
+        groups: dict[str, list[SourceWriteEvent]] = defaultdict(list)
+        order: list[str] = []
+        for w in writes:
+            key = w.batch_id or f"single-{w.timestamp}-{w.subject_id}-{w.predicate}"
+            if key not in groups:
+                order.append(key)
+            groups[key].append(w)
+        return [groups[k] for k in order]
 
-        if annotation is not None:
-            # Row matched an agent write -- this is the "agent's write just appeared
-            # in Materialize" beat. Star and bold-green it.
-            plain = f"* {sign_plain} {ts}  {label}  {body}   <- agent wrote {annotation.pk}"
-            line = (
-                f"[bold yellow]*[/bold yellow] {sign} {ts}  [bold green]{label}[/bold green]  "
-                f"{body}   [bold green]<- agent wrote {annotation.pk}[/bold green]"
+    def _render_batch(self, batch: list[SourceWriteEvent]) -> str:
+        first = batch[0]
+        ts = _fmt_wall(first.timestamp)
+        starred = self._is_starred_subject(first.subject_id) or any(
+            self._is_starred_subject(w.subject_id) for w in batch
+        )
+        prefix = "[bold yellow]*[/bold yellow] " if starred else "  "
+        if len(batch) == 1:
+            return prefix + self._render_single_write(ts, first)
+        # multi-write batch: summary line
+        subjects = {w.subject_id for w in batch}
+        op = first.operation
+        op_color = _op_color(op)
+        return (
+            f"{prefix}[dim]{ts}[/dim]  "
+            f"[bold]{len(subjects)} subject{'s' if len(subjects) != 1 else ''}[/bold]  "
+            f"[dim]({len(batch)} triple{'s' if len(batch) != 1 else ''})[/dim]  "
+            f"[{op_color}]{op}[/{op_color}]"
+        )
+
+    def _render_single_write(self, ts: str, w: SourceWriteEvent) -> str:
+        old = _fmt_field_value(w.old_value) if w.old_value is not None else None
+        new = _fmt_field_value(w.new_value)
+        op_color = _op_color(w.operation)
+        if old is not None:
+            arrow = (
+                f"[red]{old}[/red] [dim]->[/dim] [green]{new}[/green]"
             )
         else:
-            plain = f"{sign_plain} {ts}  {label}  {body}"
-            line = f"{sign} {ts}  [bold]{label}[/bold]  {body}"
-        self._log(line, plain)
-        self._views_seen.add(row.view)
-
-    def _refresh_subtitle(self) -> None:
-        n_sub = len(self._subscribed)
-        if not self._heartbeat_ts:
-            if n_sub:
-                self.border_subtitle = f"subscribed ({n_sub} views) -- waiting for first heartbeat"
-            else:
-                self.border_subtitle = "connecting..."
-            return
-        latest = max(self._heartbeat_ts.values())
-        self.border_subtitle = (
-            f"frontier {_fmt_mz_ts(latest)}  ({n_sub} views, snapshot discarded)"
+            arrow = f"[green]{new}[/green]"
+        return (
+            f"[dim]{ts}[/dim]  "
+            f"[cyan]{w.subject_id}[/cyan][dim].[/dim][magenta]{w.predicate}[/magenta] "
+            f"[dim]:[/dim] {arrow}  [{op_color}]{w.operation}[/{op_color}]"
         )
 
+    def _is_starred_subject(self, subject_id: str) -> bool:
+        if not self._tracked_pks:
+            return False
+        # Tracked PKs are e.g. "FM-1042"; subject_id is e.g. "order:FM-1042"
+        return any(pk in subject_id for pk in self._tracked_pks)
 
-def _fmt_mz_ts(mz_ts) -> str:
-    """mz timestamps are ms-since-epoch."""
-    try:
-        ms = int(mz_ts)
-    except (TypeError, ValueError):
-        return str(mz_ts)
-    dt = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).astimezone()
-    return dt.strftime("%H:%M:%S.") + f"{ms % 1000:03d}"
+    # INDEX PROPAGATION section ----------------------------------------------
+
+    def _render_prop_header(self) -> str:
+        return (
+            f"INDEX PROPAGATION  [dim]({len(self._props)} update"
+            f"{'s' if len(self._props) != 1 else ''} buffered, "
+            f"{self._props_total} total)[/dim]"
+        )
+
+    def _render_prop_section(self) -> str:
+        if not self._props:
+            return "[dim](no propagation events yet -- waiting for /propagation/events/all)[/dim]"
+
+        # Group by mz_ts desc (props is already insert-on-top, but mz_ts ordering
+        # may vary because polling can reorder; explicit sort).
+        by_mz_ts: dict[str, list[PropagationEvent]] = defaultdict(list)
+        for ev in self._props:
+            by_mz_ts[ev.mz_ts].append(ev)
+        sorted_ts = sorted(by_mz_ts.keys(), key=lambda x: x, reverse=True)
+
+        lines: list[str] = []
+        for mz_ts in sorted_ts[:DISPLAY_TIMESTAMPS]:
+            events = by_mz_ts[mz_ts]
+            # dedup within ts by doc_id (latest wins)
+            by_doc: dict[str, list[PropagationEvent]] = defaultdict(list)
+            for e in events:
+                by_doc[e.doc_id].append(e)
+            wall_ts = _fmt_wall(events[0].timestamp)
+            n_docs = len(by_doc)
+            n_fields = sum(len(e.field_changes) for e in events)
+            lines.append(
+                f"[dim]{wall_ts}[/dim]  [dim]mz_ts:[/dim] [bold]{mz_ts}[/bold]  "
+                f"[dim]({n_docs} doc{'s' if n_docs != 1 else ''}, "
+                f"{n_fields} field{'s' if n_fields != 1 else ''})[/dim]"
+            )
+            for doc_id, doc_events in list(by_doc.items())[:DISPLAY_DOCS_PER_TIMESTAMP]:
+                lines.extend(self._render_doc(doc_id, doc_events))
+            if n_docs > DISPLAY_DOCS_PER_TIMESTAMP:
+                lines.append(
+                    f"   [dim]... and {n_docs - DISPLAY_DOCS_PER_TIMESTAMP} more docs[/dim]"
+                )
+        if len(sorted_ts) > DISPLAY_TIMESTAMPS:
+            lines.append(f"[dim]... and {len(sorted_ts) - DISPLAY_TIMESTAMPS} more timestamps[/dim]")
+        return "\n".join(lines)
+
+    def _render_doc(self, doc_id: str, events: list[PropagationEvent]) -> list[str]:
+        # Merge field_changes from all events for this doc
+        merged: dict[str, tuple[str | None, str | None]] = {}
+        ops: set[str] = set()
+        display_name: str | None = None
+        index_names: set[str] = set()
+        for e in events:
+            ops.add(e.operation)
+            index_names.add(e.index_name)
+            if not display_name and e.display_name:
+                display_name = e.display_name
+            for field, change in e.field_changes.items():
+                merged[field] = (change.old, change.new)
+        op = "INSERT" if "INSERT" in ops else "DELETE" if "DELETE" in ops else "UPDATE"
+        op_color = _op_color(op)
+
+        starred = self._is_starred_doc(doc_id, display_name)
+        prefix = "[bold yellow]*[/bold yellow] " if starred else "  "
+        name_part = (
+            f"[cyan]{display_name}[/cyan] [dim]({doc_id})[/dim]"
+            if display_name
+            else f"[cyan]{doc_id}[/cyan]"
+        )
+        idx_part = ", ".join(sorted(index_names))
+        out = [
+            f" {prefix}{name_part}  [{op_color}]{op}[/{op_color}]  [dim]{idx_part}[/dim]"
+        ]
+        for field, (old, new) in merged.items():
+            out.append(f"     [dim]{field}:[/dim] {_render_field_diff(old, new)}")
+        return out
+
+    def _is_starred_doc(self, doc_id: str, display_name: str | None) -> bool:
+        if not self._tracked_pks:
+            return False
+        return any(pk in doc_id or (display_name and pk in display_name) for pk in self._tracked_pks)
 
 
-def _format_columns(view: str, cols: dict) -> str:
-    if view == "inventory_items_with_dynamic_pricing_mv":
-        return _fmt_pricing(cols)
-    if view == "orders_with_lines_mv":
-        return _fmt_order(cols)
-    return " ".join(f"{k}={v}" for k, v in cols.items())
+# ----- formatting helpers (match the React formatFieldValue logic) -----
 
 
-def _fmt_pricing(c: dict) -> str:
-    store = c.get("store_id", "?")
-    zone = c.get("store_zone", "?")
-    product = c.get("product_id", "?")
-    qty = c.get("available_quantity", "?")
-    price = c.get("live_price")
-    change = c.get("price_change")
-    demand = c.get("demand_multiplier")
-    # `effective_updated_at` is consumed by the ReactionMonitor; not displayed here.
-    price_str = f"${price}" if price is not None else "$ ?"
-    change_str = ""
-    if change is not None:
+def _op_color(op: str) -> str:
+    if op == "INSERT":
+        return "green"
+    if op == "DELETE":
+        return "red"
+    return "yellow"
+
+
+def _fmt_wall(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
+
+
+def _fmt_field_value(value: str | None) -> str:
+    """Mirror web/src/components/PropagationWidget.tsx::formatFieldValue."""
+    if value is None:
+        return "(null)"
+    s = str(value)
+    if s.startswith("[") and s.endswith("]"):
+        # Best-effort length summarization for list-like values.
         try:
-            cv = float(change)
-            if cv > 0:
-                change_str = f" [yellow]+{cv:.2f}[/yellow]"
-            elif cv < 0:
-                change_str = f" [cyan]{cv:.2f}[/cyan]"
-        except (TypeError, ValueError):
+            import json
+
+            normalized = (
+                s.replace("'", '"').replace("None", "null").replace("False", "false").replace("True", "true")
+            )
+            parsed = json.loads(normalized)
+            if isinstance(parsed, list):
+                return f"[{len(parsed)} item{'s' if len(parsed) != 1 else ''}]"
+        except Exception:
             pass
-    demand_str = f"x{demand}" if demand is not None else "x?"
-    return f"{store}({zone})  {product}  qty={qty}  {price_str}{change_str}  {demand_str}"
+    if s.startswith("{") and s.endswith("}") and len(s) > 50:
+        return "{...}"
+    if len(s) > 100:
+        return s[:97] + "..."
+    return s
 
 
-def _fmt_order(c: dict) -> str:
-    num = c.get("order_number", "?")
-    status = c.get("order_status", "?")
-    store = c.get("store_id", "?")
-    customer = c.get("customer_name", "?")
-    total = c.get("order_total_amount")
-    total_str = f"${total}" if total is not None else "$?"
-    return f"{num}  {status:<16}  {store}  {customer}  {total_str}"
+def _render_field_diff(old: str | None, new: str | None) -> str:
+    old_fmt = _fmt_field_value(old) if old is not None else None
+    new_fmt = _fmt_field_value(new) if new is not None else None
+    if old_fmt is None:
+        return f"[green]{new_fmt}[/green]"
+    if new_fmt is None:
+        return f"[red]{old_fmt}[/red]"
+    return f"[red]{old_fmt}[/red] [dim]->[/dim] [green]{new_fmt}[/green]"

@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug demo-tui
+.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug demo-tui demo-freshness
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -55,7 +55,8 @@ help:
 	@echo "  make lint       - Run linters"
 	@echo ""
 	@echo "Demo:"
-	@echo "  make demo-tui      - Launch terminal CQRS dashboard (companion to web UI)"
+	@echo "  make demo-tui          - Launch terminal CQRS dashboard (companion to web UI)"
+	@echo "  make demo-freshness    - Launch freshness-under-load comparison (PG / batch / Materialize)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make clean         - Remove all containers, volumes, and build artifacts"
@@ -305,6 +306,10 @@ test-load-gen: setup-load-gen
 # Demo TUI (terminal-based CQRS dashboard companion to the React UI)
 demo-tui:
 	@cd demo && uv sync --quiet && uv run -m demo_tui $(ARGS)
+
+# Freshness Under Load comparison (PG view vs batch cache vs Materialize)
+demo-freshness:
+	@cd demo && uv sync --quiet && uv run -m demo_tui --mode freshness $(ARGS)
 
 # AWS Deployment
 aws-debug:

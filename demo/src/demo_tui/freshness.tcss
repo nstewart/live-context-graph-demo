@@ -1,0 +1,35 @@
+/* Freshness Under Load: load on left, comparison table on right. */
+
+Screen {
+    background: $surface-darken-1;
+}
+
+#row {
+    height: 1fr;
+    layout: horizontal;
+}
+
+LoadPanel {
+    width: 32%;
+}
+
+ComparisonPanel {
+    width: 1fr;
+}
+
+ComparisonPanel > .info_line {
+    height: 1;
+    padding: 0 1;
+    color: $text;
+    background: $boost;
+}
+
+ComparisonPanel > .table_body {
+    height: auto;
+    padding: 1 1 0 1;
+}
+
+ComparisonPanel > .explainer {
+    height: auto;
+    padding: 0 1;
+}

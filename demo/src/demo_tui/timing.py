@@ -130,6 +130,10 @@ class WriteTracker:
     def open_count(self) -> int:
         return len(self._open)
 
+    def tracked_pks(self) -> list[str]:
+        """PKs of agent writes still awaiting re-observation."""
+        return list(self._open.keys())
+
     def expire_old(self) -> None:
         """Drop open records older than EXPIRY_SEC."""
         now = now_mono()

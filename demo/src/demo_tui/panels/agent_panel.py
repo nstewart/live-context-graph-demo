@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from textual.binding import Binding
 from textual.widgets import RichLog
 
 from ..feeds.types import AgentClimax, AgentEvent
@@ -23,6 +24,12 @@ class AgentPanel(RichLog):
     """
 
     can_focus = True
+    BINDINGS = [
+        Binding("left", "scroll_left", "scroll left", show=False),
+        Binding("right", "scroll_right", "scroll right", show=False),
+        Binding("ctrl+pageup", "page_left", "page left", show=False),
+        Binding("ctrl+pagedown", "page_right", "page right", show=False),
+    ]
     BORDER_TITLE = "(2) AGENT REASONS"
     BORDER_SUBTITLE = "observe -> think -> act -> re-observe"
 

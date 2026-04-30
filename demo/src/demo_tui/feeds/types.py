@@ -111,3 +111,52 @@ class AgentClimax:
 
     pk: str
     deltas: dict[str, float | None]
+
+
+# -------- Write Propagation (matches PropagationContext.tsx + audit/propagation APIs) --------
+
+
+@dataclass
+class FieldChange:
+    """One field's before/after on a propagation event (matches search-sync output)."""
+
+    old: str | None
+    new: str | None
+
+
+@dataclass
+class SourceWriteEvent:
+    """One PG triple write from /api/audit/writes."""
+
+    subject_id: str
+    predicate: str
+    old_value: str | None
+    new_value: str | None
+    operation: str  # "INSERT" | "UPDATE" | "DELETE"
+    timestamp: float  # seconds since epoch
+    batch_id: str | None
+    t_received: float = field(default_factory=now_wall)
+
+    @property
+    def dedup_key(self) -> str:
+        return f"{self.timestamp}-{self.subject_id}-{self.predicate}"
+
+
+@dataclass
+class PropagationEvent:
+    """One index-side change from /propagation/events/all (search-sync transform output)."""
+
+    mz_ts: str
+    index_name: str
+    doc_id: str
+    operation: str  # "INSERT" | "UPDATE" | "DELETE"
+    field_changes: dict[str, FieldChange]
+    timestamp: float
+    display_name: str | None
+    store_id: str | None = None
+    product_id: str | None = None
+    t_received: float = field(default_factory=now_wall)
+
+    @property
+    def dedup_key(self) -> str:
+        return f"{self.mz_ts}-{self.index_name}-{self.doc_id}-{self.operation}"

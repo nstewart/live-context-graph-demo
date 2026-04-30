@@ -11,6 +11,7 @@ class Config:
     agent_base_url: str
     mz_dsn: str
     api_base_url: str
+    search_sync_url: str
     mz_views: tuple[str, ...]
 
     @classmethod
@@ -22,6 +23,7 @@ class Config:
                 "host=localhost port=6875 user=materialize password=materialize dbname=materialize",
             ),
             api_base_url=os.environ.get("DEMO_API_URL", "http://localhost:8080"),
+            search_sync_url=os.environ.get("DEMO_SEARCH_SYNC_URL", "http://localhost:8083"),
             mz_views=(
                 "inventory_items_with_dynamic_pricing_mv",
                 "orders_with_lines_mv",

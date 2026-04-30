@@ -1,4 +1,7 @@
-"""Textual app shell: 3-over-2 grid + live-feed workers."""
+"""CQRS dashboard: input -> agent -> Materialize-side propagation, full height.
+
+Load + reaction-time-comparison live in freshness_app.py (different demo).
+"""
 
 from __future__ import annotations
 
@@ -24,19 +27,17 @@ def _configure_logging() -> str:
     root.addHandler(handler)
     root.setLevel(logging.INFO)
     root.propagate = False
-    root.info("---- demo_tui log opened ----")
+    root.info("---- demo_tui (cqrs) log opened ----")
     return path
+
 
 from .config import Config
 from .feeds.agent_stream import stream_prompt
-from .feeds.load_pulse import LoadPulse, emit_ticks
 from .feeds.mz_subscribe import DEFAULT_VIEWS, subscribe_view
-from .feeds.reaction_time import ReactionMonitor
-from .feeds.types import AgentEvent, LoadTick, MzRow, now_mono
+from .feeds.propagation import poll_audit_writes, poll_propagation_events
+from .feeds.types import AgentEvent, MzRow, PropagationEvent, SourceWriteEvent, now_mono
 from .panels.agent_panel import AgentPanel
-from .panels.load_panel import LoadPanel
 from .panels.mz_panel import MzPanel
-from .panels.timing_panel import TimingPanel
 from .timing import WriteTracker
 from .widgets.input_pane import InputPane
 
@@ -59,9 +60,7 @@ class DemoApp(App):
         super().__init__()
         self.config = config or Config.from_env()
         self.scenario = scenario
-        self.pulse = LoadPulse()
         self.tracker = WriteTracker()
-        self.reaction = ReactionMonitor(self.config.mz_dsn)
         self.log_path = _configure_logging()
         self._chat_thread_id: str = f"tui-{uuid.uuid4().hex[:8]}"
 
@@ -70,14 +69,11 @@ class DemoApp(App):
             yield InputPane(id="input_pane")
             yield AgentPanel(id="agent_panel")
             yield MzPanel(id="mz_panel")
-        with Horizontal(id="bottom_row"):
-            yield LoadPanel(id="load_panel")
-            yield TimingPanel(id="timing_panel")
         yield Footer()
 
     def on_mount(self) -> None:
-        # One worker per Materialize view + one for the load pulse aggregator
-        # + one for the reaction-time point-query loop.
+        # SUBSCRIBE workers feed the WriteTracker's climax detection only --
+        # the right pane is rendered from /api/audit/writes + /propagation/events.
         for spec in DEFAULT_VIEWS:
             self.run_worker(
                 _bind(self._mz_worker, spec),
@@ -85,12 +81,16 @@ class DemoApp(App):
                 exclusive=False,
                 exit_on_error=False,
             )
+        # HTTP pollers driving the right pane (matches PropagationContext.tsx).
         self.run_worker(
-            self._pulse_worker, name="pulse", exclusive=False, exit_on_error=False
+            self._audit_writes_worker,
+            name="audit_writes",
+            exclusive=False,
+            exit_on_error=False,
         )
         self.run_worker(
-            self._reaction_query_worker,
-            name="reaction_query",
+            self._propagation_events_worker,
+            name="propagation_events",
             exclusive=False,
             exit_on_error=False,
         )
@@ -100,11 +100,13 @@ class DemoApp(App):
     async def _mz_worker(self, spec) -> None:
         await subscribe_view(self.config.mz_dsn, spec, self._on_mz_row)
 
-    async def _pulse_worker(self) -> None:
-        await emit_ticks(self.pulse, self._on_load_tick, interval_sec=1.0)
+    async def _audit_writes_worker(self) -> None:
+        await poll_audit_writes(self.config.api_base_url, self._on_source_write)
 
-    async def _reaction_query_worker(self) -> None:
-        await self.reaction.run_query_loop()
+    async def _propagation_events_worker(self) -> None:
+        await poll_propagation_events(
+            self.config.search_sync_url, self._on_propagation_event
+        )
 
     async def _agent_worker(self, prompt: str) -> None:
         await stream_prompt(
@@ -117,25 +119,23 @@ class DemoApp(App):
     # ----- emit callbacks -----
 
     def _on_mz_row(self, row: MzRow) -> None:
-        self.pulse.ingest(row)
-        self.reaction.ingest_row(row)
-        annotation = self.tracker.on_mz_row(row)
-        try:
-            self.query_one(MzPanel).on_mz_row(row, annotation=annotation)
-        except Exception:  # widget may be unmounted during shutdown
-            pass
+        # SUBSCRIBE rows are now invisible plumbing -- only the WriteTracker
+        # consumes them, for sub-second climax detection on agent writes.
+        self.tracker.on_mz_row(row)
 
-    def _on_load_tick(self, tick: LoadTick) -> None:
+    def _on_source_write(self, event: SourceWriteEvent) -> None:
         try:
-            self.query_one(LoadPanel).on_load_tick(tick)
+            mp = self.query_one(MzPanel)
+            mp.set_tracked_pks(self.tracker.tracked_pks())
+            mp.on_source_write(event)
         except Exception:
             pass
-        # Same 1Hz tick services housekeeping + the timing panel refresh.
-        self.tracker.expire_old()
+
+    def _on_propagation_event(self, event: PropagationEvent) -> None:
         try:
-            tp = self.query_one(TimingPanel)
-            tp.set_record(self.tracker.latest_closed(), open_count=self.tracker.open_count())
-            tp.set_reaction_stats(self.reaction.stats())
+            mp = self.query_one(MzPanel)
+            mp.set_tracked_pks(self.tracker.tracked_pks())
+            mp.on_propagation_event(event)
         except Exception:
             pass
 
@@ -145,13 +145,6 @@ class DemoApp(App):
             self.query_one(AgentPanel).on_agent_event(evt, climax=climax)
         except Exception:
             pass
-        if climax is not None:
-            try:
-                self.query_one(TimingPanel).set_record(
-                    self.tracker.latest_closed(), open_count=self.tracker.open_count()
-                )
-            except Exception:
-                pass
 
     # ----- actions -----
 

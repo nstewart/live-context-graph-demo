@@ -1,16 +1,11 @@
-/* Three-over-two layout. Left to right reads: write -> think -> read. */
+/* CQRS dashboard: three columns, full-height. write -> think -> read. */
 
 Screen {
     background: $surface-darken-1;
 }
 
 #top_row {
-    height: 70%;
-    layout: horizontal;
-}
-
-#bottom_row {
-    height: 30%;
+    height: 1fr;
     layout: horizontal;
 }
 
@@ -23,13 +18,5 @@ AgentPanel {
 }
 
 MzPanel {
-    width: 1fr;
-}
-
-LoadPanel {
-    width: 40%;
-}
-
-TimingPanel {
     width: 1fr;
 }
