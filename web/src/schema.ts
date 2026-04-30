@@ -13,7 +13,6 @@ import {
   definePermissions,
   relationships,
   ANYONE_CAN,
-  NOBODY_CAN,
 } from '@rocicorp/zero'
 
 // orders_search_source_mv - full order view with customer/store info
@@ -301,115 +300,31 @@ const inventoryRelationships = relationships(store_inventory_mv, ({ one }) => ({
 export const schema = createSchema({
   tables: [orders_search_source_mv, orders_with_lines_mv, stores_mv, store_inventory_mv, courier_schedule_mv, customers_mv, products_mv, inventory_items_with_dynamic_pricing, pricing_yield_mv, inventory_risk_mv, store_capacity_health_mv, delivery_bundles_mv, compatible_pairs_mv],
   relationships: [storeRelationships, courierRelationships, orderWithLinesRelationships, inventoryRelationships],
+  enableLegacyQueries: true,
 })
 
 export type Schema = typeof schema
 
+// Tables back materialized views. Reads are public; writes are blocked by the
+// absence of mutators and `enableLegacyMutators` being unset, so only `select`
+// is declared here. The whole `definePermissions` API is slated for removal —
+// see docs/ZERO_NAMED_QUERIES_MIGRATION.md for the post-1.x migration plan.
+const publicRead = { row: { select: ANYONE_CAN } }
+
 export const permissions = definePermissions<unknown, Schema>(schema, () => ({
-  orders_search_source_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  orders_with_lines_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  stores_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  store_inventory_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  courier_schedule_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  customers_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  products_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  inventory_items_with_dynamic_pricing: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  pricing_yield_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  inventory_risk_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  store_capacity_health_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  delivery_bundles_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
-  compatible_pairs_mv: {
-    row: {
-      select: ANYONE_CAN,
-      insert: NOBODY_CAN,
-      update: { preMutation: NOBODY_CAN },
-      delete: NOBODY_CAN,
-    },
-  },
+  orders_search_source_mv: publicRead,
+  orders_with_lines_mv: publicRead,
+  stores_mv: publicRead,
+  store_inventory_mv: publicRead,
+  courier_schedule_mv: publicRead,
+  customers_mv: publicRead,
+  products_mv: publicRead,
+  inventory_items_with_dynamic_pricing: publicRead,
+  pricing_yield_mv: publicRead,
+  inventory_risk_mv: publicRead,
+  store_capacity_health_mv: publicRead,
+  delivery_bundles_mv: publicRead,
+  compatible_pairs_mv: publicRead,
 }))
 
 export type OrderStatus =
