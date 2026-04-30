@@ -405,3 +405,42 @@ GROUP BY window_end;
 CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_store_id IN CLUSTER serving ON store_metrics_timeseries_mv (store_id);
 CREATE INDEX IF NOT EXISTS idx_store_metrics_timeseries_window IN CLUSTER serving ON store_metrics_timeseries_mv (window_end);
 CREATE INDEX IF NOT EXISTS idx_system_metrics_timeseries_window IN CLUSTER serving ON system_metrics_timeseries_mv (window_end);
+
+-- =============================================================================
+-- Retention for materialize-zero subscriptions
+-- =============================================================================
+-- The materialize-zero sidecar (a1q3r1n/materialize-zero:0.0.3) subscribes to
+-- these MVs over its WebSocket and resumes from a stored watermark on every
+-- reconnect. With Materialize's default 1-second compaction window, the
+-- watermark routinely lands inside the compacted region during cold starts or
+-- the burst of 14 simultaneous subscribes the sidecar performs at boot. MZ
+-- then rejects with OutOfBoundsTimestampError, the sidecar emits
+-- `reset-required`, and zero-cache flips its persistent `resetRequired` flag
+-- to true. zero-cache's auto-reset path throws on that flag without clearing
+-- it, so the cache enters an infinite reset loop until the flag is manually
+-- cleared.
+--
+-- Extending RETAIN HISTORY to five minutes gives the sidecar enough slack to
+-- resume from any reasonably-recent watermark without hitting the compaction
+-- frontier. enable_logical_compaction_window must be on (see docker-compose
+-- mz command) for these ALTERs to apply.
+ALTER MATERIALIZED VIEW orders_flat_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW courier_schedule_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW customers_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW orders_search_source_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW products_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_inventory_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW stores_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW orders_with_lines_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW inventory_items_with_dynamic_pricing_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW pricing_yield_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW inventory_risk_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_capacity_health_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW delivery_bundles_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW compatible_pairs_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW order_lines_flat_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_courier_metrics_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_metrics_by_window_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_metrics_timeseries_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_wait_time_by_window_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW system_metrics_timeseries_mv SET (RETAIN HISTORY FOR '5 minutes');

@@ -60,6 +60,7 @@ services:
     command: >
       --system-parameter-default=pg_offset_known_interval=100ms
       --system-parameter-default=enable_create_table_from_source=true
+      --system-parameter-default=enable_logical_compaction_window=true
     ports:
       - "${MZ_CONSOLE_PORT:-6874}:6874"  # Admin Console
       - "${MZ_PORT:-6875}:6875"          # SQL interface
