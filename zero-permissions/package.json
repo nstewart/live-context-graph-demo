@@ -6,7 +6,7 @@
     "update": "tsx update-permissions.ts"
   },
   "dependencies": {
-    "@rocicorp/zero": "^0.24.3000000000",
+    "@rocicorp/zero": "1.3.0",
     "pg": "^8.11.3"
   },
   "devDependencies": {
