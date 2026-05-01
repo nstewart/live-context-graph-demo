@@ -96,10 +96,15 @@ CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
     FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source');"
 
-# Create table from source (new v26 syntax, replaces FOR ALL TABLES)
+# Create table from source (new v26 syntax, replaces FOR ALL TABLES).
+# RETAIN HISTORY 5min is required so SUBSCRIBEs from materialize-zero don't
+# fail with `Timestamp not valid for all inputs`. ALTER TABLE doesn't work
+# on source-derived tables (mz bug — planner accepts but catalog rejects),
+# so retention must be set at CREATE time.
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE TABLE IF NOT EXISTS triples
-    FROM SOURCE pg_source (REFERENCE public.triples);"
+    FROM SOURCE pg_source (REFERENCE public.triples)
+    WITH (RETAIN HISTORY FOR '5 minutes');"
 
 echo "Waiting for source to hydrate..."
 sleep 5
@@ -1588,6 +1593,16 @@ echo "Setting RETAIN HISTORY for materialize-zero compatibility..."
 # docker-compose.yml).
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize <<'SQL'
 ALTER SOURCE pg_source SET (RETAIN HISTORY FOR '5 minutes');
+-- Intermediate MVs: these aren't subscribed by materialize-zero directly,
+-- but the leaf MVs depend on them, so their `since` constrains the
+-- timestamp validity check (`Timestamp not valid for all inputs`).
+ALTER MATERIALIZED VIEW order_lines_flat_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_courier_metrics_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_metrics_by_window_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_metrics_timeseries_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW store_wait_time_by_window_mv SET (RETAIN HISTORY FOR '5 minutes');
+ALTER MATERIALIZED VIEW system_metrics_timeseries_mv SET (RETAIN HISTORY FOR '5 minutes');
+-- Leaf MVs that materialize-zero subscribes to:
 ALTER MATERIALIZED VIEW orders_flat_mv SET (RETAIN HISTORY FOR '5 minutes');
 ALTER MATERIALIZED VIEW courier_schedule_mv SET (RETAIN HISTORY FOR '5 minutes');
 ALTER MATERIALIZED VIEW customers_mv SET (RETAIN HISTORY FOR '5 minutes');
