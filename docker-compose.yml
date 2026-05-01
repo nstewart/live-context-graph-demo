@@ -48,7 +48,7 @@ services:
 
   # Materialize Emulator (Real Materialize with admin console)
   mz:
-    image: materialize/materialized:v26.0.0
+    image: materialize/materialized:v26.24.0-dev.0--pr.g04fbfbd60143e627d4be9746fc09a8d7aa002322
     # When the host laptop sleeps, MZ's persist-client heartbeat lease can
     # expire and the process self-halts (exit 166). Without a restart policy
     # the whole stack stays down on wake — and the materialize-zero sidecar
