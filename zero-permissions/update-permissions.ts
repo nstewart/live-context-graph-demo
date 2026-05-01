@@ -70,6 +70,21 @@ async function updatePermissions(): Promise<void> {
         // Step 1: Wait for the permissions table to be created by materialize-zero
         await waitForPermissionsTable();
 
+        // Step 1b: Set RETAIN HISTORY on zero.permissions. The materialize-zero
+        // sidecar subscribes to it as a system collection on every zero-cache
+        // (re)connect. With the default 1s retention, any reconnect after a
+        // brief gap hits OutOfBoundsTimestampError, which the sidecar surfaces
+        // as `reset-required`, which sets resetRequired=true in zero_change
+        // and traps zero-cache in an infinite AutoResetSignal loop.
+        {
+            const retentionClient = new Client({ connectionString: getConnectionString() });
+            await retentionClient.connect();
+            console.log("Setting RETAIN HISTORY on zero.permissions...");
+            await retentionClient.query(`ALTER TABLE "zero.permissions" SET (RETAIN HISTORY FOR '5 minutes')`);
+            await retentionClient.end();
+            console.log('✓ RETAIN HISTORY set on zero.permissions.');
+        }
+
         // Step 2: Create a temp directory
         tempDir = mkdtempSync(join(tmpdir(), 'permissions-'));
         const outputFile = join(tempDir, 'perm.json');

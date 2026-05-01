@@ -298,15 +298,130 @@ fi
 # Force recreate materialize-init
 REMOTE_CMD="${REMOTE_CMD} && docker compose rm -f materialize-init 2>/dev/null || true"
 
+# Wipe Zero's persisted state so it boots clean against a freshly-initialized
+# Materialize. Materialize has no volume (see compose) so its state resets every
+# deploy; zero-cache's replica.db is now ephemeral (no named volume) but the
+# zero_change/zero_cvr metadata DBs live in app_postgres_data and must be reset
+# explicitly, or zero-cache will crash-loop on stale watermarks.
+REMOTE_CMD="${REMOTE_CMD} && docker compose rm -fsv zero-cache materialize-zero zero-permissions 2>/dev/null || true"
+REMOTE_CMD="${REMOTE_CMD} && docker volume rm app_zero_data 2>/dev/null || true"
+REMOTE_CMD="${REMOTE_CMD} && docker compose up -d --wait db"
+REMOTE_CMD="${REMOTE_CMD} && docker compose exec -T db psql -U postgres -c \"DROP DATABASE IF EXISTS zero_change WITH (FORCE);\""
+REMOTE_CMD="${REMOTE_CMD} && docker compose exec -T db psql -U postgres -c \"DROP DATABASE IF EXISTS zero_cvr WITH (FORCE);\""
+REMOTE_CMD="${REMOTE_CMD} && docker compose exec -T db psql -U postgres -c \"CREATE DATABASE zero_change;\""
+REMOTE_CMD="${REMOTE_CMD} && docker compose exec -T db psql -U postgres -c \"CREATE DATABASE zero_cvr;\""
+
 # Run the compose command
 REMOTE_CMD="${REMOTE_CMD} && ${COMPOSE_CMD}"
 
-COMPOSE_OUTPUT=$(ssh $SSH_OPTS ec2-user@"$PUBLIC_IP" "$REMOTE_CMD" 2>&1) || {
-    echo "Error: Docker Compose deployment failed:"
-    echo "$COMPOSE_OUTPUT"
+ssh $SSH_OPTS ec2-user@"$PUBLIC_IP" "$REMOTE_CMD" || {
+    echo "Error: Docker Compose deployment failed"
     exit 1
   }
 log "Docker Compose stack deployed."
+
+# Stabilize the Zero stack against Materialize. Two failure modes can drive
+# zero-cache into an AutoResetSignal loop that does not self-recover:
+#   1. zero-cache subscribes before materialize-zero has finished hydrating
+#      its collections — gated by mz_internal.mz_hydration_statuses below.
+#   2. materialize-zero asks Materialize for a timestamp mz has compacted past
+#      (OutOfBoundsTimestampError) — typically a transient timestamp-oracle
+#      skew when materialize-zero connects shortly after a fresh boot.
+# We handle (1) with the hydration gate and (2) with a one-shot self-heal:
+# if zero-cache is restart-looping, we drop the metadata DBs, recreate the
+# whole Zero stack, wait for hydration again, and re-check stability. Two
+# attempts is enough — if it still loops, the deploy fails loud.
+log "Stabilizing Zero stack..."
+ssh $SSH_OPTS ec2-user@"$PUBLIC_IP" bash <<'EOF' || { echo "Error: zero-cache could not be stabilized"; exit 1; }
+set -e
+cd ~/app
+
+COLLECTIONS="orders_flat_mv,courier_schedule_mv,customers_mv,orders_search_source_mv,products_mv,store_inventory_mv,stores_mv,orders_with_lines_mv,inventory_items_with_dynamic_pricing_mv,pricing_yield_mv,inventory_risk_mv,store_capacity_health_mv,delivery_bundles_mv,compatible_pairs_mv"
+EXPECTED=$(echo "$COLLECTIONS" | tr ',' '\n' | wc -l | tr -d ' ')
+QUOTED=$(echo "$COLLECTIONS" | sed "s/,/','/g; s/^/'/; s/$/'/")
+HYDRATION_SQL="SELECT count(*) FROM mz_internal.mz_hydration_statuses hs JOIN mz_catalog.mz_materialized_views mv ON mv.id = hs.object_id WHERE mv.name IN ($QUOTED) AND hs.hydrated;"
+
+wait_for_hydration() {
+  echo "Waiting for $EXPECTED Materialize views to hydrate..."
+  local i hydrated=0
+  for i in $(seq 1 60); do
+    sleep 5
+    hydrated=$(docker compose exec -T mz psql -h localhost -p 6875 -U materialize -d materialize -tAc "$HYDRATION_SQL" 2>/dev/null | tr -d ' \r\n' || echo 0)
+    if [ "$hydrated" = "$EXPECTED" ]; then
+      echo "  All $EXPECTED views hydrated after $((i*5))s"
+      return 0
+    fi
+  done
+  echo "  ERROR: only $hydrated/$EXPECTED views hydrated after 300s"
+  docker compose exec -T mz psql -h localhost -p 6875 -U materialize -d materialize -c "SELECT mv.name, hs.hydrated FROM mz_internal.mz_hydration_statuses hs RIGHT JOIN mz_catalog.mz_materialized_views mv ON mv.id = hs.object_id WHERE mv.name IN ($QUOTED) ORDER BY mv.name;" || true
+  return 1
+}
+
+reset_zero_stack() {
+  echo "Resetting Zero stack (containers + metadata DBs)..."
+  docker compose rm -fsv zero-cache materialize-zero zero-permissions 2>/dev/null || true
+  docker compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS zero_change WITH (FORCE);" >/dev/null
+  docker compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS zero_cvr WITH (FORCE);" >/dev/null
+  docker compose exec -T db psql -U postgres -c "CREATE DATABASE zero_change;" >/dev/null
+  docker compose exec -T db psql -U postgres -c "CREATE DATABASE zero_cvr;" >/dev/null
+  docker compose up -d materialize-zero zero-cache zero-permissions
+}
+
+clear_reset_flag() {
+  # zero-cache's auto-reset path sets resetRequired=true in zero_change on
+  # every reset-required signal it receives, and reads it on every restart
+  # WITHOUT clearing it. Once set, zero-cache enters an infinite
+  # AutoResetSignal loop that doesn't self-recover even after the upstream
+  # cause is fixed. Clear it before each (re)start.
+  docker compose exec -T db psql -U postgres -d zero_change -c \
+    'UPDATE "zero_0/cdc"."replicationConfig" SET "resetRequired" = false;' \
+    >/dev/null 2>&1 || true
+}
+
+recreate_zero_cache() {
+  echo "Recreating zero-cache against hydrated upstream..."
+  docker compose rm -fsv zero-cache >/dev/null
+  clear_reset_flag
+  docker compose up -d zero-cache >/dev/null
+}
+
+verify_stability() {
+  # Watch for restarts over 60s. A delta > 1 indicates an AutoResetSignal loop
+  # (the WebSocket failure mode that appears in the browser as
+  # "WebSocket connection closed abruptly" at ws://localhost:4848).
+  echo "Verifying zero-cache stability..."
+  local before now delta i
+  sleep 5  # let the new container settle
+  before=$(docker inspect -f '{{.RestartCount}}' zero-cache 2>/dev/null || echo 0)
+  for i in $(seq 1 12); do
+    sleep 5
+    now=$(docker inspect -f '{{.RestartCount}}' zero-cache 2>/dev/null || echo 0)
+    delta=$((now - before))
+    if [ "$delta" -gt 1 ]; then
+      echo "  zero-cache restarted $delta times in $((i*5))s — unstable"
+      return 1
+    fi
+  done
+  echo "  zero-cache stable (delta=$delta after 60s)"
+  return 0
+}
+
+# Attempt 1: wait for hydration, recreate zero-cache, check stability.
+wait_for_hydration || exit 1
+recreate_zero_cache
+verify_stability && exit 0
+
+# Attempt 2: full Zero-stack reset (covers OutOfBoundsTimestampError and other
+# transient handshake failures that don't self-recover within 60s).
+echo "Stability check failed — performing full Zero-stack reset and retrying"
+reset_zero_stack
+wait_for_hydration || exit 1
+verify_stability && exit 0
+
+echo "ERROR: zero-cache could not stabilize after 2 attempts"
+docker compose logs --tail=80 zero-cache
+exit 1
+EOF
 
 log "Waiting for databases to be ready..."
 sleep 10

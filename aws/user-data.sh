@@ -32,5 +32,12 @@ chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 # Add ec2-user to docker group
 usermod -aG docker ec2-user
 
+# Raise vm.max_map_count for OpenSearch. AL2023's default (65530) is below the
+# 262144 OpenSearch requires; without this, OpenSearch's bootstrap precheck
+# fails and its error output gets concatenated into JAVA_OPTS, which makes the
+# JVM die with a misleading "Could not find or load main class Cannot" error.
+sysctl -w vm.max_map_count=262144
+echo "vm.max_map_count=262144" > /etc/sysctl.d/99-opensearch.conf
+
 # Signal that user-data script is complete
 touch /tmp/user-data-complete
