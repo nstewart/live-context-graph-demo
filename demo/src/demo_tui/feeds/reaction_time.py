@@ -1,3 +1,8 @@
+# Phase 2: not yet wired into either DemoApp or FreshnessApp.
+# ReactionMonitor is ready but the apps currently use the HTTP /api/query-stats/metrics
+# endpoint instead. Wire up run_query_loop() + ingest_row() when adding the
+# SUBSCRIBE-derived timing overlay.
+
 """Reaction-time + query-latency monitor for the dynamic pricing view.
 
 Mirrors the formula used in the original demo's query_stats API
@@ -36,6 +41,7 @@ from .types import MzRow
 
 logger = logging.getLogger(__name__)
 
+_ALLOWED_CLUSTERS: frozenset[str] = frozenset({"serving", "default", "quickstart"})
 
 _DEFAULT_VIEW = "inventory_items_with_dynamic_pricing_mv"
 _QUERY_INTERVAL_SEC = 1.0
@@ -92,16 +98,15 @@ class ReactionMonitor:
                 async with await psycopg.AsyncConnection.connect(
                     self.dsn, autocommit=True
                 ) as conn:
+                    if self.cluster not in _ALLOWED_CLUSTERS:
+                        raise ValueError(f"unknown cluster: {self.cluster!r}")
                     await conn.execute(f"SET CLUSTER = {self.cluster}")
                     while True:
                         if stop_event is not None and stop_event.is_set():
                             return
                         start = time.perf_counter()
-                        try:
-                            cur = await conn.execute(sql)
-                            await cur.fetchall()
-                        except Exception:
-                            raise
+                        cur = await conn.execute(sql)
+                        await cur.fetchall()
                         elapsed_ms = (time.perf_counter() - start) * 1000.0
                         self._query_ms.append(elapsed_ms)
                         self._query_total += 1

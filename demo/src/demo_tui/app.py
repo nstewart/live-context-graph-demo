@@ -31,6 +31,8 @@ def _configure_logging() -> str:
     return path
 
 
+logger = logging.getLogger(__name__)
+
 from .config import Config
 from .feeds.agent_stream import stream_prompt
 from .feeds.mz_subscribe import DEFAULT_VIEWS, subscribe_view
@@ -72,6 +74,7 @@ class DemoApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.set_interval(30, self.tracker.expire_old)
         # SUBSCRIBE workers feed the WriteTracker's climax detection only --
         # the right pane is rendered from /api/audit/writes + /propagation/events.
         for spec in DEFAULT_VIEWS:
@@ -129,7 +132,7 @@ class DemoApp(App):
             mp.set_tracked_pks(self.tracker.tracked_pks())
             mp.on_source_write(event)
         except Exception:
-            pass
+            logger.debug("_on_source_write failed", exc_info=True)
 
     def _on_propagation_event(self, event: PropagationEvent) -> None:
         try:
@@ -137,14 +140,14 @@ class DemoApp(App):
             mp.set_tracked_pks(self.tracker.tracked_pks())
             mp.on_propagation_event(event)
         except Exception:
-            pass
+            logger.debug("_on_propagation_event failed", exc_info=True)
 
     def _on_agent_event(self, evt: AgentEvent) -> None:
         climax = self.tracker.on_agent_event(evt)
         try:
             self.query_one(AgentPanel).on_agent_event(evt, climax=climax)
         except Exception:
-            pass
+            logger.debug("_on_agent_event failed", exc_info=True)
 
     # ----- actions -----
 

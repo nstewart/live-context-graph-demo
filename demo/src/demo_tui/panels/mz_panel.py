@@ -232,7 +232,7 @@ class MzPanel(VerticalScroll):
         by_mz_ts: dict[str, list[PropagationEvent]] = defaultdict(list)
         for ev in self._props:
             by_mz_ts[ev.mz_ts].append(ev)
-        sorted_ts = sorted(by_mz_ts.keys(), key=lambda x: x, reverse=True)
+        sorted_ts = sorted(by_mz_ts.keys(), key=lambda x: int(x), reverse=True)
 
         lines: list[str] = []
         for mz_ts in sorted_ts[:DISPLAY_TIMESTAMPS]:

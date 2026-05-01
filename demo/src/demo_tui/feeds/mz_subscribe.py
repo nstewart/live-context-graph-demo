@@ -34,6 +34,8 @@ EmitFn = Callable[[MzRow], Awaitable[None]] | Callable[[MzRow], None]
 FETCH_BATCH = 100
 EMPTY_FETCH_SLEEP = 0.05  # mirrors production cadence (0.01 there; we're a UI)
 
+_ALLOWED_CLUSTERS: frozenset[str] = frozenset({"serving", "default", "quickstart"})
+
 
 @dataclass(frozen=True)
 class ViewSpec:
@@ -131,6 +133,8 @@ async def _run_one_subscription(
     """One connect-DECLARE-FETCH loop, modeled on search-sync's proven path."""
     logger.info("connecting to mz for %s", spec.view)
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        if cluster not in _ALLOWED_CLUSTERS:
+            raise ValueError(f"unknown cluster: {cluster!r}")
         logger.info("connected; SET CLUSTER = %s for %s", cluster, spec.view)
         await conn.execute(f"SET CLUSTER = {cluster}")
         async with conn.cursor() as cur:

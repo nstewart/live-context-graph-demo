@@ -169,14 +169,14 @@ class FreshnessApp(App):
         try:
             self.query_one(LoadPanel).on_load_tick(tick)
         except Exception:
-            pass
+            logger.debug("_on_load_tick failed", exc_info=True)
 
     def _on_metrics(self, payload: dict[str, Any]) -> None:
         self._latest_metrics = payload
         try:
             self.query_one(ComparisonPanel).set_metrics(payload)
         except Exception:
-            pass
+            logger.debug("_on_metrics failed", exc_info=True)
 
     # ----- actions -----
 

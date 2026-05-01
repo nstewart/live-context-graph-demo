@@ -1,3 +1,7 @@
+# Phase 2: not yet wired into DemoApp or FreshnessApp.
+# TimingPanel is ready but the CQRS app's right pane currently uses MzPanel
+# (HTTP pollers). Wire it in when adding the SUBSCRIBE-derived timing overlay.
+
 """Bottom-right: reaction time + the agent feedback loop."""
 
 from __future__ import annotations
