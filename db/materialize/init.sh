@@ -59,6 +59,9 @@ fi
 
 echo "Detected $TOTAL_CPUS CPUs, MZ budget: $MZ_BUDGET cores (50%), compute: $COMPUTE_CLUSTER_SIZE"
 
+# Resize built-in catalog server cluster (default is 50cc)
+psql -h "$MZ_HOST" -p "$MZ_SYSTEM_PORT" -U mz_system -c "ALTER CLUSTER mz_catalog_server SET (SIZE = '100cc');" 2>/dev/null || echo "mz_catalog_server resize skipped"
+
 # Create clusters (ignore errors if already exist)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER ingest (SIZE = '50cc');" 2>/dev/null || echo "ingest cluster already exists"
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE CLUSTER compute (SIZE = '$COMPUTE_CLUSTER_SIZE');" 2>/dev/null || echo "compute cluster already exists"
