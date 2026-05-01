@@ -73,8 +73,8 @@ export function OrderFormModal({
 
   // Query inventory for the selected store (needed for accurate stock levels when editing)
   const inventoryQuery = formData.store_id
-    ? z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', formData.store_id)
-    : z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', '__none__');
+    ? z.query.inventory_items_with_dynamic_pricing_mv.where('store_id', '=', formData.store_id)
+    : z.query.inventory_items_with_dynamic_pricing_mv.where('store_id', '=', '__none__');
   const [inventoryData] = useQuery(inventoryQuery);
 
   // Calculate total from line items

@@ -557,8 +557,8 @@ export default function QueryStatisticsPage() {
   // Query inventory pricing for the store (real-time from Materialize)
   const storeId = zeroOrder?.searchData?.store_id || zeroOrder?.store_id;
   const pricingQuery = useMemo(() => {
-    if (!storeId) return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", EMPTY_QUERY_SENTINEL);
-    return z.query.inventory_items_with_dynamic_pricing.where("store_id", "=", storeId);
+    if (!storeId) return z.query.inventory_items_with_dynamic_pricing_mv.where("store_id", "=", EMPTY_QUERY_SENTINEL);
+    return z.query.inventory_items_with_dynamic_pricing_mv.where("store_id", "=", storeId);
   }, [z, storeId]);
 
   const [zeroPricingData] = useQuery(pricingQuery);

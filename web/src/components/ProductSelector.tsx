@@ -27,7 +27,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
   const z = useZero<Schema>()
 
   // Query inventory with dynamic pricing for the selected store
-  let inventoryQuery = z.query.inventory_items_with_dynamic_pricing
+  let inventoryQuery = z.query.inventory_items_with_dynamic_pricing_mv
   if (storeId) {
     inventoryQuery = inventoryQuery.where('store_id', '=', storeId)
   }

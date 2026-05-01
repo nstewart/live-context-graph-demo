@@ -130,6 +130,8 @@ up-agent:
 	@echo "Waiting for agent services to be ready..."
 	@sleep 3
 	@echo ""
+	@echo "Ensuring agents container is on freshmart-network..."
+	@docker network connect freshmart-network $$($(DOCKER_COMPOSE) ps -q agents) 2>/dev/null || true
 	@echo "Initializing agent checkpointer..."
 	@$(DOCKER_COMPOSE) exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 	@echo ""
@@ -159,6 +161,8 @@ up-agent-bundling:
 	@echo "Waiting for agent services to be ready..."
 	@sleep 3
 	@echo ""
+	@echo "Ensuring agents container is on freshmart-network..."
+	@docker network connect freshmart-network $$($(DOCKER_COMPOSE) ps -q agents) 2>/dev/null || true
 	@echo "Initializing agent checkpointer..."
 	@$(DOCKER_COMPOSE) exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 	@echo ""

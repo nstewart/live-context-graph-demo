@@ -274,8 +274,8 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
 
   // Query current inventory for this store to get live prices
   const inventoryQuery = storeId
-    ? z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', storeId)
-    : z.query.inventory_items_with_dynamic_pricing.where('store_id', '=', '__none__');
+    ? z.query.inventory_items_with_dynamic_pricing_mv.where('store_id', '=', storeId)
+    : z.query.inventory_items_with_dynamic_pricing_mv.where('store_id', '=', '__none__');
   const [inventoryData] = useQuery(inventoryQuery);
 
   // Build lookup map for current prices by product_id

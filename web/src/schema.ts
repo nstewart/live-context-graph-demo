@@ -154,8 +154,8 @@ const products_mv = table('products_mv')
   })
   .primaryKey('product_id')
 
-// inventory_items_with_dynamic_pricing - inventory with live pricing
-const inventory_items_with_dynamic_pricing = table('inventory_items_with_dynamic_pricing')
+// inventory_items_with_dynamic_pricing_mv - inventory with live pricing
+const inventory_items_with_dynamic_pricing = table('inventory_items_with_dynamic_pricing_mv')
   .columns({
     inventory_id: string(),
     store_id: string().optional(),
@@ -319,7 +319,7 @@ export const permissions = definePermissions<unknown, Schema>(schema, () => ({
   courier_schedule_mv: publicRead,
   customers_mv: publicRead,
   products_mv: publicRead,
-  inventory_items_with_dynamic_pricing: publicRead,
+  inventory_items_with_dynamic_pricing_mv: publicRead,
   pricing_yield_mv: publicRead,
   inventory_risk_mv: publicRead,
   store_capacity_health_mv: publicRead,
