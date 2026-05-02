@@ -47,7 +47,7 @@ def get_query_embedder():
                     self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
                 def embed(self, texts):
-                    return [list(v) for v in self._model.embed(texts)]
+                    return [[float(x) for x in v] for v in self._model.embed(texts)]
 
             _query_embedder = _Embedder()
         except ImportError as e:

@@ -116,4 +116,4 @@ class Embedder:
         if not texts:
             return []
         model = get_model()
-        return [list(v) for v in model.embed(texts)]
+        return [[float(x) for x in v] for v in model.embed(texts)]

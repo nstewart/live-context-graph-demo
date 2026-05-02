@@ -421,31 +421,85 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                     self.pending_deletes.extend(deletes_to_flush)
                     raise
 
+    async def _initial_hydration(self):
+        """Override initial hydration to batch-embed all documents before indexing."""
+        from src.mz_client_subscribe import MaterializeSubscribeClient
+
+        view_name = self.get_view_name()
+        index_name = self.get_index_name()
+
+        logger.info(f"Starting initial hydration with embeddings from {view_name}...")
+
+        try:
+            temp_client = MaterializeSubscribeClient()
+            try:
+                await temp_client.connect()
+                rows = await temp_client.query(f"SELECT * FROM {view_name}")
+                if not rows:
+                    logger.info("No existing data to hydrate")
+                    return
+                logger.info(f"Retrieved {len(rows)} rows from Materialize")
+
+                documents = []
+                for row in rows:
+                    doc = self.transform_event_to_doc(row)
+                    if doc:
+                        documents.append(doc)
+
+                if not documents:
+                    logger.warning("No valid documents after transformation")
+                    return
+
+                # Batch-embed all documents in one shot
+                self._embed_documents(documents)
+
+                logger.info(f"Bulk loading {len(documents)} documents with embeddings into OpenSearch...")
+                success, errors = await self.os.bulk_upsert(index_name, documents)
+                if errors > 0:
+                    logger.warning(f"Initial hydration completed with {errors} errors")
+                else:
+                    logger.info(f"Initial hydration complete: {success} documents loaded")
+                self.events_processed += success
+            finally:
+                await temp_client.close()
+        except Exception as e:
+            logger.error(f"Initial hydration failed: {e}", exc_info=True)
+            logger.warning("Continuing with SUBSCRIBE streaming despite hydration failure")
+
+    def _embed_documents(self, documents: list[dict]) -> None:
+        """Embed a batch of documents in-place, updating hash cache."""
+        texts = []
+        for doc in documents:
+            line_items = doc.get("line_items") or []
+            text = build_embedding_text(line_items)
+            doc["embedding_text"] = text
+            texts.append(text)
+
+        if not texts:
+            return
+
+        vectors = self._embedder.embed(texts)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for doc, vec in zip(documents, vectors):
+            doc["embedding"] = vec
+            doc["embedded_at"] = now_iso
+            order_id = doc.get("order_id")
+            if order_id:
+                self._hash_cache[order_id] = compute_hash(doc["embedding_text"])
+
     def _format_datetime(self, value) -> Optional[str]:
-        """Format datetime value for OpenSearch.
-
-        Handles multiple input types:
-        - None → None
-        - str → unchanged (already ISO format)
-        - datetime → ISO format string
-        - other → str(value)
-
-        Args:
-            value: Datetime value to format
-
-        Returns:
-            ISO format string or None
-        """
+        """Format datetime value for OpenSearch ISO 8601."""
         if value is None:
             return None
 
-        # Already a string, return as-is
-        if isinstance(value, str):
-            return value
-
-        # Convert datetime to ISO format
         if isinstance(value, datetime):
             return value.isoformat()
 
-        # Fallback: convert to string
+        if isinstance(value, str):
+            # Normalize PostgreSQL-style "YYYY-MM-DD HH:MM:SS+TZ" → ISO 8601
+            # OpenSearch requires the T separator between date and time.
+            if len(value) >= 19 and value[10] == " ":
+                value = value[:10] + "T" + value[11:]
+            return value
+
         return str(value)
