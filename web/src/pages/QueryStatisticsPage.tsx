@@ -494,6 +494,8 @@ export default function QueryStatisticsPage() {
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(false);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
   const [trustedActionOpen, setTrustedActionOpen] = useState(true);
+  const [responseChartOpen, setResponseChartOpen] = useState(true);
+  const [reactionChartOpen, setReactionChartOpen] = useState(false);
   const [queryStatsOpen, setQueryStatsOpen] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
@@ -997,7 +999,13 @@ export default function QueryStatisticsPage() {
           <div className="p-6 pt-0 space-y-6">
             {/* Row 1: Lineage Graph — full width */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                {viewMode === 'materialize'
+                  ? 'Context maintained proactively via live medallion architecture'
+                  : viewMode === 'batch'
+                  ? 'Context is processed in periodic batches'
+                  : 'Context is calculated reactively'}
+              </h4>
               <LineageGraph
                 selectedNodeId={selectedNodeId}
                 onNodeClick={handleNodeClick}
@@ -1078,79 +1086,48 @@ export default function QueryStatisticsPage() {
         </button>
         {trustedActionOpen && (
           <div className="p-6 pt-0">
-            {/* Order Cards - conditional rendering based on view mode */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {/* PostgreSQL VIEW - shown in all modes */}
-              <OrderCard
-                title="PostgreSQL VIEW"
-                subtitle="Fresh but SLOW (computes every query)"
-                icon={<Database className="h-5 w-5" />}
-                iconColor="text-orange-500"
-                bgColor="border-orange-500"
-                order={orderData?.postgresql_view || null}
-                isLoading={isPolling}
-              />
-              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <OrderCard
-                  title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 60s)"
-                  icon={<Clock className="h-5 w-5" />}
-                  iconColor="text-green-500"
-                  bgColor="border-green-500"
-                  order={orderData?.batch_cache || null}
-                  isLoading={isPolling}
-                />
-              )}
-              {/* Materialize - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <OrderCard
-                  title="Materialize"
-                  subtitle="Real-time sync - updates instantly"
-                  icon={<Zap className="h-5 w-5" />}
-                  iconColor="text-blue-500"
-                  bgColor="border-blue-500"
-                  order={zeroMaterializeOrder}
-                  isLoading={false}
-                />
-              )}
-            </div>
-
-            {/* Write Triple Form */}
-            <div className="mb-6">
-              <WriteTripleForm
-                initialSubject={tripleSubject}
-                onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
-              />
-            </div>
-
-            {/* Response Time and Reaction Time Charts - Stacked */}
+            {/* Response Time and Reaction Time Charts - Stacked, each collapsible */}
             <div className="space-y-4 mb-6">
               {/* Response Time Chart */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
-                    <p className="text-xs text-gray-500">
-                      Query latency: how long does each query take to execute?
-                    </p>
+              <div className="bg-gray-50 rounded-lg">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setResponseChartOpen(!responseChartOpen)}
+                  onKeyDown={(e) => e.key === 'Enter' && setResponseChartOpen(!responseChartOpen)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    {responseChartOpen ? (
+                      <ChevronDown className="h-4 w-4 text-gray-500" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-500" />
+                    )}
+                    <div className="text-left">
+                      <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Query latency: how long does each query take to execute?</p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUseLogScaleResponseTime(false)}
-                      className={`px-2 py-1 text-xs rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Linear
-                    </button>
-                    <button
-                      onClick={() => setUseLogScaleResponseTime(true)}
-                      className={`px-2 py-1 text-xs rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Log
-                    </button>
-                  </div>
+                  {responseChartOpen && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setUseLogScaleResponseTime(false)}
+                        className={`px-2 py-1 text-xs rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Linear
+                      </button>
+                      <button
+                        onClick={() => setUseLogScaleResponseTime(true)}
+                        className={`px-2 py-1 text-xs rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Log
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <ResponsiveContainer width="100%" height={250}>
+                {responseChartOpen && (
+                <div className="px-4 pb-4">
+                  <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={responseTimeChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
@@ -1219,34 +1196,51 @@ export default function QueryStatisticsPage() {
                       />
                     )}
                   </LineChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                </div>
+                )}
               </div>
 
               {/* Reaction Time Chart */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
-                    <p className="text-xs text-gray-500">
-                      Data freshness: how stale is the data when the query completes?
-                    </p>
+              <div className="bg-gray-50 rounded-lg">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setReactionChartOpen(!reactionChartOpen)}
+                  onKeyDown={(e) => e.key === 'Enter' && setReactionChartOpen(!reactionChartOpen)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    {reactionChartOpen ? (
+                      <ChevronDown className="h-4 w-4 text-gray-500" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-500" />
+                    )}
+                    <div className="text-left">
+                      <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Data freshness: how stale is the data when the query completes?</p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUseLogScale(false)}
-                      className={`px-2 py-1 text-xs rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Linear
-                    </button>
-                    <button
-                      onClick={() => setUseLogScale(true)}
-                      className={`px-2 py-1 text-xs rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Log
-                    </button>
-                  </div>
+                  {reactionChartOpen && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setUseLogScale(false)}
+                        className={`px-2 py-1 text-xs rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Linear
+                      </button>
+                      <button
+                        onClick={() => setUseLogScale(true)}
+                        className={`px-2 py-1 text-xs rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Log
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <ResponsiveContainer width="100%" height={250}>
+                {reactionChartOpen && (
+                <div className="px-4 pb-4">
+                  <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
@@ -1315,8 +1309,56 @@ export default function QueryStatisticsPage() {
                       />
                     )}
                   </LineChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                </div>
+                )}
               </div>
+            </div>
+
+            {/* Order Cards - conditional rendering based on view mode */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* PostgreSQL VIEW - shown in all modes */}
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 60s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {/* Materialize - shown only in materialize mode */}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+
+            {/* Write Triple Form */}
+            <div className="mb-6">
+              <WriteTripleForm
+                initialSubject={tripleSubject}
+                onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
+              />
             </div>
 
             {/* Statistics Table */}
