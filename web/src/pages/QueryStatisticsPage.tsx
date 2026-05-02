@@ -493,6 +493,8 @@ export default function QueryStatisticsPage() {
   const [useLogScale, setUseLogScale] = useState(false);
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(false);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
+  const [contextReactiveOpen, setContextReactiveOpen] = useState(false);
+  const [freshmartUIOpen, setFreshmartUIOpen] = useState(false);
   const [trustedActionOpen, setTrustedActionOpen] = useState(true);
   const [responseChartOpen, setResponseChartOpen] = useState(true);
   const [reactionChartOpen, setReactionChartOpen] = useState(false);
@@ -1013,9 +1015,24 @@ export default function QueryStatisticsPage() {
               />
             </div>
 
-            {/* Row 2: JSON API Response — two columns */}
-            <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
+            {/* Row 2: JSON API Response — two columns, collapsible */}
+            <div className="bg-gray-50 rounded-lg">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setContextReactiveOpen(!contextReactiveOpen)}
+                onKeyDown={(e) => e.key === 'Enter' && setContextReactiveOpen(!contextReactiveOpen)}
+                className="px-4 py-3 flex items-center gap-2 hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+              >
+                {contextReactiveOpen ? (
+                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-gray-500" />
+                )}
+                <h4 className="text-sm font-semibold text-gray-700">Context obtained reactively</h4>
+              </div>
+              {contextReactiveOpen && (
+              <div className="px-4 pb-4">
               <div className="flex gap-4 h-[300px]">
                 {/* Left: label + SQL */}
                 <div className="flex-1 bg-gray-900 rounded-lg overflow-hidden flex flex-col">
@@ -1058,6 +1075,8 @@ export default function QueryStatisticsPage() {
                   </div>
                 </div>
               </div>
+              </div>
+              )}
             </div>
 
           </div>
@@ -1315,52 +1334,6 @@ export default function QueryStatisticsPage() {
               </div>
             </div>
 
-            {/* Order Cards - conditional rendering based on view mode */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {/* PostgreSQL VIEW - shown in all modes */}
-              <OrderCard
-                title="PostgreSQL VIEW"
-                subtitle="Fresh but SLOW (computes every query)"
-                icon={<Database className="h-5 w-5" />}
-                iconColor="text-orange-500"
-                bgColor="border-orange-500"
-                order={orderData?.postgresql_view || null}
-                isLoading={isPolling}
-              />
-              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <OrderCard
-                  title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 60s)"
-                  icon={<Clock className="h-5 w-5" />}
-                  iconColor="text-green-500"
-                  bgColor="border-green-500"
-                  order={orderData?.batch_cache || null}
-                  isLoading={isPolling}
-                />
-              )}
-              {/* Materialize - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <OrderCard
-                  title="Materialize"
-                  subtitle="Real-time sync - updates instantly"
-                  icon={<Zap className="h-5 w-5" />}
-                  iconColor="text-blue-500"
-                  bgColor="border-blue-500"
-                  order={zeroMaterializeOrder}
-                  isLoading={false}
-                />
-              )}
-            </div>
-
-            {/* Write Triple Form */}
-            <div className="mb-6">
-              <WriteTripleForm
-                initialSubject={tripleSubject}
-                onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
-              />
-            </div>
-
             {/* Statistics Table */}
             <div className="bg-gray-50 rounded-lg mb-6">
               <button
@@ -1616,6 +1589,64 @@ export default function QueryStatisticsPage() {
                 </div>
               </div>
             )}
+
+      {/* Freshmart UI Components (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setFreshmartUIOpen(!freshmartUIOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {freshmartUIOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <h3 className="text-lg font-semibold text-gray-900">UI components</h3>
+          </div>
+        </button>
+        {freshmartUIOpen && (
+          <div className="p-6 pt-0">
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 60s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+            <WriteTripleForm
+              initialSubject={tripleSubject}
+              onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Vector Pipeline Card */}
       <VectorPipelineCard />
