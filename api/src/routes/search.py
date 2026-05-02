@@ -288,37 +288,50 @@ async def get_index_stats() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+IMPACT_INDEXES = ["orders", "inventory"]
+
+
 @router.get("/impact")
 async def get_index_impact(
     since_mz_timestamp: int = Query(..., description="mz_timestamp lower bound from write-triple"),
 ) -> dict[str, Any]:
-    """Count orders documents re-indexed at or after a given mz_timestamp.
+    """Count documents re-indexed across all indexes at or after a given mz_timestamp.
 
-    Returns the number of OpenSearch documents that carry an mz_timestamp
-    >= since_mz_timestamp, the total document count, and the percentage.
-    Use the mz_timestamp_lower_bound from the write-triple response as the
-    lower bound to measure how many docs were re-indexed as a result of a write.
+    Queries both the orders and inventory indexes. Returns combined impacted/total
+    counts plus a per-index breakdown.
     """
+    range_query = {"query": {"range": {"mz_timestamp": {"gte": since_mz_timestamp}}}}
     try:
         async with httpx.AsyncClient(timeout=OPENSEARCH_TIMEOUT) as client:
-            total_resp = await client.get(f"{settings.os_url}/orders/_count")
-            if total_resp.status_code == 404:
-                return {"impacted": 0, "total": 0, "pct": 0.0}
-            total_resp.raise_for_status()
-            total = total_resp.json().get("count", 0)
+            total = 0
+            impacted = 0
+            breakdown: dict[str, dict] = {}
 
-            impact_resp = await client.post(
-                f"{settings.os_url}/orders/_count",
-                json={"query": {"range": {"mz_timestamp": {"gte": since_mz_timestamp}}}},
-                headers={"Content-Type": "application/json"},
-            )
-            if impact_resp.status_code == 404:
-                return {"impacted": 0, "total": total, "pct": 0.0}
-            impact_resp.raise_for_status()
-            impacted = impact_resp.json().get("count", 0)
+            for index in IMPACT_INDEXES:
+                total_resp = await client.get(f"{settings.os_url}/{index}/_count")
+                if total_resp.status_code == 404:
+                    breakdown[index] = {"impacted": 0, "total": 0}
+                    continue
+                total_resp.raise_for_status()
+                idx_total = total_resp.json().get("count", 0)
+
+                impact_resp = await client.post(
+                    f"{settings.os_url}/{index}/_count",
+                    json=range_query,
+                    headers={"Content-Type": "application/json"},
+                )
+                if impact_resp.status_code == 404:
+                    idx_impacted = 0
+                else:
+                    impact_resp.raise_for_status()
+                    idx_impacted = impact_resp.json().get("count", 0)
+
+                breakdown[index] = {"impacted": idx_impacted, "total": idx_total}
+                total += idx_total
+                impacted += idx_impacted
 
             pct = round(impacted / total * 100, 1) if total > 0 else 0.0
-            return {"impacted": impacted, "total": total, "pct": pct}
+            return {"impacted": impacted, "total": total, "pct": pct, "breakdown": breakdown}
     except httpx.ConnectError as e:
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="OpenSearch is not available.")

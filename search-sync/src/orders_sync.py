@@ -345,9 +345,8 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 doc["embedded_at"] = now_iso
                 full_upserts.append(doc)
 
-        # Stamp wall-clock ms on every document so /api/search/impact can count
-        # docs re-indexed after a write. We use wall-clock (not the SUBSCRIBE
-        # batch timestamp) to stay in the same time domain as the API lower bound.
+        # Stamp wall-clock ms on patches (full_upserts are stamped by base _flush_batch
+        # before this override runs, but patches bypass that path).
         mz_ts_int = int(datetime.now(timezone.utc).timestamp() * 1000)
         for doc in full_upserts:
             doc["mz_timestamp"] = mz_ts_int
