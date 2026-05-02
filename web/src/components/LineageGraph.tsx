@@ -78,7 +78,7 @@ const BandNode = ({ data }: { data: { layer: MedallionLayer } }) => {
     >
       <span
         style={{
-          fontSize: '10px',
+          fontSize: '12px',
           fontWeight: 700,
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
@@ -99,24 +99,44 @@ const FgacBandNode = () => (
       width: '100%',
       height: '100%',
       display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'center',
-      paddingTop: '8px',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      padding: '10px',
+      boxSizing: 'border-box',
       userSelect: 'none',
       pointerEvents: 'none',
     }}
   >
-    <span
+    {/* Header rectangle at top */}
+    <div
       style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        letterSpacing: '0.06em',
-        color: '#7c3aed',
-        opacity: 0.85,
+        background: 'rgba(124, 58, 237, 0.12)',
+        border: '1px solid rgba(124, 58, 237, 0.45)',
+        borderRadius: '6px',
+        padding: '6px 14px',
+        textAlign: 'center',
+        flexShrink: 0,
       }}
     >
-      Fine-grained access control
-    </span>
+      <span style={{ fontSize: '13px', fontWeight: 700, color: '#7c3aed' }}>
+        Fine-grained access control
+      </span>
+    </div>
+    {/* Materialize branding at bottom */}
+    <div style={{ textAlign: 'center', paddingBottom: '2px' }}>
+      <span
+        style={{
+          fontSize: '13px',
+          fontWeight: 700,
+          color: '#7c3aed',
+          opacity: 0.5,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        Materialize
+      </span>
+    </div>
     <Handle
       type="target"
       position={Position.Top}
@@ -146,7 +166,7 @@ const SourceSystemsNode = () => (
     <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
     <div
       style={{
-        fontSize: '10px',
+        fontSize: '12px',
         fontWeight: 700,
         color: '#374151',
         textAlign: 'center',
@@ -161,12 +181,12 @@ const SourceSystemsNode = () => (
       <div
         key={s}
         style={{
-          fontSize: '10px',
+          fontSize: '11px',
           color: '#475569',
           background: '#f1f5f9',
           border: '1px solid #e2e8f0',
           borderRadius: '4px',
-          padding: '2px 6px',
+          padding: '3px 6px',
           textAlign: 'center',
         }}
       >
@@ -196,8 +216,8 @@ const AgentNode = () => (
       userSelect: 'none',
     }}
   >
-    <span style={{ fontSize: '20px', lineHeight: 1 }}>🤖</span>
-    <span style={{ fontSize: '11px', fontWeight: 700, color: '#9a3412' }}>Agent</span>
+    <span style={{ fontSize: '22px', lineHeight: 1 }}>🤖</span>
+    <span style={{ fontSize: '13px', fontWeight: 700, color: '#9a3412' }}>Agent</span>
     <Handle type="source" position={Position.Right} id="right" style={{ opacity: 0 }} />
     <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
   </div>
@@ -222,8 +242,8 @@ const McpNode = () => (
       userSelect: 'none',
     }}
   >
-    <span style={{ fontSize: '16px', lineHeight: 1 }}>⚙️</span>
-    <span style={{ fontSize: '11px', fontWeight: 700, color: '#7e22ce' }}>MCP Server</span>
+    <span style={{ fontSize: '20px', lineHeight: 1 }}>⚙️</span>
+    <span style={{ fontSize: '13px', fontWeight: 700, color: '#7e22ce' }}>MCP Server</span>
     <Handle type="target" position={Position.Left} id="left" style={{ opacity: 0 }} />
     <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
   </div>
@@ -244,7 +264,7 @@ const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false
   borderRadius: '8px',
   padding: '10px 16px',
   color: nodeColors[type].text,
-  fontSize: '12px',
+  fontSize: '13px',
   fontWeight: 500,
   minWidth: '120px',
   textAlign: 'center' as const,
@@ -303,20 +323,21 @@ const edgeDefinitions = [
 const edgeStyle = { stroke: '#94a3b8', strokeWidth: 2 };
 
 // Node dimensions for dagre layout
-const NODE_WIDTH = 150;
-const NODE_HEIGHT = 40;
-const BAND_PADDING_X = 18;
-const BAND_PADDING_Y = 28;
+const NODE_WIDTH = 168;
+const NODE_HEIGHT = 44;
+const BAND_PADDING_X = 20;
+const BAND_PADDING_Y = 32;
 // Source Systems box (taller to accommodate 4 items)
-const SS_W = 130;
-const SS_H = 118;
+const SS_W = 150;
+const SS_H = 136;
 // Floating nodes above the graph
-const AGENT_W = 88;
-const AGENT_H = 64;
-const MCP_W = 104;
-const MCP_H = 64;
-// FGAC wrapper extra space
-const FGAC_LABEL_TOP = 24;
+const AGENT_W = 100;
+const AGENT_H = 76;
+const MCP_W = 118;
+const MCP_H = 76;
+// FGAC wrapper extra space: top accommodates the header rectangle, bottom accommodates "Materialize"
+const FGAC_LABEL_TOP = 54;
+const FGAC_LABEL_BOTTOM = 32;
 const FGAC_PAD = 10;
 const FLOAT_GAP = 28;
 
@@ -400,7 +421,7 @@ function getLayoutedElements(
   const fgacLeft = fgacMinX - BAND_PADDING_X - FGAC_PAD;
   const fgacTop = graphMinY - BAND_PADDING_Y - FGAC_LABEL_TOP - FGAC_PAD;
   const fgacWidth = fgacMaxX - fgacMinX + (BAND_PADDING_X + FGAC_PAD) * 2;
-  const fgacHeight = graphMaxY - graphMinY + (BAND_PADDING_Y + FGAC_PAD) * 2 + FGAC_LABEL_TOP;
+  const fgacHeight = graphMaxY - graphMinY + (BAND_PADDING_Y + FGAC_PAD) * 2 + FGAC_LABEL_TOP + FGAC_LABEL_BOTTOM;
 
   const fgacBandNode: Node = {
     id: '__fgac__',
@@ -513,7 +534,7 @@ function getLayoutedElements(
       targetHandle: 'left',
       label: 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '10px', fill: '#6b7280', fontWeight: 600 },
+      labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
       animated: false,
       zIndex: 3,
@@ -526,7 +547,7 @@ function getLayoutedElements(
       targetHandle: 'top',
       label: 'Act',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '10px', fill: '#6b7280', fontWeight: 600 },
+      labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
       animated: false,
       zIndex: 3,
@@ -573,7 +594,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
   return (
     <div className="w-full">
       {/* Graph */}
-      <div className="h-[420px] w-full border border-gray-200 rounded-lg bg-gray-50">
+      <div className="h-[480px] w-full border border-gray-200 rounded-lg bg-gray-50">
         <ReactFlow
           nodes={nodes}
           edges={edges}

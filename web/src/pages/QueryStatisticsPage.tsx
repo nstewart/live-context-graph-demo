@@ -994,35 +994,52 @@ export default function QueryStatisticsPage() {
           </div>
         </button>
         {lineageGraphOpen && (
-          <div className="p-6 pt-0">
-            {/* Lineage Graph and API Response - 2 column layout */}
-            <div className="flex gap-6 mb-6">
-              {/* Left: Lineage Graph */}
-              <div className="flex-[3]">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
-                <LineageGraph
-                  selectedNodeId={selectedNodeId}
-                  onNodeClick={handleNodeClick}
-                />
-              </div>
+          <div className="p-6 pt-0 space-y-6">
+            {/* Row 1: Lineage Graph — full width */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
+              <LineageGraph
+                selectedNodeId={selectedNodeId}
+                onNodeClick={handleNodeClick}
+              />
+            </div>
 
-              {/* Right: JSON API Response */}
-              <div className="flex-[2] flex flex-col">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
-                <div className="bg-gray-900 rounded-lg overflow-hidden flex flex-col h-[430px]">
-                  {/* Header */}
+            {/* Row 2: JSON API Response — two columns */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
+              <div className="flex gap-4 h-[300px]">
+                {/* Left: label + SQL */}
+                <div className="flex-1 bg-gray-900 rounded-lg overflow-hidden flex flex-col">
                   <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
                     <div className="flex items-center gap-2">
                       <Database className="h-4 w-4 text-blue-400" />
                       <span className="text-sm font-medium text-gray-200">API Response</span>
                     </div>
-                    <div className="mt-2 font-mono text-xs text-gray-400 space-y-0.5">
-                      <div><span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
-                      <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
-                      <div className="text-gray-500 pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id <span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
-                    </div>
                   </div>
-                  {/* JSON Content */}
+                  <div className="flex-1 overflow-auto px-4 py-3 font-mono text-xs text-gray-400 leading-relaxed">
+                    <div><span className="text-purple-400">SELECT</span></div>
+                    <div className="pl-4">o.order_id, o.order_number, o.order_status,</div>
+                    <div className="pl-4">o.store_id, o.customer_id,</div>
+                    <div className="pl-4">o.delivery_window_start, o.delivery_window_end,</div>
+                    <div className="pl-4">o.order_total_amount,</div>
+                    <div className="pl-4">o.customer_name, o.customer_email, o.customer_address,</div>
+                    <div className="pl-4">o.store_name, o.store_zone, o.store_address,</div>
+                    <div className="pl-4">o.assigned_courier_id, o.delivery_task_status,</div>
+                    <div className="pl-4">o.delivery_eta, o.effective_updated_at,</div>
+                    <div className="pl-4">p.base_price, p.live_price, p.price_change,</div>
+                    <div className="pl-4">p.zone_adjustment, p.perishable_adjustment,</div>
+                    <div className="pl-4">p.local_stock_adjustment, p.popularity_adjustment,</div>
+                    <div className="pl-4">p.scarcity_adjustment, p.demand_multiplier,</div>
+                    <div className="pl-4">p.demand_premium, p.stock_level</div>
+                    <div className="mt-1"><span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
+                    <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
+                    <div className="pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id</div>
+                    <div className="pl-4"><span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
+                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.order_id = <span className="text-green-400">:order_id</span></div>
+                  </div>
+                </div>
+                {/* Right: JSON response */}
+                <div className="flex-[2] bg-gray-900 rounded-lg overflow-hidden flex flex-col">
                   <div className="flex-1 overflow-auto p-4">
                     {zeroMaterializeOrder ? (
                       <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
