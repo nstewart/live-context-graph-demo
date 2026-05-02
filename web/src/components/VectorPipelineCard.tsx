@@ -108,13 +108,10 @@ interface ResultCardProps {
   embeddingFlashing: boolean;
 }
 
-const ResultCard = ({ result, rank, flashedRows, embeddingFlashing }: ResultCardProps) => (
+const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing }: ResultCardProps) => (
   <div className="space-y-1.5">
     {/* Header row */}
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center">
-        {rank}
-      </span>
       <span className="font-semibold text-gray-900 text-sm">#{result.order_number ?? result.order_id}</span>
       {result.order_status && (
         <span className={`px-1.5 py-0.5 text-xs font-medium rounded border ${getStatusClasses(result.order_status)}`}>
@@ -130,7 +127,7 @@ const ResultCard = ({ result, rank, flashedRows, embeddingFlashing }: ResultCard
       </span>
     </div>
 
-    {/* Embedding strip */}
+    {/* Embedding strip + text */}
     <div className="flex items-center gap-2">
       <div className="flex-1">
         <EmbeddingStrip vector={result.embedding} flashing={embeddingFlashing} height={12} />
@@ -141,6 +138,11 @@ const ResultCard = ({ result, rank, flashedRows, embeddingFlashing }: ResultCard
           : `emb ${fmtTime(result.embedded_at)}`}
       </span>
     </div>
+    {result.embedding_text && (
+      <code className="block bg-gray-100 text-xs font-mono text-gray-600 px-2 py-1 rounded break-words leading-relaxed">
+        {result.embedding_text}
+      </code>
+    )}
 
     {/* Line items */}
     {result.line_items && result.line_items.length > 0 && (
@@ -196,10 +198,8 @@ const ResultCard = ({ result, rank, flashedRows, embeddingFlashing }: ResultCard
 
     {/* Footer */}
     <div className="flex items-center gap-1.5">
-      <Database className="h-3 w-3 text-green-500" />
-      <span className="text-xs text-green-700">Hydrated</span>
       {result.order_total_amount != null && (
-        <span className="text-xs text-gray-500">· Total: ${parseFloat(String(result.order_total_amount)).toFixed(2)}</span>
+        <span className="text-xs text-gray-500">Total: ${parseFloat(String(result.order_total_amount)).toFixed(2)}</span>
       )}
       <span className="text-xs text-gray-400 ml-auto">{fmtAgo(result.effective_updated_at)}</span>
     </div>
@@ -357,6 +357,11 @@ export const VectorPipelineCard = () => {
             </div>
           </div>
 
+          {/* Write a Triple */}
+          <div className="mb-4">
+            <WriteTripleForm />
+          </div>
+
           {/* Two-column layout */}
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
             {/* Left: How it works */}
@@ -440,10 +445,7 @@ export const VectorPipelineCard = () => {
             </div>
           </div>
 
-          {/* Write a Triple — full-width row */}
-          <div className="mt-4">
-            <WriteTripleForm />
-          </div>
+
         </div>
       )}
     </div>
