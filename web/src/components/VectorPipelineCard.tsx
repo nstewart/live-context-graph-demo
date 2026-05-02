@@ -384,6 +384,7 @@ export const VectorPipelineCard = () => {
                                       <div className="font-medium text-gray-800 truncate">
                                         {item.perishable_flag && <span className="text-orange-400 mr-1" title="Perishable">⚡</span>}
                                         {item.product_name ?? "—"}
+                                        {item.product_id && <span className="ml-1 text-gray-400 font-normal">({item.product_id})</span>}
                                       </div>
                                       {item.line_id && (
                                         <div className="text-gray-400 font-mono truncate" style={{ fontSize: "9px" }}>{item.line_id}</div>
