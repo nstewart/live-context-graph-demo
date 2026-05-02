@@ -26,7 +26,7 @@ function downsample(vector: number[], bands: number): number[] {
   });
 }
 
-const EmbeddingStrip = ({ vector }: { vector: number[] }) => {
+const EmbeddingStrip = ({ vector, flashing }: { vector: number[]; flashing?: boolean }) => {
   if (!vector || vector.length < BANDS) {
     return <span className="text-xs text-gray-400 italic">—</span>;
   }
@@ -35,19 +35,23 @@ const EmbeddingStrip = ({ vector }: { vector: number[] }) => {
   const max = Math.max(...samples);
   const range = max - min || 1;
   return (
-    <div className="flex gap-px items-center" title={`384-dim embedding (${BANDS} bands shown)`}>
-      {samples.map((v, i) => {
-        const t = (v - min) / range; // 0 = min, 1 = max
-        // hue: 240 (indigo/low) → 0 (red/high), lightness 70 → 30
-        const hue = Math.round(240 - t * 240);
-        const lightness = Math.round(70 - t * 40);
-        return (
-          <div
-            key={i}
-            style={{ width: 3, height: 14, backgroundColor: `hsl(${hue}, 65%, ${lightness}%)` }}
-          />
-        );
-      })}
+    <div
+      className={`w-full rounded overflow-hidden transition-all duration-300 ${flashing ? "ring-2 ring-yellow-400 shadow-[0_0_12px_3px_rgba(250,204,21,0.5)]" : ""}`}
+      title={`384-dim embedding (${BANDS} bands shown)`}
+    >
+      <div className="flex w-full">
+        {samples.map((v, i) => {
+          const t = (v - min) / range;
+          const hue = Math.round(240 - t * 240);
+          const lightness = Math.round(70 - t * 40);
+          return (
+            <div
+              key={i}
+              style={{ flex: 1, height: 22, backgroundColor: `hsl(${hue}, 65%, ${lightness}%)` }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -109,10 +113,12 @@ export const VectorPipelineCard = () => {
   const [topResult, setTopResult]       = useState<VectorSearchResult | null>(null);
   const [hasSearched, setHasSearched]   = useState(false);
   // Per-line-item flash: set of line_ids (or indices) that changed on last refresh
-  const [flashedRows, setFlashedRows]   = useState<Set<number>>(new Set());
-  const [lastRefresh, setLastRefresh]   = useState<Date | null>(null);
-  const prevPricesRef = useRef<Record<number, number>>({});
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [flashedRows, setFlashedRows]       = useState<Set<number>>(new Set());
+  const [embeddingFlashed, setEmbeddingFlashed] = useState(false);
+  const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
+  const prevPricesRef    = useRef<Record<number, number>>({});
+  const prevEmbeddedAtRef = useRef<string | null | undefined>(undefined);
+  const refreshTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyResult = useCallback((result: VectorSearchResult | null) => {
     if (!result) { setTopResult(null); return; }
@@ -126,11 +132,20 @@ export const VectorPipelineCard = () => {
       prevPricesRef.current[idx] = curr;
     });
 
+    // Detect embedding change
+    const prevEmbeddedAt = prevEmbeddedAtRef.current;
+    const embeddingChanged = prevEmbeddedAt !== undefined && prevEmbeddedAt !== result.embedded_at;
+    prevEmbeddedAtRef.current = result.embedded_at;
+
     setTopResult(result);
     setLastRefresh(new Date());
     if (newFlashed.size > 0) {
       setFlashedRows(newFlashed);
       setTimeout(() => setFlashedRows(new Set()), 1200);
+    }
+    if (embeddingChanged) {
+      setEmbeddingFlashed(true);
+      setTimeout(() => setEmbeddingFlashed(false), 2000);
     }
   }, []);
 
@@ -231,41 +246,38 @@ export const VectorPipelineCard = () => {
           </div>
 
           {/* Two-column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
             {/* Left: How it works */}
             <div className="border rounded-lg overflow-hidden">
               <div className="bg-gray-50 px-4 py-2 border-b">
                 <span className="text-sm font-medium text-gray-700">How it works</span>
               </div>
-              <div className="p-4 space-y-4">
-                <ol className="space-y-2">
+              <div className="p-3">
+                <ol className="flex flex-col gap-0">
                   {STEPS.map((step, idx) => {
                     const c = STEP_COLORS[step.color];
                     const Icon = step.icon;
                     return (
-                      <li key={step.label}>
-                        <div className={`flex items-start gap-3 p-3 rounded-md border ${c.bg} ${c.border}`}>
-                          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${c.icon}`}>
-                            <Icon className="h-4 w-4" />
+                      <li key={step.label} className="flex flex-col">
+                        <div className={`flex items-center gap-2 px-2 py-1.5 rounded border ${c.bg} ${c.border}`}>
+                          <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${c.icon}`}>
+                            <Icon className="h-3 w-3" />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-gray-400">{idx + 1}.</span>
-                              <span className={`text-sm font-semibold ${c.text}`}>{step.label}</span>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">{step.detail}</p>
+                          <div className="flex items-baseline gap-1.5 min-w-0">
+                            <span className="text-xs font-mono text-gray-400">{idx + 1}.</span>
+                            <span className={`text-xs font-semibold ${c.text}`}>{step.label}</span>
+                            <span className="text-xs text-gray-500 truncate">{step.detail}</span>
                           </div>
                         </div>
                         {idx < STEPS.length - 1 && (
-                          <div className="flex justify-center py-1">
-                            <ArrowRight className="h-4 w-4 text-gray-400 rotate-90" />
+                          <div className="flex justify-center py-0.5">
+                            <ArrowRight className="h-3 w-3 text-gray-300 rotate-90" />
                           </div>
                         )}
                       </li>
                     );
                   })}
                 </ol>
-                <WriteTripleForm />
               </div>
             </div>
 
@@ -336,12 +348,15 @@ export const VectorPipelineCard = () => {
                     {/* Order embedding — one per order, stable until line items change */}
                     <div className="pt-2 border-t border-gray-200">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-500">
-                          Order embedding <span className="text-gray-400">(384-dim · stable until products change)</span>
+                        <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                          Order embedding <span className="text-gray-400">(384-dim)</span>
+                          {embeddingFlashed && (
+                            <span className="text-yellow-600 font-semibold animate-pulse">↻ re-embedded</span>
+                          )}
                         </span>
                         <span className="text-xs text-gray-400 font-mono">embedded {fmtTime(topResult.embedded_at)}</span>
                       </div>
-                      <EmbeddingStrip vector={topResult.embedding} />
+                      <EmbeddingStrip vector={topResult.embedding} flashing={embeddingFlashed} />
                       <code className="block mt-1.5 bg-gray-100 text-xs font-mono text-gray-700 px-2 py-1.5 rounded break-words leading-relaxed">
                         {topResult.embedding_text}
                       </code>
@@ -420,6 +435,11 @@ export const VectorPipelineCard = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Write a Triple — full-width row */}
+          <div className="mt-4">
+            <WriteTripleForm />
           </div>
         </div>
       )}
