@@ -486,7 +486,7 @@ export default function PropagationWidget() {
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="h-[calc(40vh-2.5rem)] overflow-y-auto">
+        <div className="h-[calc(40vh-2.5rem)] overflow-y-auto select-text">
           {sourceWrites.length === 0 && displayedTimestamps.length === 0 ? (
             <div className="flex items-center justify-center h-full text-gray-500 text-sm">
               No propagation events yet - make a change to see updates flow through
