@@ -530,6 +530,8 @@ export default function QueryStatisticsPage() {
   const [useLogScale, setUseLogScale] = useState(false);
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(false);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
+  const [trustedActionOpen, setTrustedActionOpen] = useState(true);
+  const [queryStatsOpen, setQueryStatsOpen] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
@@ -1078,6 +1080,71 @@ export default function QueryStatisticsPage() {
         </button>
         {lineageGraphOpen && (
           <div className="p-6 pt-0">
+            {/* Lineage Graph and API Response - 2 column layout */}
+            <div className="flex gap-6 mb-6">
+              {/* Left: Lineage Graph */}
+              <div className="flex-[3]">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
+                <LineageGraph
+                  selectedNodeId={selectedNodeId}
+                  onNodeClick={handleNodeClick}
+                />
+              </div>
+
+              {/* Right: JSON API Response */}
+              <div className="flex-[2] flex flex-col">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
+                <div className="bg-gray-900 rounded-lg overflow-hidden flex flex-col h-[430px]">
+                  {/* Header */}
+                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-blue-400" />
+                      <span className="text-sm font-medium text-gray-200">API Response</span>
+                    </div>
+                    <div className="mt-2 font-mono text-xs text-gray-400 space-y-0.5">
+                      <div><span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
+                      <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
+                      <div className="text-gray-500 pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id <span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
+                    </div>
+                  </div>
+                  {/* JSON Content */}
+                  <div className="flex-1 overflow-auto p-4">
+                    {zeroMaterializeOrder ? (
+                      <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
+                    ) : (
+                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
+
+      {/* Time to Trusted Action (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setTrustedActionOpen(!trustedActionOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {trustedActionOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">Time to trusted action</h3>
+              <p className="text-xs text-gray-500">
+                Compare how quickly agents can act on fresh, trusted data across storage strategies
+              </p>
+            </div>
+          </div>
+        </button>
+        {trustedActionOpen && (
+          <div className="p-6 pt-0">
             {/* Order Cards - conditional rendering based on view mode */}
             <div className="grid grid-cols-3 gap-4 mb-6">
               {/* PostgreSQL VIEW - shown in all modes */}
@@ -1377,16 +1444,28 @@ export default function QueryStatisticsPage() {
 
             {/* Statistics Table */}
             <div className="bg-gray-50 rounded-lg mb-6">
-              <div className="p-4 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Query Statistics - Orders with Lines View
-                </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
-                </p>
-              </div>
-              <div className="overflow-x-auto">
+              <button
+                onClick={() => setQueryStatsOpen(!queryStatsOpen)}
+                className="w-full p-4 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg"
+              >
+                <div className="flex items-center gap-2">
+                  {queryStatsOpen ? (
+                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                  )}
+                  <div className="text-left">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5" />
+                      Query Statistics - Orders with Lines View
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
+                    </p>
+                  </div>
+                </div>
+              </button>
+              {queryStatsOpen && <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
@@ -1511,9 +1590,8 @@ export default function QueryStatisticsPage() {
                           <div className="flex items-center gap-2">
                             <Zap className="h-4 w-4 text-blue-500" />
                             <div>
-                              <div className="font-medium text-gray-900 flex items-center gap-1">
+                              <div className="font-medium text-gray-900">
                                 Materialize
-                                <span className="text-xs text-blue-600 font-normal bg-blue-100 px-1 rounded">Best</span>
                               </div>
                               <div className="text-xs text-gray-500">Fast AND Fresh (incremental via CDC)</div>
                             </div>
@@ -1544,51 +1622,16 @@ export default function QueryStatisticsPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </div>}
             </div>
 
-            {/* Lineage Graph and API Response - 2 column layout */}
-            <div className="flex gap-6">
-              {/* Left: Lineage Graph */}
-              <div className="flex-[3]">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
-                <LineageGraph
-                  selectedNodeId={selectedNodeId}
-                  onNodeClick={handleNodeClick}
-                />
-              </div>
+          </div>
+        )}
+      </div>
 
-              {/* Right: JSON API Response */}
-              <div className="flex-[2] flex flex-col">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
-                <div className="bg-gray-900 rounded-lg overflow-hidden flex flex-col h-[430px]">
-                  {/* Header */}
-                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-blue-400" />
-                      <span className="text-sm font-medium text-gray-200">API Response</span>
-                    </div>
-                    <div className="mt-2 font-mono text-xs text-gray-400 space-y-0.5">
-                      <div><span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
-                      <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
-                      <div className="text-gray-500 pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id <span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
-                    </div>
-                  </div>
-                  {/* JSON Content */}
-                  <div className="flex-1 overflow-auto p-4">
-                    {zeroMaterializeOrder ? (
-                      <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
-                    ) : (
-                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* View Definition Modal */}
-            {selectedNodeId && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* View Definition Modal */}
+      {selectedNodeId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 {/* Backdrop */}
                 <div
                   className="absolute inset-0 bg-black/50"
@@ -1654,9 +1697,6 @@ export default function QueryStatisticsPage() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-      </div>
 
       {/* Agent-native Reads Card */}
       <AgentNativeReadsCard />
