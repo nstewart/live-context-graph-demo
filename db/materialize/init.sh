@@ -837,6 +837,60 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS i
 # differential join over the existing arrangement.
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS inventory_pricing_store_product_idx IN CLUSTER serving ON inventory_items_with_dynamic_pricing_mv (store_id, product_id);"
 
+# Pre-computes the per-order × line-items × pricing join the api needs.
+# Backed by orders_enriched_v_order_id_idx so SELECT * FROM orders_enriched_v
+# WHERE order_id = ... resolves to a single (lookup) operation in EXPLAIN —
+# no per-query CTE expansion, no per-query join, no GROUP BY at peek time.
+#
+# Shape note: LATERAL jsonb_array_elements and the LEFT JOIN are kept at the
+# *same* FROM level. An earlier CTE-based draft that wrapped the LATERAL in a
+# CTE and LEFT-JOINed against it from an outer subquery triggered an MZ
+# planner internal error ("column 0 is not of expected type ... String ...:
+# TimestampTz") on this same view. See MZ-BUG-internal-error-column0.md.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE VIEW IF NOT EXISTS orders_enriched_v AS
+SELECT
+    o.order_id, o.order_number, o.order_status, o.store_id, o.customer_id,
+    o.delivery_window_start, o.delivery_window_end, o.order_created_at, o.order_total_amount,
+    o.customer_name, o.customer_email, o.customer_address,
+    o.store_name, o.store_zone, o.store_address,
+    o.assigned_courier_id, o.delivery_task_status, o.delivery_eta,
+    o.line_item_count, o.computed_total, o.has_perishable_items, o.total_weight_kg,
+    GREATEST(o.effective_updated_at, MAX(p.effective_updated_at)) AS effective_updated_at,
+    jsonb_agg(
+        jsonb_build_object(
+            'line_id',         li.value->>'line_id',
+            'product_id',      li.value->>'product_id',
+            'product_name',    li.value->>'product_name',
+            'category',        li.value->>'category',
+            'quantity',        (li.value->>'quantity')::int,
+            'unit_price',      (li.value->>'unit_price')::numeric,
+            'line_amount',     (li.value->>'line_amount')::numeric,
+            'line_sequence',   (li.value->>'line_sequence')::int,
+            'perishable_flag', (li.value->>'perishable_flag')::boolean,
+            'live_price',      p.live_price,
+            'base_price',      p.base_price,
+            'price_change',    p.price_change,
+            'current_stock',   p.stock_level
+        )
+        ORDER BY (li.value->>'line_sequence')::int
+    ) AS line_items
+FROM orders_with_lines_mv o,
+     LATERAL jsonb_array_elements(o.line_items) AS li(value)
+LEFT JOIN inventory_items_with_dynamic_pricing_mv p
+       ON p.product_id = li.value->>'product_id'
+      AND p.store_id   = o.store_id
+GROUP BY
+    o.order_id, o.order_number, o.order_status, o.store_id, o.customer_id,
+    o.delivery_window_start, o.delivery_window_end, o.order_created_at, o.order_total_amount,
+    o.customer_name, o.customer_email, o.customer_address,
+    o.store_name, o.store_zone, o.store_address,
+    o.assigned_courier_id, o.delivery_task_status, o.delivery_eta,
+    o.line_item_count, o.computed_total, o.has_perishable_items, o.total_weight_kg,
+    o.effective_updated_at;
+"
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "CREATE INDEX IF NOT EXISTS orders_enriched_v_order_id_idx IN CLUSTER serving ON orders_enriched_v (order_id);"
+
 echo "Creating CEO metrics materialized views..."
 
 # 1. Pricing Yield MV - tracks revenue premium from dynamic pricing

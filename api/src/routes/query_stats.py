@@ -673,76 +673,12 @@ async def measure_mz_query(order_id: str, store_id: Optional[str]):
         async with get_mz_session() as session:
             await session.execute(text("SET CLUSTER = serving"))
 
-            # Single query that joins order data with dynamic pricing
+            # Point-lookup against the prebuilt orders_enriched_v, which precomputes
+            # the order × line-items × dynamic-pricing join at maintenance time.
+            # Backed by orders_enriched_v_order_id_idx; resolves to a single
+            # `(lookup)` operation in EXPLAIN.
             result = await session.execute(
-                text("""
-                    WITH order_data AS (
-                        SELECT * FROM orders_with_lines_mv WHERE order_id = :order_id
-                    ),
-                    line_items_expanded AS (
-                        SELECT
-                            o.order_id, o.order_number, o.order_status, o.store_id, o.customer_id,
-                            o.delivery_window_start, o.delivery_window_end, o.order_created_at, o.order_total_amount,
-                            o.customer_name, o.customer_email, o.customer_address,
-                            o.store_name, o.store_zone, o.store_address,
-                            o.assigned_courier_id, o.delivery_task_status, o.delivery_eta,
-                            o.line_item_count, o.computed_total, o.has_perishable_items, o.total_weight_kg,
-                            o.effective_updated_at,
-                            li.value as line_item,
-                            li.value->>'product_id' as li_product_id
-                        FROM order_data o,
-                        LATERAL jsonb_array_elements(o.line_items) AS li(value)
-                    ),
-                    enriched AS (
-                        SELECT
-                            lie.*,
-                            p.live_price,
-                            p.base_price,
-                            p.price_change,
-                            p.stock_level as current_stock,
-                            p.effective_updated_at as pricing_updated_at
-                        FROM line_items_expanded lie
-                        LEFT JOIN inventory_items_with_dynamic_pricing_mv p
-                            ON p.product_id = lie.li_product_id
-                            AND p.store_id = lie.store_id
-                    )
-                    SELECT
-                        order_id, order_number, order_status, store_id, customer_id,
-                        delivery_window_start, delivery_window_end, order_created_at, order_total_amount,
-                        customer_name, customer_email, customer_address,
-                        store_name, store_zone, store_address,
-                        assigned_courier_id, delivery_task_status, delivery_eta,
-                        line_item_count, computed_total, has_perishable_items, total_weight_kg,
-                        -- Use the most recent timestamp between order and pricing data
-                        GREATEST(effective_updated_at, MAX(pricing_updated_at)) as effective_updated_at,
-                        jsonb_agg(
-                            jsonb_build_object(
-                                'line_id', line_item->>'line_id',
-                                'product_id', line_item->>'product_id',
-                                'product_name', line_item->>'product_name',
-                                'category', line_item->>'category',
-                                'quantity', (line_item->>'quantity')::int,
-                                'unit_price', (line_item->>'unit_price')::numeric,
-                                'line_amount', (line_item->>'line_amount')::numeric,
-                                'line_sequence', (line_item->>'line_sequence')::int,
-                                'perishable_flag', (line_item->>'perishable_flag')::boolean,
-                                'live_price', live_price,
-                                'base_price', base_price,
-                                'price_change', price_change,
-                                'current_stock', current_stock
-                            )
-                            ORDER BY (line_item->>'line_sequence')::int
-                        ) as line_items
-                    FROM enriched
-                    GROUP BY
-                        order_id, order_number, order_status, store_id, customer_id,
-                        delivery_window_start, delivery_window_end, order_created_at, order_total_amount,
-                        customer_name, customer_email, customer_address,
-                        store_name, store_zone, store_address,
-                        assigned_courier_id, delivery_task_status, delivery_eta,
-                        line_item_count, computed_total, has_perishable_items, total_weight_kg,
-                        effective_updated_at
-                """),
+                text("SELECT * FROM orders_enriched_v WHERE order_id = :order_id"),
                 {"order_id": order_id},
             )
             order_row = result.mappings().fetchone()
