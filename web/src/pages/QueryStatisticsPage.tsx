@@ -43,7 +43,7 @@ import {
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
-import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
+import { VectorPipelineCard } from "../components/VectorPipelineCard";
 import { usePropagation } from "../contexts/PropagationContext";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -1698,8 +1698,8 @@ export default function QueryStatisticsPage() {
               </div>
             )}
 
-      {/* Agent-native Reads Card */}
-      <AgentNativeReadsCard />
+      {/* Vector Pipeline Card */}
+      <VectorPipelineCard />
 
       {/* What is a Knowledge Graph? Card */}
       <WhatIsKnowledgeGraphCard />

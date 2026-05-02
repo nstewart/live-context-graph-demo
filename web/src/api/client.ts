@@ -639,9 +639,33 @@ export const metricsApi = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type OpenSearchResponse = Record<string, any>
 
+export type VectorSearchResult = {
+  order_id: string;
+  score: number;
+  embedding_text: string;
+  embedded_at: string | null;
+  order_number?: string;
+  order_status?: string;
+  customer_name?: string;
+  store_name?: string;
+  store_zone?: string;
+  order_total_amount?: number;
+  effective_updated_at?: string;
+}
+
+export type VectorSearchResponse = {
+  results: VectorSearchResult[];
+  query: string;
+  total: number;
+}
+
 export const searchApi = {
   searchOrders: (query: string, limit?: number) =>
     apiClient.get<OpenSearchResponse>('/api/search/orders', {
       params: { q: query, limit: limit || 5 },
+    }),
+  vectorSearchOrders: (query: string, limit?: number) =>
+    apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
+      params: { q: query, limit: limit || 3 },
     }),
 }

@@ -22,12 +22,22 @@ def mock_os_client():
     client = AsyncMock()
     client.setup_indices = AsyncMock()
     client.bulk_upsert = AsyncMock(return_value=(0, 0))
+    client.bulk_patch = AsyncMock(return_value=(0, 0))
+    client.bulk_delete = AsyncMock(return_value=(0, 0))
     client.search_orders = AsyncMock(return_value=[])
     client.health_check = AsyncMock(return_value=True)
     client.ensure_index = AsyncMock()
     client.close = AsyncMock()
     client.orders_index = "orders"
     return client
+
+
+@pytest.fixture
+def mock_embedder():
+    """Create a mock Embedder that returns deterministic 384-dim vectors."""
+    embedder = MagicMock()
+    embedder.embed.return_value = [[0.1] * 384]
+    return embedder
 
 
 @pytest.fixture

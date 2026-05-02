@@ -13,3 +13,6 @@ structlog==24.1.0
 
 # Async
 aiohttp==3.9.3
+
+# Local CPU vector embeddings (BAAI/bge-small-en-v1.5, 384-dim, ONNX)
+fastembed>=0.3.6

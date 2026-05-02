@@ -1,8 +1,11 @@
 """Integration tests for Search API endpoints."""
 
+from datetime import datetime, timezone
+from typing import Optional
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests.conftest import requires_db
 
@@ -210,3 +213,344 @@ class TestSearchOrdersAPI:
             assert call_args is not None
             request_body = call_args.kwargs["json"]
             assert request_body["size"] == 5
+
+
+# =============================================================================
+# Vector Search Tests
+# =============================================================================
+
+
+def _make_mock_order(order_id: str = "order:FM-1001"):
+    """Build a representative OrderFlat for mocking Materialize hydration."""
+    from src.freshmart.models import OrderFlat
+
+    return OrderFlat(
+        order_id=order_id,
+        order_number="FM-1001",
+        order_status="OUT_FOR_DELIVERY",
+        store_id="store:BK-01",
+        customer_id="customer:101",
+        customer_name="Alex Thompson",
+        customer_email="alex@example.com",
+        customer_address="123 Main St",
+        store_name="FreshMart Brooklyn",
+        store_zone="Brooklyn",
+        store_address="100 Court St",
+        order_total_amount=45.99,
+        delivery_window_start=None,
+        delivery_window_end=None,
+        assigned_courier_id=None,
+        delivery_task_status=None,
+        delivery_eta=None,
+        effective_updated_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
+    )
+
+
+def _make_knn_response(
+    order_ids: Optional[list] = None,
+    embedding_text: str = "Order containing organic produce for Alex",
+) -> dict:
+    """Build a representative OpenSearch knn response."""
+    if order_ids is None:
+        order_ids = ["order:FM-1001"]
+    hits = []
+    for i, oid in enumerate(order_ids):
+        hits.append(
+            {
+                "_index": "orders",
+                "_id": oid,
+                "_score": 0.95 - (i * 0.05),
+                "_source": {
+                    "order_id": oid,
+                    "embedding_text": embedding_text,
+                    "embedded_at": "2024-01-15T12:00:00Z",
+                },
+            }
+        )
+    return {
+        "took": 4,
+        "timed_out": False,
+        "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
+        "hits": {
+            "total": {"value": len(hits), "relation": "eq"},
+            "max_score": hits[0]["_score"] if hits else None,
+            "hits": hits,
+        },
+    }
+
+
+class TestVectorSearchOrdersAPI:
+    """Tests for /api/search/vector/orders endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_vector_search_valid_query(self, async_client: AsyncClient):
+        """GET /api/search/vector/orders with valid query returns merged results."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        os_response = _make_knn_response(["order:FM-1001"])
+        mock_order = _make_mock_order("order:FM-1001")
+
+        async def mock_service():
+            svc = AsyncMock()
+            svc.get_order = AsyncMock(return_value=mock_order)
+            return svc
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.return_value = AsyncMock(
+                status_code=200,
+                json=lambda: os_response,
+            )
+            mock_post.return_value.raise_for_status = lambda: None
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "organic produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+        assert isinstance(data["results"], list)
+        assert len(data["results"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_vector_search_empty_query_rejected(self, async_client: AsyncClient):
+        """GET /api/search/vector/orders without `q` param returns 422."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        async def mock_service():
+            return AsyncMock()
+
+        app.dependency_overrides[get_freshmart_service] = mock_service
+        try:
+            response = await async_client.get("/api/search/vector/orders")
+        finally:
+            app.dependency_overrides.clear()
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_vector_search_query_too_short(self, async_client: AsyncClient):
+        """GET /api/search/vector/orders with empty `q` returns 422."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        async def mock_service():
+            return AsyncMock()
+
+        app.dependency_overrides[get_freshmart_service] = mock_service
+        try:
+            response = await async_client.get(
+                "/api/search/vector/orders", params={"q": ""}
+            )
+        finally:
+            app.dependency_overrides.clear()
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_vector_search_opensearch_unavailable(self, async_client: AsyncClient):
+        """GET /api/search/vector/orders returns 503 when OpenSearch is down."""
+        import httpx
+
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        async def mock_service():
+            return AsyncMock()
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.side_effect = httpx.ConnectError("Connection refused")
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "anything"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 503
+        assert "not available" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_vector_search_index_not_found(self, async_client: AsyncClient):
+        """GET /api/search/vector/orders returns 200 with empty results when OS 404s."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        async def mock_service():
+            return AsyncMock()
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.return_value = AsyncMock(status_code=404)
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "anything"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_vector_search_response_shape(self, async_client: AsyncClient):
+        """Each result item has order_id, score, embedding_text, embedded_at."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        os_response = _make_knn_response(["order:FM-1001"])
+        mock_order = _make_mock_order("order:FM-1001")
+
+        async def mock_service():
+            svc = AsyncMock()
+            svc.get_order = AsyncMock(return_value=mock_order)
+            return svc
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.return_value = AsyncMock(
+                status_code=200,
+                json=lambda: os_response,
+            )
+            mock_post.return_value.raise_for_status = lambda: None
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+        assert isinstance(data["results"], list)
+        assert len(data["results"]) >= 1
+
+        item = data["results"][0]
+        assert "order_id" in item
+        assert "score" in item
+        assert "embedding_text" in item
+        assert "embedded_at" in item
+
+    @pytest.mark.asyncio
+    async def test_vector_search_merges_live_data(self, async_client: AsyncClient):
+        """Live fields from Materialize are merged into each result item."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        # OS hit only has the minimal source fields (no order_status/customer_name)
+        os_response = _make_knn_response(["order:FM-1001"])
+        mock_order = _make_mock_order("order:FM-1001")
+
+        async def mock_service():
+            svc = AsyncMock()
+            svc.get_order = AsyncMock(return_value=mock_order)
+            return svc
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.return_value = AsyncMock(
+                status_code=200,
+                json=lambda: os_response,
+            )
+            mock_post.return_value.raise_for_status = lambda: None
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["results"]) == 1
+        item = data["results"][0]
+        # Live fields from Materialize must be present
+        assert item.get("order_status") == "OUT_FOR_DELIVERY"
+        assert item.get("customer_name") == "Alex Thompson"
+        assert item.get("store_name") == "FreshMart Brooklyn"
+
+    @pytest.mark.asyncio
+    async def test_vector_search_handles_no_mz_match(self, async_client: AsyncClient):
+        """If Materialize returns None for an order_id, that result is omitted."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        # Two hits: one will resolve, the other will not
+        os_response = _make_knn_response(["order:FM-1001", "order:FM-DELETED"])
+        mock_order = _make_mock_order("order:FM-1001")
+
+        async def mock_service():
+            svc = AsyncMock()
+
+            async def get_order(oid: str):
+                if oid == "order:FM-1001":
+                    return mock_order
+                return None
+
+            svc.get_order = AsyncMock(side_effect=get_order)
+            return svc
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+
+            mock_post.return_value = AsyncMock(
+                status_code=200,
+                json=lambda: os_response,
+            )
+            mock_post.return_value.raise_for_status = lambda: None
+
+            app.dependency_overrides[get_freshmart_service] = mock_service
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["order_id"] == "order:FM-1001"
+        # The deleted one must not be present
+        for item in data["results"]:
+            assert item["order_id"] != "order:FM-DELETED"
