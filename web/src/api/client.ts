@@ -640,6 +640,7 @@ export const metricsApi = {
 export type OpenSearchResponse = Record<string, any>
 
 export type VectorLineItem = {
+  line_id?: string;
   product_name?: string;
   category?: string;
   quantity?: number;

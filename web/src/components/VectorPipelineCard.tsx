@@ -380,9 +380,14 @@ export const VectorPipelineCard = () => {
                                     className="border-b border-gray-100 last:border-0 transition-colors duration-300"
                                     style={isFlashed ? { backgroundColor: "#fef9c3" } : undefined}
                                   >
-                                    <td className="py-1 pr-2 font-medium text-gray-800 max-w-[90px] truncate">
-                                      {item.perishable_flag && <span className="text-orange-400 mr-1" title="Perishable">⚡</span>}
-                                      {item.product_name ?? "—"}
+                                    <td className="py-1 pr-2 max-w-[110px]">
+                                      <div className="font-medium text-gray-800 truncate">
+                                        {item.perishable_flag && <span className="text-orange-400 mr-1" title="Perishable">⚡</span>}
+                                        {item.product_name ?? "—"}
+                                      </div>
+                                      {item.line_id && (
+                                        <div className="text-gray-400 font-mono truncate" style={{ fontSize: "9px" }}>{item.line_id}</div>
+                                      )}
                                     </td>
                                     <td className="py-1 pr-2 text-gray-500 whitespace-nowrap">{item.category ?? "—"}</td>
                                     <td className="py-1 pr-2 text-right text-gray-700">{item.quantity ?? "—"}</td>
