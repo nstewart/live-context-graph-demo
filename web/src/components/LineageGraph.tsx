@@ -11,7 +11,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 
-type MedallionLayer = 'bronze' | 'silver' | 'gold';
+type MedallionLayer = 'sources' | 'bronze' | 'silver' | 'gold';
 
 // Node type colors (object type)
 const nodeColors = {
@@ -29,6 +29,13 @@ const medallionColors: Record<MedallionLayer, {
   legendDot: string;
   legendLabel: string;
 }> = {
+  sources: {
+    bg: 'rgba(59, 130, 246, 0.07)',
+    border: 'rgba(59, 130, 246, 0.28)',
+    labelColor: '#1d4ed8',
+    legendDot: '#3b82f6',
+    legendLabel: 'Sources',
+  },
   bronze: {
     bg: 'rgba(180, 83, 9, 0.07)',
     border: 'rgba(180, 83, 9, 0.28)',
@@ -109,7 +116,7 @@ const nodeDefinitions: Array<{
   medallionLayer: MedallionLayer;
   highlighted?: boolean;
 }> = [
-  { id: 'triples', label: 'triples', type: 'source', medallionLayer: 'bronze' },
+  { id: 'triples', label: 'OLTP', type: 'source', medallionLayer: 'sources' },
   { id: 'customers_flat', label: 'customers_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'stores_flat', label: 'stores_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'products_flat', label: 'products_flat', type: 'view', medallionLayer: 'bronze' },
@@ -198,6 +205,7 @@ function getLayoutedElements(
 
   // Compute bounding boxes per medallion layer and overall graph
   const layerBounds: Record<MedallionLayer, { minX: number; maxX: number }> = {
+    sources: { minX: Infinity, maxX: -Infinity },
     bronze: { minX: Infinity, maxX: -Infinity },
     silver: { minX: Infinity, maxX: -Infinity },
     gold: { minX: Infinity, maxX: -Infinity },
@@ -363,7 +371,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps)
 
       {/* Description */}
       <p className="mt-3 text-sm text-gray-500">
-        Three data products from the same <span className="font-medium text-blue-600">triples</span> source:{' '}
+        Three data products from the same <span className="font-medium text-blue-600">OLTP source</span>:{' '}
         <span className="font-medium text-green-600">store_inventory_mv</span> (stock levels),{' '}
         <span className="font-medium text-green-600">orders_with_lines_mv</span> (order details), and{' '}
         <span className="font-medium text-green-600">dynamic_pricing_mv</span> (live pricing with 9 factors).
