@@ -1001,7 +1001,7 @@ export default function QueryStatisticsPage() {
               <LineageGraph
                 selectedNodeId={selectedNodeId}
                 onNodeClick={handleNodeClick}
-                scenario={viewMode === 'materialize' ? 'materialize' : 'postgres'}
+                scenario={viewMode === 'materialize' ? 'materialize' : viewMode === 'batch' ? 'batch' : 'postgres'}
               />
             </div>
 

@@ -21,6 +21,7 @@ const nodeColors = {
   view: { bg: '#6b7280', border: '#374151', text: '#ffffff' },
   mv: { bg: '#10b981', border: '#059669', text: '#ffffff' },
   index: { bg: '#8b5cf6', border: '#6d28d9', text: '#ffffff' },
+  tables: { bg: '#0891b2', border: '#0e7490', text: '#ffffff' },
 };
 
 // Medallion layer colors
@@ -120,7 +121,7 @@ const FgacBandNode = () => (
       }}
     >
       <span style={{ fontSize: '13px', fontWeight: 700, color: '#7c3aed' }}>
-        Fine-grained access control
+        Incremental View Maintenance via Timely Dataflow
       </span>
     </div>
     {/* Materialize branding at bottom */}
@@ -147,6 +148,60 @@ const FgacBandNode = () => (
   </div>
 );
 
+// OLAP wrapper band — Batch scenario: covers Sources + Bronze + Silver + Gold
+const OlapBandNode = () => (
+  <div
+    style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      padding: '10px',
+      boxSizing: 'border-box',
+      userSelect: 'none',
+      pointerEvents: 'none',
+    }}
+  >
+    {/* Header rectangle at top */}
+    <div
+      style={{
+        background: 'rgba(217, 119, 6, 0.12)',
+        border: '1px solid rgba(217, 119, 6, 0.45)',
+        borderRadius: '6px',
+        padding: '6px 14px',
+        textAlign: 'center',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ fontSize: '13px', fontWeight: 700, color: '#92400e' }}>
+        Scheduled Refresh
+      </span>
+    </div>
+    {/* OLAP branding at bottom */}
+    <div style={{ textAlign: 'center', paddingBottom: '2px' }}>
+      <span
+        style={{
+          fontSize: '13px',
+          fontWeight: 700,
+          color: '#d97706',
+          opacity: 0.5,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        OLAP
+      </span>
+    </div>
+    <Handle
+      type="target"
+      position={Position.Top}
+      id="top"
+      style={{ pointerEvents: 'all', opacity: 0 }}
+    />
+  </div>
+);
+
 // Source wrapper band — Postgres scenario: covers Bronze + Silver + Gold
 const SourceWrapperBandNode = () => (
   <div
@@ -155,14 +210,29 @@ const SourceWrapperBandNode = () => (
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
-      justifyContent: 'flex-end',
+      justifyContent: 'space-between',
       padding: '10px',
       boxSizing: 'border-box',
       userSelect: 'none',
       pointerEvents: 'none',
     }}
   >
-    {/* PostgreSQL branding at bottom only */}
+    {/* Header rectangle at top */}
+    <div
+      style={{
+        background: 'rgba(30, 64, 175, 0.10)',
+        border: '1px solid rgba(30, 64, 175, 0.40)',
+        borderRadius: '6px',
+        padding: '6px 14px',
+        textAlign: 'center',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e40af' }}>
+        Reactive query processing
+      </span>
+    </div>
+    {/* PostgreSQL branding at bottom */}
     <div style={{ textAlign: 'center', paddingBottom: '2px' }}>
       <span
         style={{
@@ -174,7 +244,7 @@ const SourceWrapperBandNode = () => (
           textTransform: 'uppercase',
         }}
       >
-        PostgreSQL
+        OLTP
       </span>
     </div>
     <Handle
@@ -292,6 +362,7 @@ const McpNode = () => (
 const nodeTypes: NodeTypes = {
   band: BandNode,
   fgac_band: FgacBandNode,
+  olap_band: OlapBandNode,
   source_wrapper_band: SourceWrapperBandNode,
   source_systems_node: SourceSystemsNode,
   agent_node: AgentNode,
@@ -386,13 +457,15 @@ function getLayoutedElements(
   nodeDefs: typeof nodeDefinitions,
   edgeDefs: typeof edgeDefinitions,
   selectedNodeId: string | null | undefined,
-  scenario: 'materialize' | 'postgres' = 'materialize'
+  scenario: 'materialize' | 'postgres' | 'batch' = 'materialize'
 ): { nodes: Node[]; edges: Edge[] } {
   const isMaterialize = scenario === 'materialize';
+  const isPostgres = scenario === 'postgres';
+  const isBatch = scenario === 'batch';
 
   // In Postgres mode, triples lives in the Bronze column (no separate CDC source lane)
   const effectiveNodeDefs = nodeDefs.map((n) =>
-    n.id === 'triples' && !isMaterialize
+    n.id === 'triples' && isPostgres
       ? { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer }
       : n
   );
@@ -472,21 +545,29 @@ function getLayoutedElements(
   const wrapperMinX = Math.min(layerBounds.bronze.minX, layerBounds.silver.minX, layerBounds.gold.minX);
   const wrapperMaxX = Math.max(layerBounds.bronze.maxX, layerBounds.silver.maxX, layerBounds.gold.maxX);
   const wrapperLeft = wrapperMinX - BAND_PADDING_X - FGAC_PAD;
-  // Materialize needs extra top room for the FGAC header rectangle; Postgres just needs padding
-  const wrapperLabelTop = isMaterialize ? FGAC_LABEL_TOP : FGAC_PAD;
+  // All scenarios have a header rectangle, so all need the same top clearance
+  const wrapperLabelTop = FGAC_LABEL_TOP;
   const wrapperTop = graphMinY - BAND_PADDING_Y - wrapperLabelTop - FGAC_PAD;
   const wrapperWidth = wrapperMaxX - wrapperMinX + (BAND_PADDING_X + FGAC_PAD) * 2;
   const wrapperHeight = graphMaxY - graphMinY + (BAND_PADDING_Y + FGAC_PAD) * 2 + wrapperLabelTop + FGAC_LABEL_BOTTOM;
 
   const outerBandNode: Node = {
-    id: isMaterialize ? '__fgac__' : '__source_wrapper__',
-    type: isMaterialize ? 'fgac_band' : 'source_wrapper_band',
+    id: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
+    type: isMaterialize ? 'fgac_band' : isBatch ? 'olap_band' : 'source_wrapper_band',
     position: { x: wrapperLeft, y: wrapperTop },
     style: {
       width: wrapperWidth,
       height: wrapperHeight,
-      background: isMaterialize ? 'rgba(124, 58, 237, 0.04)' : 'rgba(30, 64, 175, 0.04)',
-      border: isMaterialize ? '1.5px solid rgba(124, 58, 237, 0.35)' : '1.5px solid rgba(30, 64, 175, 0.30)',
+      background: isMaterialize
+        ? 'rgba(124, 58, 237, 0.04)'
+        : isBatch
+          ? 'rgba(217, 119, 6, 0.04)'
+          : 'rgba(30, 64, 175, 0.04)',
+      border: isMaterialize
+        ? '1.5px solid rgba(124, 58, 237, 0.35)'
+        : isBatch
+          ? '1.5px solid rgba(217, 119, 6, 0.30)'
+          : '1.5px solid rgba(30, 64, 175, 0.30)',
       borderRadius: '12px',
     },
     data: { label: '' },
@@ -544,9 +625,14 @@ function getLayoutedElements(
     const isSelected = nodeDef.id === selectedNodeId;
     const isHighlighted = nodeDef.highlighted || false;
 
-    const effectiveType = !isMaterialize && nodeDef.type === 'mv' ? 'view' : nodeDef.type;
+    // Postgres: MVs → view color, triples → tables color; Materialize/Batch keep originals
+    const effectiveType = isPostgres && nodeDef.type === 'mv'
+      ? 'view'
+      : isPostgres && nodeDef.id === 'triples'
+        ? 'tables'
+        : nodeDef.type;
     let style = getNodeStyle(effectiveType, isSelected);
-    if (isHighlighted && !isSelected && isMaterialize) {
+    if (isHighlighted && !isSelected && !isPostgres) {
       style = { ...style, border: '3px solid #059669', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' };
     }
 
@@ -562,15 +648,25 @@ function getLayoutedElements(
   });
 
   // Lineage edges
-  const edges: Edge[] = edgeDefs.map((edgeDef, index) => ({
-    id: `e-${edgeDef.source}-${edgeDef.target}-${index}`,
-    source: edgeDef.source,
-    target: edgeDef.target,
-    style: edgeStyle,
-    animated: isMaterialize,
-    markerStart: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' },
-    zIndex: 1,
-  }));
+  const edges: Edge[] = edgeDefs.map((edgeDef, index) => {
+    // In batch mode, edges from OLTP (triples) point forward toward their targets;
+    // all other non-materialize edges point backward (arrowhead at source end).
+    const batchForward = isBatch && edgeDef.source === 'triples';
+    return {
+      id: `e-${edgeDef.source}-${edgeDef.target}-${index}`,
+      source: edgeDef.source,
+      target: edgeDef.target,
+      style: edgeStyle,
+      animated: isMaterialize,
+      markerStart: (!isMaterialize && !batchForward)
+        ? { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' }
+        : undefined,
+      markerEnd: batchForward
+        ? { type: MarkerType.ArrowClosed, color: '#94a3b8' }
+        : undefined,
+      zIndex: 1,
+    };
+  });
 
   // Overlay edges: source systems data flow + agent/MCP interactions
   const overlayEdges: Edge[] = [
@@ -581,7 +677,7 @@ function getLayoutedElements(
       sourceHandle: 'right',
       style: edgeStyle,
       animated: isMaterialize,
-      markerStart: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' },
+      markerEnd: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8' },
       zIndex: 1,
     },
     {
@@ -613,11 +709,11 @@ function getLayoutedElements(
     {
       id: 'e-mcp-wrapper',
       source: '__mcp__',
-      target: isMaterialize ? '__fgac__' : '__source_wrapper__',
+      target: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
       sourceHandle: 'bottom',
       targetHandle: 'top',
       style: {
-        stroke: isMaterialize ? '#a855f7' : '#1e40af',
+        stroke: isMaterialize ? '#a855f7' : isBatch ? '#d97706' : '#1e40af',
         strokeWidth: 1.5,
         strokeDasharray: '5,3',
       },
@@ -635,7 +731,7 @@ function getLayoutedElements(
 interface LineageGraphProps {
   selectedNodeId?: string | null;
   onNodeClick?: (nodeId: string) => void;
-  scenario?: 'materialize' | 'postgres';
+  scenario?: 'materialize' | 'postgres' | 'batch';
 }
 
 export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'materialize' }: LineageGraphProps) {
@@ -691,6 +787,10 @@ export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'material
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded" style={{ background: nodeColors.mv.bg }} />
           <span className="text-gray-600">Materialized View</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded" style={{ background: nodeColors.tables.bg }} />
+          <span className="text-gray-600">Table</span>
         </div>
 
         {selectedNodeId && (
