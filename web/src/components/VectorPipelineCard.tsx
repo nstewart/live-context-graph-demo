@@ -106,9 +106,10 @@ interface ResultCardProps {
   rank: number;
   flashedRows: Set<number>;
   embeddingFlashing: boolean;
+  onSelectSubject?: (id: string) => void;
 }
 
-const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing }: ResultCardProps) => (
+const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSelectSubject }: ResultCardProps) => (
   <div className="space-y-1.5">
     {/* Header row */}
     <div className="flex items-center gap-2 flex-wrap">
@@ -122,6 +123,13 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing }: Res
         {[result.customer_name, result.store_name && `${result.store_name}${result.store_zone ? ` (${result.store_zone})` : ""}`]
           .filter(Boolean).join(" · ")}
       </span>
+      <button
+        onClick={() => onSelectSubject?.(result.order_id)}
+        className="font-mono text-xs text-gray-400 hover:text-purple-600 hover:bg-purple-50 px-1.5 py-0.5 rounded border border-transparent hover:border-purple-200 transition-colors whitespace-nowrap"
+        title="Fill into Write Triple subject"
+      >
+        {result.order_id}
+      </button>
       <span className="ml-auto text-xs text-purple-700 font-semibold whitespace-nowrap">
         {(result.score * 100).toFixed(1)}% match
       </span>
@@ -219,6 +227,7 @@ export const VectorPipelineCard = () => {
   const [flashedRowsByResult, setFlashedRowsByResult] = useState<Record<number, Set<number>>>({});
   const [flashedEmbeddings, setFlashedEmbeddings]     = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
+  const [writeSubject, setWriteSubject]     = useState("");
 
   // Keyed by order_id so they survive result reordering
   const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
@@ -359,7 +368,7 @@ export const VectorPipelineCard = () => {
 
           {/* Write a Triple */}
           <div className="mb-4">
-            <WriteTripleForm />
+            <WriteTripleForm initialSubject={writeSubject} />
           </div>
 
           {/* Two-column layout */}
@@ -436,6 +445,7 @@ export const VectorPipelineCard = () => {
                           rank={idx + 1}
                           flashedRows={flashedRowsByResult[idx] ?? new Set()}
                           embeddingFlashing={flashedEmbeddings.has(idx)}
+                          onSelectSubject={setWriteSubject}
                         />
                       </div>
                     ))}
