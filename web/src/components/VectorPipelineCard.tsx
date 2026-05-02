@@ -7,7 +7,7 @@ import {
   Database,
   ArrowRight,
 } from "lucide-react";
-import { searchApi, VectorSearchResult } from "../api/client";
+import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 
 type StepColor = "purple" | "blue" | "green" | "orange";
 
@@ -333,16 +333,10 @@ export const VectorPipelineCard = () => {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-base font-bold text-gray-900">
-                          {topResult.order_number
-                            ? `#${topResult.order_number}`
-                            : topResult.order_id}
+                          #{topResult.order_number ?? topResult.order_id}
                         </span>
                         {topResult.order_status && (
-                          <span
-                            className={`px-2 py-0.5 text-xs font-medium rounded border ${getStatusClasses(
-                              topResult.order_status
-                            )}`}
-                          >
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded border ${getStatusClasses(topResult.order_status)}`}>
                             {topResult.order_status}
                           </span>
                         )}
@@ -352,44 +346,76 @@ export const VectorPipelineCard = () => {
                       </span>
                     </div>
 
-                    {/* Customer */}
-                    {topResult.customer_name && (
-                      <div className="text-sm">
-                        <span className="text-gray-500">Customer: </span>
-                        <span className="font-medium text-gray-900">
-                          {topResult.customer_name}
-                        </span>
+                    {/* Customer + store */}
+                    <div className="grid grid-cols-2 gap-x-4 text-sm">
+                      {topResult.customer_name && (
+                        <div>
+                          <span className="text-gray-500 text-xs block">Customer</span>
+                          <span className="font-medium text-gray-900">{topResult.customer_name}</span>
+                        </div>
+                      )}
+                      {topResult.store_name && (
+                        <div>
+                          <span className="text-gray-500 text-xs block">Store</span>
+                          <span className="font-medium text-gray-900">
+                            {topResult.store_name}
+                            {topResult.store_zone && <span className="ml-1 text-xs text-gray-400">({topResult.store_zone})</span>}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Line items with live pricing */}
+                    {topResult.line_items && topResult.line_items.length > 0 && (
+                      <div className="pt-2 border-t border-gray-200">
+                        <div className="text-xs text-gray-500 mb-1.5 flex items-center justify-between">
+                          <span>Line items (live from Materialize)</span>
+                          {topResult.order_total_amount != null && (
+                            <span className="font-medium text-gray-700">
+                              Total: ${parseFloat(String(topResult.order_total_amount)).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {topResult.line_items.slice(0, 5).map((item: VectorLineItem, i: number) => (
+                            <div key={i} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {item.perishable_flag && (
+                                  <span className="text-orange-400 flex-shrink-0" title="Perishable">⚡</span>
+                                )}
+                                <span className="text-gray-800 truncate">{item.product_name}</span>
+                                {item.category && <span className="text-gray-400 flex-shrink-0">({item.category})</span>}
+                                {item.quantity != null && <span className="text-gray-500 flex-shrink-0">×{item.quantity}</span>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                {item.live_price != null && item.base_price != null && item.live_price !== item.base_price ? (
+                                  <>
+                                    <span className="line-through text-gray-400">${Number(item.base_price).toFixed(2)}</span>
+                                    <span className={`font-medium ${Number(item.live_price) > Number(item.base_price) ? "text-red-600" : "text-green-600"}`}>
+                                      ${Number(item.live_price).toFixed(2)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-gray-700 font-medium">
+                                    ${Number(item.live_price ?? item.unit_price ?? 0).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {topResult.line_items.length > 5 && (
+                            <div className="text-xs text-gray-400 text-center pt-1">
+                              +{topResult.line_items.length - 5} more items
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
-                    {/* Store + zone */}
-                    {(topResult.store_name || topResult.store_zone) && (
-                      <div className="text-sm">
-                        <span className="text-gray-500">Store: </span>
-                        <span className="font-medium text-gray-900">
-                          {topResult.store_name}
-                          {topResult.store_zone &&
-                            ` (${topResult.store_zone})`}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Total */}
-                    {typeof topResult.order_total_amount === "number" && (
-                      <div className="text-sm">
-                        <span className="text-gray-500">Total: </span>
-                        <span className="font-medium text-gray-900">
-                          ${topResult.order_total_amount.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Embedding text */}
+                    {/* Embedded text */}
                     <div className="pt-2 border-t border-gray-200">
-                      <div className="text-xs text-gray-500 mb-1">
-                        Embedded text
-                      </div>
-                      <code className="block bg-gray-100 text-xs font-mono text-gray-800 px-2 py-1.5 rounded break-words">
+                      <div className="text-xs text-gray-500 mb-1">Embedded text <span className="text-gray-400">(384-dim vector)</span></div>
+                      <code className="block bg-gray-100 text-xs font-mono text-gray-700 px-2 py-1.5 rounded break-words leading-relaxed">
                         {topResult.embedding_text}
                       </code>
                     </div>
@@ -397,9 +423,7 @@ export const VectorPipelineCard = () => {
                     {/* Hydrated label */}
                     <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
                       <Database className="h-3.5 w-3.5 text-green-600" />
-                      <span className="text-xs font-medium text-green-700">
-                        Hydrated from Materialize
-                      </span>
+                      <span className="text-xs font-medium text-green-700">Hydrated from Materialize</span>
                       <span className="text-xs text-gray-500 ml-auto">
                         {formatTimeAgo(topResult.effective_updated_at)}
                       </span>

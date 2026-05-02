@@ -169,7 +169,7 @@ async def vector_search_orders(
                 }
             }
         },
-        "_source": ["order_id", "embedding_text", "embedded_at"],
+        "_source": ["order_id", "embedding_text", "embedded_at", "line_items"],
         "size": limit,
     }
 
@@ -239,22 +239,29 @@ async def vector_search_orders(
             logger.debug(f"Skipping {order_id}: not found in Materialize")
             continue
 
+        # model_dump(mode="json") serializes Decimal as str; convert to float.
+        live = order.model_dump(mode="json")
+        if live.get("order_total_amount") is not None:
+            live["order_total_amount"] = float(live["order_total_amount"])
+
         merged: dict[str, Any] = {
             "order_id": order_id,
             "score": hit.get("_score"),
             "embedding_text": source.get("embedding_text"),
             "embedded_at": source.get("embedded_at"),
+            # Line items come from OpenSearch (indexed from Materialize CDC,
+            # <2s latency). They carry live_price, base_price, etc. because
+            # search-sync joins inventory_items_with_dynamic_pricing_mv.
+            "line_items": source.get("line_items") or [],
         }
-        # Merge live fields (Pydantic v2). Live values win over OS source on
-        # conflicts because Materialize represents the current truth.
-        live = order.model_dump(mode="json")
+        # Merge live Materialize fields — live values win on conflicts.
         merged.update(live)
-        # Re-pin the score / OS-only fields so they aren't clobbered if the
-        # OrderFlat ever grows fields with the same names.
+        # Re-pin OS-only fields so they aren't clobbered by OrderFlat.
         merged["order_id"] = order_id
         merged["score"] = hit.get("_score")
         merged["embedding_text"] = source.get("embedding_text")
         merged["embedded_at"] = source.get("embedded_at")
+        merged["line_items"] = source.get("line_items") or []
         results.append(merged)
 
     return {"results": results, "query": q, "total": len(results)}

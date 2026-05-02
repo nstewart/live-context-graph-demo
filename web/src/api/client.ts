@@ -639,6 +639,18 @@ export const metricsApi = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type OpenSearchResponse = Record<string, any>
 
+export type VectorLineItem = {
+  product_name?: string;
+  category?: string;
+  quantity?: number;
+  unit_price?: number;
+  live_price?: number;
+  base_price?: number;
+  price_change?: number;
+  line_amount?: number;
+  perishable_flag?: boolean;
+}
+
 export type VectorSearchResult = {
   order_id: string;
   score: number;
@@ -651,6 +663,7 @@ export type VectorSearchResult = {
   store_zone?: string;
   order_total_amount?: number;
   effective_updated_at?: string;
+  line_items?: VectorLineItem[];
 }
 
 export type VectorSearchResponse = {
