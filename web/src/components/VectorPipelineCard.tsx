@@ -12,9 +12,6 @@ import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 
 // ── Embedding strip ──────────────────────────────────────────────────────────
-// Downsample a 384-dim vector to `bands` colour blocks and render them as an
-// inline strip.  Each block maps a normalised float value to an HSL shade so
-// the strip changes perceptibly when ANY product in the order changes.
 
 const BANDS = 32;
 
@@ -26,7 +23,7 @@ function downsample(vector: number[], bands: number): number[] {
   });
 }
 
-const EmbeddingStrip = ({ vector, flashing }: { vector: number[]; flashing?: boolean }) => {
+const EmbeddingStrip = ({ vector, flashing, height = 16 }: { vector: number[]; flashing?: boolean; height?: number }) => {
   if (!vector || vector.length < BANDS) {
     return <span className="text-xs text-gray-400 italic">—</span>;
   }
@@ -47,7 +44,7 @@ const EmbeddingStrip = ({ vector, flashing }: { vector: number[]; flashing?: boo
           return (
             <div
               key={i}
-              style={{ flex: 1, height: 22, backgroundColor: `hsl(${hue}, 65%, ${lightness}%)` }}
+              style={{ flex: 1, height, backgroundColor: `hsl(${hue}, 65%, ${lightness}%)` }}
             />
           );
         })}
@@ -102,72 +99,187 @@ const STEP_COLORS: Record<StepColor, { bg: string; text: string; border: string;
   orange: { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", icon: "bg-orange-100 text-orange-600" },
 };
 
+// ── Compact result card ───────────────────────────────────────────────────────
+
+interface ResultCardProps {
+  result: VectorSearchResult;
+  rank: number;
+  flashedRows: Set<number>;
+  embeddingFlashing: boolean;
+}
+
+const ResultCard = ({ result, rank, flashedRows, embeddingFlashing }: ResultCardProps) => (
+  <div className="space-y-1.5">
+    {/* Header row */}
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center">
+        {rank}
+      </span>
+      <span className="font-semibold text-gray-900 text-sm">#{result.order_number ?? result.order_id}</span>
+      {result.order_status && (
+        <span className={`px-1.5 py-0.5 text-xs font-medium rounded border ${getStatusClasses(result.order_status)}`}>
+          {result.order_status}
+        </span>
+      )}
+      <span className="text-xs text-gray-500 truncate">
+        {[result.customer_name, result.store_name && `${result.store_name}${result.store_zone ? ` (${result.store_zone})` : ""}`]
+          .filter(Boolean).join(" · ")}
+      </span>
+      <span className="ml-auto text-xs text-purple-700 font-semibold whitespace-nowrap">
+        {(result.score * 100).toFixed(1)}% match
+      </span>
+    </div>
+
+    {/* Embedding strip */}
+    <div className="flex items-center gap-2">
+      <div className="flex-1">
+        <EmbeddingStrip vector={result.embedding} flashing={embeddingFlashing} height={12} />
+      </div>
+      <span className="text-xs text-gray-400 font-mono whitespace-nowrap flex-shrink-0">
+        {embeddingFlashing
+          ? <span className="text-yellow-600 font-semibold animate-pulse">↻ re-embedded</span>
+          : `emb ${fmtTime(result.embedded_at)}`}
+      </span>
+    </div>
+
+    {/* Line items */}
+    {result.line_items && result.line_items.length > 0 && (
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse" style={{ fontSize: "11px" }}>
+          <thead>
+            <tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="pb-0.5 pr-2 font-medium">Product</th>
+              <th className="pb-0.5 pr-2 font-medium">Cat</th>
+              <th className="pb-0.5 pr-2 font-medium text-right">Qty</th>
+              <th className="pb-0.5 pr-2 font-medium text-right">Live $</th>
+              <th className="pb-0.5 font-medium whitespace-nowrap">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.line_items.map((item: VectorLineItem, idx: number) => {
+              const priceUp   = item.live_price != null && item.base_price != null && Number(item.live_price) > Number(item.base_price);
+              const priceDown = item.live_price != null && item.base_price != null && Number(item.live_price) < Number(item.base_price);
+              return (
+                <tr
+                  key={idx}
+                  className="border-b border-gray-100 last:border-0 transition-colors duration-300"
+                  style={flashedRows.has(idx) ? { backgroundColor: "#fef9c3" } : undefined}
+                >
+                  <td className="py-0.5 pr-2 max-w-[120px]">
+                    <div className="font-medium text-gray-800 truncate">
+                      {item.perishable_flag && <span className="text-orange-400 mr-0.5" title="Perishable">⚡</span>}
+                      {item.product_name ?? "—"}
+                      {item.product_id && <span className="ml-1 text-gray-400 font-normal">({item.product_id})</span>}
+                    </div>
+                    {item.line_id && (
+                      <div className="text-gray-400 font-mono truncate" style={{ fontSize: "9px" }}>{item.line_id}</div>
+                    )}
+                  </td>
+                  <td className="py-0.5 pr-2 text-gray-500 whitespace-nowrap">{item.category ?? "—"}</td>
+                  <td className="py-0.5 pr-2 text-right text-gray-700">{item.quantity ?? "—"}</td>
+                  <td className="py-0.5 pr-2 text-right font-medium whitespace-nowrap">
+                    {item.base_price != null && item.live_price != null && Number(item.live_price) !== Number(item.base_price) && (
+                      <span className="line-through text-gray-400 mr-1">${Number(item.base_price).toFixed(2)}</span>
+                    )}
+                    <span className={priceUp ? "text-red-600" : priceDown ? "text-green-600" : "text-gray-800"}>
+                      ${Number(item.live_price ?? item.unit_price ?? 0).toFixed(2)}
+                    </span>
+                  </td>
+                  <td className="py-0.5 text-gray-400 whitespace-nowrap font-mono">{fmtTime(result.effective_updated_at)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {/* Footer */}
+    <div className="flex items-center gap-1.5">
+      <Database className="h-3 w-3 text-green-500" />
+      <span className="text-xs text-green-700">Hydrated</span>
+      {result.order_total_amount != null && (
+        <span className="text-xs text-gray-500">· Total: ${parseFloat(String(result.order_total_amount)).toFixed(2)}</span>
+      )}
+      <span className="text-xs text-gray-400 ml-auto">{fmtAgo(result.effective_updated_at)}</span>
+    </div>
+  </div>
+);
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export const VectorPipelineCard = () => {
-  const [isExpanded, setIsExpanded]     = useState(false);
-  const [searchQuery, setSearchQuery]   = useState("");
+  const [isExpanded, setIsExpanded]         = useState(false);
+  const [searchQuery, setSearchQuery]       = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
-  const [isSearching, setIsSearching]   = useState(false);
-  const [searchError, setSearchError]   = useState<string | null>(null);
-  const [topResult, setTopResult]       = useState<VectorSearchResult | null>(null);
-  const [hasSearched, setHasSearched]   = useState(false);
-  // Per-line-item flash: set of line_ids (or indices) that changed on last refresh
-  const [flashedRows, setFlashedRows]       = useState<Set<number>>(new Set());
-  const [embeddingFlashed, setEmbeddingFlashed] = useState(false);
+  const [isSearching, setIsSearching]       = useState(false);
+  const [searchError, setSearchError]       = useState<string | null>(null);
+  const [results, setResults]               = useState<VectorSearchResult[]>([]);
+  const [hasSearched, setHasSearched]       = useState(false);
+  const [flashedRowsByResult, setFlashedRowsByResult] = useState<Record<number, Set<number>>>({});
+  const [flashedEmbeddings, setFlashedEmbeddings]     = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
-  const prevPricesRef    = useRef<Record<number, number>>({});
-  const prevEmbeddedAtRef = useRef<string | null | undefined>(undefined);
-  const refreshTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const applyResult = useCallback((result: VectorSearchResult | null) => {
-    if (!result) { setTopResult(null); return; }
+  // Keyed by order_id so they survive result reordering
+  const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
+  const prevEmbeddedAtRef = useRef<Record<string, string | null | undefined>>({});
+  const refreshTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Detect which rows changed price since last refresh
-    const newFlashed = new Set<number>();
-    (result.line_items ?? []).forEach((item, idx) => {
-      const prev = prevPricesRef.current[idx];
-      const curr = item.live_price ?? item.unit_price ?? 0;
-      if (prev !== undefined && prev !== curr) newFlashed.add(idx);
-      prevPricesRef.current[idx] = curr;
+  const applyResults = useCallback((newResults: VectorSearchResult[]) => {
+    const newFlashedRows: Record<number, Set<number>> = {};
+    const newFlashedEmbeddings = new Set<number>();
+
+    newResults.forEach((result, resultIdx) => {
+      const id = result.order_id;
+      const prevPrices = prevPricesRef.current[id] ?? {};
+      const rowFlash = new Set<number>();
+
+      (result.line_items ?? []).forEach((item, lineIdx) => {
+        const prev = prevPrices[lineIdx];
+        const curr = item.live_price ?? item.unit_price ?? 0;
+        if (prev !== undefined && prev !== curr) rowFlash.add(lineIdx);
+        prevPrices[lineIdx] = curr;
+      });
+      prevPricesRef.current[id] = prevPrices;
+      if (rowFlash.size > 0) newFlashedRows[resultIdx] = rowFlash;
+
+      const prevEmb = prevEmbeddedAtRef.current[id];
+      if (prevEmb !== undefined && prevEmb !== result.embedded_at) newFlashedEmbeddings.add(resultIdx);
+      prevEmbeddedAtRef.current[id] = result.embedded_at;
     });
 
-    // Detect embedding change
-    const prevEmbeddedAt = prevEmbeddedAtRef.current;
-    const embeddingChanged = prevEmbeddedAt !== undefined && prevEmbeddedAt !== result.embedded_at;
-    prevEmbeddedAtRef.current = result.embedded_at;
-
-    setTopResult(result);
+    setResults(newResults);
     setLastRefresh(new Date());
-    if (newFlashed.size > 0) {
-      setFlashedRows(newFlashed);
-      setTimeout(() => setFlashedRows(new Set()), 1200);
+
+    if (Object.keys(newFlashedRows).length > 0) {
+      setFlashedRowsByResult(newFlashedRows);
+      setTimeout(() => setFlashedRowsByResult({}), 1200);
     }
-    if (embeddingChanged) {
-      setEmbeddingFlashed(true);
-      setTimeout(() => setEmbeddingFlashed(false), 2000);
+    if (newFlashedEmbeddings.size > 0) {
+      setFlashedEmbeddings(newFlashedEmbeddings);
+      setTimeout(() => setFlashedEmbeddings(new Set()), 2000);
     }
   }, []);
 
   const executeSearch = useCallback(async (query: string, silent = false) => {
     if (!query) {
-      setTopResult(null); setSearchError(null); setSubmittedQuery(""); setHasSearched(false);
+      setResults([]); setSearchError(null); setSubmittedQuery(""); setHasSearched(false);
       return;
     }
     if (!silent) { setIsSearching(true); setSearchError(null); setSubmittedQuery(query); setHasSearched(true); }
     try {
       const response = await searchApi.vectorSearchOrders(query, 3);
-      applyResult(response.data.results[0] ?? null);
+      applyResults(response.data.results ?? []);
     } catch (err) {
       if (!silent) {
         console.error("Vector search failed:", err);
         setSearchError("Vector search unavailable. Ensure OpenSearch and the embedding service are running.");
-        setTopResult(null);
+        setResults([]);
       }
     } finally {
       if (!silent) setIsSearching(false);
     }
-  }, [applyResult]);
+  }, [applyResults]);
 
   // Auto-refresh every 5s after a successful search
   useEffect(() => {
@@ -212,7 +324,7 @@ export const VectorPipelineCard = () => {
           <div className="border rounded-lg overflow-hidden mb-4">
             <div className="bg-gray-50 px-4 py-2 border-b flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
-              <span className="text-sm font-medium text-gray-700">Ask a semantic question</span>
+              <span className="text-sm font-medium text-gray-700">Semantic Search</span>
             </div>
             <div className="p-4 space-y-3">
               <div className="flex gap-2">
@@ -281,10 +393,13 @@ export const VectorPipelineCard = () => {
               </div>
             </div>
 
-            {/* Right: Live order result */}
+            {/* Right: Live order results */}
             <div className="border rounded-lg overflow-hidden">
               <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Live order result</span>
+                <span className="text-sm font-medium text-gray-700">
+                  Live order results
+                  {results.length > 0 && <span className="ml-1.5 text-xs text-gray-400 font-normal">top {results.length} by relevance</span>}
+                </span>
                 <div className="flex items-center gap-2">
                   {lastRefresh && (
                     <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -304,133 +419,21 @@ export const VectorPipelineCard = () => {
                 ) : searchError ? (
                   <div className="text-sm text-red-600 py-8 text-center">{searchError}</div>
                 ) : !hasSearched ? (
-                  <div className="text-sm text-gray-400 py-8 text-center italic">Enter a query to see a live result...</div>
-                ) : !topResult ? (
+                  <div className="text-sm text-gray-400 py-8 text-center italic">Enter a query to see live results...</div>
+                ) : results.length === 0 ? (
                   <div className="text-sm text-gray-500 py-8 text-center">No results found.</div>
                 ) : (
-                  <div className="space-y-3">
-                    {/* Order header */}
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-bold text-gray-900">
-                          #{topResult.order_number ?? topResult.order_id}
-                        </span>
-                        {topResult.order_status && (
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded border ${getStatusClasses(topResult.order_status)}`}>
-                            {topResult.order_status}
-                          </span>
-                        )}
+                  <div className="divide-y divide-gray-100">
+                    {results.map((result, idx) => (
+                      <div key={result.order_id} className={idx > 0 ? "pt-3 mt-3" : ""}>
+                        <ResultCard
+                          result={result}
+                          rank={idx + 1}
+                          flashedRows={flashedRowsByResult[idx] ?? new Set()}
+                          embeddingFlashing={flashedEmbeddings.has(idx)}
+                        />
                       </div>
-                      <span className="text-xs text-purple-700 font-semibold">
-                        {(topResult.score * 100).toFixed(1)}% match
-                      </span>
-                    </div>
-
-                    {/* Customer + store */}
-                    <div className="grid grid-cols-2 gap-x-4 text-sm">
-                      {topResult.customer_name && (
-                        <div>
-                          <span className="text-gray-400 text-xs block">Customer</span>
-                          <span className="font-medium text-gray-900">{topResult.customer_name}</span>
-                        </div>
-                      )}
-                      {topResult.store_name && (
-                        <div>
-                          <span className="text-gray-400 text-xs block">Store</span>
-                          <span className="font-medium text-gray-900">
-                            {topResult.store_name}
-                            {topResult.store_zone && <span className="ml-1 text-xs text-gray-400">({topResult.store_zone})</span>}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Order embedding — one per order, stable until line items change */}
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                          Order embedding <span className="text-gray-400">(384-dim)</span>
-                          {embeddingFlashed && (
-                            <span className="text-yellow-600 font-semibold animate-pulse">↻ re-embedded</span>
-                          )}
-                        </span>
-                        <span className="text-xs text-gray-400 font-mono">embedded {fmtTime(topResult.embedded_at)}</span>
-                      </div>
-                      <EmbeddingStrip vector={topResult.embedding} flashing={embeddingFlashed} />
-                      <code className="block mt-1.5 bg-gray-100 text-xs font-mono text-gray-700 px-2 py-1.5 rounded break-words leading-relaxed">
-                        {topResult.embedding_text}
-                      </code>
-                    </div>
-
-                    {/* Line items table */}
-                    {topResult.line_items && topResult.line_items.length > 0 && (
-                      <div className="pt-2 border-t border-gray-200">
-                        <div className="text-xs text-gray-500 mb-2 flex items-center justify-between">
-                          <span>Line items — live from Materialize</span>
-                          {topResult.order_total_amount != null && (
-                            <span className="font-medium text-gray-700">
-                              Total: ${parseFloat(String(topResult.order_total_amount)).toFixed(2)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs border-collapse">
-                            <thead>
-                              <tr className="text-left text-gray-400 border-b border-gray-200">
-                                <th className="pb-1 pr-2 font-medium">Product</th>
-                                <th className="pb-1 pr-2 font-medium">Cat</th>
-                                <th className="pb-1 pr-2 font-medium text-right">Qty</th>
-                                <th className="pb-1 pr-2 font-medium text-right">Live $</th>
-                                <th className="pb-1 font-medium whitespace-nowrap">Row updated</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {topResult.line_items.map((item: VectorLineItem, idx: number) => {
-                                const priceUp   = item.live_price != null && item.base_price != null && Number(item.live_price) > Number(item.base_price);
-                                const priceDown = item.live_price != null && item.base_price != null && Number(item.live_price) < Number(item.base_price);
-                                const isFlashed = flashedRows.has(idx);
-                                return (
-                                  <tr
-                                    key={idx}
-                                    className="border-b border-gray-100 last:border-0 transition-colors duration-300"
-                                    style={isFlashed ? { backgroundColor: "#fef9c3" } : undefined}
-                                  >
-                                    <td className="py-1 pr-2 max-w-[110px]">
-                                      <div className="font-medium text-gray-800 truncate">
-                                        {item.perishable_flag && <span className="text-orange-400 mr-1" title="Perishable">⚡</span>}
-                                        {item.product_name ?? "—"}
-                                        {item.product_id && <span className="ml-1 text-gray-400 font-normal">({item.product_id})</span>}
-                                      </div>
-                                      {item.line_id && (
-                                        <div className="text-gray-400 font-mono truncate" style={{ fontSize: "9px" }}>{item.line_id}</div>
-                                      )}
-                                    </td>
-                                    <td className="py-1 pr-2 text-gray-500 whitespace-nowrap">{item.category ?? "—"}</td>
-                                    <td className="py-1 pr-2 text-right text-gray-700">{item.quantity ?? "—"}</td>
-                                    <td className="py-1 pr-2 text-right font-medium whitespace-nowrap">
-                                      {item.base_price != null && item.live_price != null && Number(item.live_price) !== Number(item.base_price) && (
-                                        <span className="line-through text-gray-400 mr-1">${Number(item.base_price).toFixed(2)}</span>
-                                      )}
-                                      <span className={priceUp ? "text-red-600" : priceDown ? "text-green-600" : "text-gray-800"}>
-                                        ${Number(item.live_price ?? item.unit_price ?? 0).toFixed(2)}
-                                      </span>
-                                    </td>
-                                    <td className="py-1 text-gray-500 whitespace-nowrap font-mono">{fmtTime(topResult.effective_updated_at)}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Hydrated label */}
-                    <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
-                      <Database className="h-3.5 w-3.5 text-green-600" />
-                      <span className="text-xs font-medium text-green-700">Hydrated from Materialize</span>
-                      <span className="text-xs text-gray-500 ml-auto">{fmtAgo(topResult.effective_updated_at)}</span>
-                    </div>
+                    ))}
                   </div>
                 )}
               </div>
