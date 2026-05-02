@@ -3,9 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
-  Zap,
-  Database,
-  ArrowRight,
   RefreshCw,
 } from "lucide-react";
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
@@ -79,24 +76,6 @@ const fmtAgo = (iso?: string | null): string => {
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
   return `${Math.floor(sec / 3600)}h ago`;
-};
-
-// ── Architecture steps ───────────────────────────────────────────────────────
-
-type StepColor = "purple" | "blue" | "green" | "orange";
-
-const STEPS = [
-  { label: "Embed query",    detail: "BAAI/bge-small-en-v1.5 (384-dim)",    color: "purple" as StepColor, icon: Zap },
-  { label: "knn_search",     detail: "OpenSearch returns top-N order IDs",   color: "blue"   as StepColor, icon: Search },
-  { label: "Hydrate",        detail: "Materialize: live status, price, ETA", color: "green"  as StepColor, icon: Database },
-  { label: "Merge & return", detail: "Enriched result to agent",             color: "orange" as StepColor, icon: ArrowRight },
-];
-
-const STEP_COLORS: Record<StepColor, { bg: string; text: string; border: string; icon: string }> = {
-  purple: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", icon: "bg-purple-100 text-purple-600" },
-  blue:   { bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200",   icon: "bg-blue-100 text-blue-600" },
-  green:  { bg: "bg-green-50",  text: "text-green-700",  border: "border-green-200",  icon: "bg-green-100 text-green-600" },
-  orange: { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", icon: "bg-orange-100 text-orange-600" },
 };
 
 // ── Compact result card ───────────────────────────────────────────────────────
@@ -371,87 +350,49 @@ export const VectorPipelineCard = () => {
             <WriteTripleForm initialSubject={writeSubject} />
           </div>
 
-          {/* Two-column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
-            {/* Left: How it works */}
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2 border-b">
-                <span className="text-sm font-medium text-gray-700">How it works</span>
-              </div>
-              <div className="p-3">
-                <ol className="flex flex-col gap-0">
-                  {STEPS.map((step, idx) => {
-                    const c = STEP_COLORS[step.color];
-                    const Icon = step.icon;
-                    return (
-                      <li key={step.label} className="flex flex-col">
-                        <div className={`flex items-center gap-2 px-2 py-1.5 rounded border ${c.bg} ${c.border}`}>
-                          <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${c.icon}`}>
-                            <Icon className="h-3 w-3" />
-                          </div>
-                          <div className="flex items-baseline gap-1.5 min-w-0">
-                            <span className="text-xs font-mono text-gray-400">{idx + 1}.</span>
-                            <span className={`text-xs font-semibold ${c.text}`}>{step.label}</span>
-                            <span className="text-xs text-gray-500 truncate">{step.detail}</span>
-                          </div>
-                        </div>
-                        {idx < STEPS.length - 1 && (
-                          <div className="flex justify-center py-0.5">
-                            <ArrowRight className="h-3 w-3 text-gray-300 rotate-90" />
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            </div>
-
-            {/* Right: Live order results */}
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">
-                  Live order results
-                  {results.length > 0 && <span className="ml-1.5 text-xs text-gray-400 font-normal">top {results.length} by relevance</span>}
-                </span>
-                <div className="flex items-center gap-2">
-                  {lastRefresh && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <RefreshCw className="h-3 w-3" />
-                      {fmtAgo(lastRefresh.toISOString())}
-                    </span>
-                  )}
-                  {submittedQuery && !isSearching && !searchError && (
-                    <span className="text-xs text-gray-500 font-mono truncate max-w-[120px]">"{submittedQuery}"</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-4">
-                {isSearching ? (
-                  <div className="text-sm text-gray-500 py-8 text-center">Searching...</div>
-                ) : searchError ? (
-                  <div className="text-sm text-red-600 py-8 text-center">{searchError}</div>
-                ) : !hasSearched ? (
-                  <div className="text-sm text-gray-400 py-8 text-center italic">Enter a query to see live results...</div>
-                ) : results.length === 0 ? (
-                  <div className="text-sm text-gray-500 py-8 text-center">No results found.</div>
-                ) : (
-                  <div className="divide-y divide-gray-100">
-                    {results.map((result, idx) => (
-                      <div key={result.order_id} className={idx > 0 ? "pt-3 mt-3" : ""}>
-                        <ResultCard
-                          result={result}
-                          rank={idx + 1}
-                          flashedRows={flashedRowsByResult[idx] ?? new Set()}
-                          embeddingFlashing={flashedEmbeddings.has(idx)}
-                          onSelectSubject={setWriteSubject}
-                        />
-                      </div>
-                    ))}
-                  </div>
+          {/* Live order results */}
+          <div className="border rounded-lg overflow-hidden">
+            <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">
+                Live order results
+                {results.length > 0 && <span className="ml-1.5 text-xs text-gray-400 font-normal">top {results.length} by relevance</span>}
+              </span>
+              <div className="flex items-center gap-2">
+                {lastRefresh && (
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <RefreshCw className="h-3 w-3" />
+                    {fmtAgo(lastRefresh.toISOString())}
+                  </span>
+                )}
+                {submittedQuery && !isSearching && !searchError && (
+                  <span className="text-xs text-gray-500 font-mono truncate max-w-[120px]">"{submittedQuery}"</span>
                 )}
               </div>
+            </div>
+            <div className="p-4">
+              {isSearching ? (
+                <div className="text-sm text-gray-500 py-8 text-center">Searching...</div>
+              ) : searchError ? (
+                <div className="text-sm text-red-600 py-8 text-center">{searchError}</div>
+              ) : !hasSearched ? (
+                <div className="text-sm text-gray-400 py-8 text-center italic">Enter a query to see live results...</div>
+              ) : results.length === 0 ? (
+                <div className="text-sm text-gray-500 py-8 text-center">No results found.</div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {results.map((result, idx) => (
+                    <div key={result.order_id} className={idx > 0 ? "pt-3 mt-3" : ""}>
+                      <ResultCard
+                        result={result}
+                        rank={idx + 1}
+                        flashedRows={flashedRowsByResult[idx] ?? new Set()}
+                        embeddingFlashing={flashedEmbeddings.has(idx)}
+                        onSelectSubject={setWriteSubject}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

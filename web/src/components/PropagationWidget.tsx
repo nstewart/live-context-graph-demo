@@ -531,9 +531,7 @@ export default function PropagationWidget() {
                     <span className="text-xs font-medium text-green-400 uppercase tracking-wide">
                       Index Propagation
                     </span>
-                    <span className="text-xs text-gray-500">
-                      ({totalIndexUpdates} update{totalIndexUpdates !== 1 ? 's' : ''})
-                    </span>
+
                     {propagationLimitHit && (
                       <span className="text-xs text-yellow-500" title="Showing max 100 events per poll - more events may exist">
                         (limit reached)
