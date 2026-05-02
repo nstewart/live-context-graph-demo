@@ -345,17 +345,14 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 doc["embedded_at"] = now_iso
                 full_upserts.append(doc)
 
-        # Stamp the Materialize logical timestamp on every document so the
-        # /api/search/impact endpoint can count docs re-indexed after a write.
-        if timestamp is not None:
-            try:
-                mz_ts_int = int(timestamp)
-                for doc in full_upserts:
-                    doc["mz_timestamp"] = mz_ts_int
-                for patch in patches:
-                    patch["doc"]["mz_timestamp"] = mz_ts_int
-            except (TypeError, ValueError):
-                pass
+        # Stamp wall-clock ms on every document so /api/search/impact can count
+        # docs re-indexed after a write. We use wall-clock (not the SUBSCRIBE
+        # batch timestamp) to stay in the same time domain as the API lower bound.
+        mz_ts_int = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for doc in full_upserts:
+            doc["mz_timestamp"] = mz_ts_int
+        for patch in patches:
+            patch["doc"]["mz_timestamp"] = mz_ts_int
 
         upsert_count = len(full_upserts)
         patch_count = len(patches)
