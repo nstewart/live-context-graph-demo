@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
+import { WriteTripleForm } from "./WriteTripleForm";
 
 // ── Embedding strip ──────────────────────────────────────────────────────────
 // Downsample a 384-dim vector to `bands` colour blocks and render them as an
@@ -236,7 +237,7 @@ export const VectorPipelineCard = () => {
               <div className="bg-gray-50 px-4 py-2 border-b">
                 <span className="text-sm font-medium text-gray-700">How it works</span>
               </div>
-              <div className="p-4">
+              <div className="p-4 space-y-4">
                 <ol className="space-y-2">
                   {STEPS.map((step, idx) => {
                     const c = STEP_COLORS[step.color];
@@ -264,6 +265,7 @@ export const VectorPipelineCard = () => {
                     );
                   })}
                 </ol>
+                <WriteTripleForm />
               </div>
             </div>
 

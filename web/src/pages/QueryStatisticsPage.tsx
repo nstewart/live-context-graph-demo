@@ -18,7 +18,6 @@ import {
   Database,
   Zap,
   Clock,
-  Edit3,
   ShoppingCart,
   User,
   Store,
@@ -44,6 +43,7 @@ import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { VectorPipelineCard } from "../components/VectorPipelineCard";
+import { WriteTripleForm } from "../components/WriteTripleForm";
 import { usePropagation } from "../contexts/PropagationContext";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -69,43 +69,6 @@ const predicatesBySubjectType: Record<string, string[]> = {
   task: ['task_status', 'assigned_to', 'eta'],
 };
 
-// Example placeholder values for each predicate
-const placeholdersByPredicate: Record<string, string> = {
-  // Order predicates
-  order_status: 'DELIVERED',
-  order_number: 'FM-1234',
-  delivery_window_start: '2025-01-15T10:00:00',
-  delivery_window_end: '2025-01-15T12:00:00',
-  // Order line predicates (perishable_flag is derived from product, not stored)
-  quantity: '5',
-  order_line_unit_price: '12.99',
-  line_sequence: '1',
-  // Customer predicates
-  customer_name: 'John Doe',
-  customer_email: 'john@example.com',
-  customer_address: '123 Main St',
-  // Store predicates
-  store_name: 'Downtown Market',
-  store_zone: 'MAN',
-  store_address: '456 Broadway',
-  // Product predicates
-  product_name: 'Organic Apples',
-  category: 'Produce',
-  unit_price: '4.99',
-  perishable: 'true',
-  unit_weight_grams: '500',
-  // Inventory predicates
-  stock_level: '100',
-  replenishment_eta: '2025-01-16T08:00:00',
-  // Courier predicates
-  courier_name: 'Alex Smith',
-  courier_phone: '555-0123',
-  courier_status: 'AVAILABLE',
-  // Task predicates
-  task_status: 'ASSIGNED',
-  assigned_to: 'courier:C-001',
-  eta: '2025-01-15T11:30:00',
-};
 
 // Highlighted JSON component that glows when values change
 const HighlightedJson = ({ data, trackingKey }: { data: object; trackingKey?: string }) => {
@@ -626,8 +589,6 @@ export default function QueryStatisticsPage() {
   // Triple writer state
   const [tripleSubject, setTripleSubject] = useState("");
   const [triplePredicate, setTriplePredicate] = useState("quantity");
-  const [tripleValue, setTripleValue] = useState("");
-  const [writeStatus, setWriteStatus] = useState<string | null>(null);
   const userSetSubjectRef = useRef(false);
   const [triplesRefreshTrigger, setTriplesRefreshTrigger] = useState(0);
 
@@ -884,59 +845,13 @@ export default function QueryStatisticsPage() {
   }, [clearWrites]);
 
   // Handle triple row click - pre-populate the form
-  const handleTripleClick = useCallback((subject: string, predicate: string, value: string) => {
+  const handleTripleClick = useCallback((subject: string, predicate: string, _value: string) => {
     userSetSubjectRef.current = true;
     setTripleSubject(subject);
     setTriplePredicate(predicate);
-    setTripleValue(value);
   }, []);
 
   // Handle triple write
-  const handleWriteTriple = async () => {
-    if (!tripleSubject || !triplePredicate || !tripleValue) return;
-
-    // Validate input lengths
-    if (tripleSubject.length > 255) {
-      setWriteStatus("Error: Subject too long (max 255 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    if (triplePredicate.length > 255) {
-      setWriteStatus("Error: Predicate too long (max 255 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    if (tripleValue.length > 1000) {
-      setWriteStatus("Error: Value too long (max 1000 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    // Validate subject format (should contain a colon or underscore)
-    if (!tripleSubject.includes(':') && !tripleSubject.includes('_')) {
-      setWriteStatus("Error: Subject should be in format 'type:id' or 'type_id'");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    try {
-      await queryStatsApi.writeTriple({
-        subject_id: tripleSubject,
-        predicate: triplePredicate,
-        object_value: tripleValue,
-      });
-      setWriteStatus(`Written at ${new Date().toLocaleTimeString()}`);
-      setTimeout(() => setWriteStatus(null), 3000);
-      // Trigger refresh of the triples card
-      setTriplesRefreshTrigger((prev) => prev + 1);
-    } catch (err) {
-      console.error("Failed to write triple:", err);
-      setWriteStatus("Write failed");
-    }
-  };
-
   // Handle lineage graph node click
   const handleNodeClick = useCallback(async (nodeId: string) => {
     // Toggle selection if clicking the same node
@@ -1184,67 +1099,11 @@ export default function QueryStatisticsPage() {
             </div>
 
             {/* Write Triple Form */}
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Edit3 className="h-4 w-4 text-purple-600" />
-                <span className="font-medium text-gray-900">Write a Triple</span>
-                <span className="text-xs text-gray-500">
-                  - Update an order property and observe propagation
-                </span>
-              </div>
-
-              <div className="flex items-end gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
-                  <input
-                    type="text"
-                    value={tripleSubject}
-                    onChange={(e) => {
-                      userSetSubjectRef.current = true;
-                      setTripleSubject(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                    placeholder="order:FM-1001"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Predicate</label>
-                  <select
-                    value={triplePredicate}
-                    onChange={(e) => setTriplePredicate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                  >
-                    {availablePredicates.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Value</label>
-                  <input
-                    type="text"
-                    value={tripleValue}
-                    onChange={(e) => setTripleValue(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                    placeholder={placeholdersByPredicate[triplePredicate] || 'value'}
-                  />
-                </div>
-                <button
-                  onClick={handleWriteTriple}
-                  disabled={!tripleSubject || !triplePredicate || !tripleValue}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                >
-                  Write
-                </button>
-                {writeStatus && (
-                  <span className="text-sm text-green-600 flex items-center gap-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-                    {writeStatus}
-                  </span>
-                )}
-              </div>
+            <div className="mb-6">
+              <WriteTripleForm
+                initialSubject={tripleSubject}
+                onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
+              />
             </div>
 
             {/* Response Time and Reaction Time Charts - Stacked */}
