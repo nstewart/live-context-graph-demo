@@ -331,6 +331,20 @@ export const VectorPipelineCard = () => {
                       )}
                     </div>
 
+                    {/* Order embedding — one per order, stable until line items change */}
+                    <div className="pt-2 border-t border-gray-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500">
+                          Order embedding <span className="text-gray-400">(384-dim · stable until products change)</span>
+                        </span>
+                        <span className="text-xs text-gray-400 font-mono">embedded {fmtTime(topResult.embedded_at)}</span>
+                      </div>
+                      <EmbeddingStrip vector={topResult.embedding} />
+                      <code className="block mt-1.5 bg-gray-100 text-xs font-mono text-gray-700 px-2 py-1.5 rounded break-words leading-relaxed">
+                        {topResult.embedding_text}
+                      </code>
+                    </div>
+
                     {/* Line items table */}
                     {topResult.line_items && topResult.line_items.length > 0 && (
                       <div className="pt-2 border-t border-gray-200">
@@ -350,8 +364,6 @@ export const VectorPipelineCard = () => {
                                 <th className="pb-1 pr-2 font-medium">Cat</th>
                                 <th className="pb-1 pr-2 font-medium text-right">Qty</th>
                                 <th className="pb-1 pr-2 font-medium text-right">Live $</th>
-                                <th className="pb-1 pr-2 font-medium">▓▒░ Embedding</th>
-                                <th className="pb-1 pr-2 font-medium whitespace-nowrap">Embedded at</th>
                                 <th className="pb-1 font-medium whitespace-nowrap">Row updated</th>
                               </tr>
                             </thead>
@@ -380,10 +392,6 @@ export const VectorPipelineCard = () => {
                                         ${Number(item.live_price ?? item.unit_price ?? 0).toFixed(2)}
                                       </span>
                                     </td>
-                                    <td className="py-1 pr-2">
-                                      <EmbeddingStrip vector={topResult.embedding} />
-                                    </td>
-                                    <td className="py-1 pr-2 text-gray-500 whitespace-nowrap font-mono">{fmtTime(topResult.embedded_at)}</td>
                                     <td className="py-1 text-gray-500 whitespace-nowrap font-mono">{fmtTime(topResult.effective_updated_at)}</td>
                                   </tr>
                                 );
@@ -393,16 +401,6 @@ export const VectorPipelineCard = () => {
                         </div>
                       </div>
                     )}
-
-                    {/* Embedding text */}
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="text-xs text-gray-500 mb-1">
-                        Embedded text <span className="text-gray-400">(384-dim vector)</span>
-                      </div>
-                      <code className="block bg-gray-100 text-xs font-mono text-gray-700 px-2 py-1.5 rounded break-words leading-relaxed">
-                        {topResult.embedding_text}
-                      </code>
-                    </div>
 
                     {/* Hydrated label */}
                     <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
