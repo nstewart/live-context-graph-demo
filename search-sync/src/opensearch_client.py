@@ -69,6 +69,7 @@ ORDERS_INDEX_MAPPING = {
             "line_item_count": {"type": "integer"},
             "has_perishable_items": {"type": "boolean"},
             "search_text": {"type": "text"},
+            "mz_timestamp": {"type": "long"},
             # Vector embedding of the order's line items (BAAI/bge-small-en-v1.5)
             "embedding": {
                 "type": "knn_vector",

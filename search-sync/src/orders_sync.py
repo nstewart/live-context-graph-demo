@@ -119,6 +119,9 @@ ORDERS_INDEX_MAPPING = {
             "line_item_count": {"type": "integer"},
             "has_perishable_items": {"type": "boolean"},
             "search_text": {"type": "text"},
+            # Materialize logical timestamp of the SUBSCRIBE batch that produced this doc.
+            # Used by /api/search/impact to count how many docs were re-indexed after a write.
+            "mz_timestamp": {"type": "long"},
             # Vector embedding of the order's line items (BAAI/bge-small-en-v1.5)
             "embedding": {
                 "type": "knn_vector",
@@ -341,6 +344,18 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 doc["embedding"] = vec
                 doc["embedded_at"] = now_iso
                 full_upserts.append(doc)
+
+        # Stamp the Materialize logical timestamp on every document so the
+        # /api/search/impact endpoint can count docs re-indexed after a write.
+        if timestamp is not None:
+            try:
+                mz_ts_int = int(timestamp)
+                for doc in full_upserts:
+                    doc["mz_timestamp"] = mz_ts_int
+                for patch in patches:
+                    patch["doc"]["mz_timestamp"] = mz_ts_int
+            except (TypeError, ValueError):
+                pass
 
         upsert_count = len(full_upserts)
         patch_count = len(patches)

@@ -554,3 +554,113 @@ class TestVectorSearchOrdersAPI:
         # The deleted one must not be present
         for item in data["results"]:
             assert item["order_id"] != "order:FM-DELETED"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for mocking httpx.AsyncClient inside routes without affecting the
+# ASGI test client (which also uses httpx under the hood).
+# ---------------------------------------------------------------------------
+
+def _make_mock_httpx_client(
+    get_response=None, post_response=None,
+    get_side_effect=None, post_side_effect=None,
+):
+    inner = MagicMock()
+    inner.get = AsyncMock(side_effect=get_side_effect) if get_side_effect else AsyncMock(return_value=get_response)
+    inner.post = AsyncMock(side_effect=post_side_effect) if post_side_effect else AsyncMock(return_value=post_response)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=inner)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return MagicMock(return_value=cm), inner
+
+
+class TestIndexStatsAPI:
+    """Tests for GET /api/search/index-stats."""
+
+    @pytest.mark.asyncio
+    async def test_returns_doc_count(self, async_client: AsyncClient):
+        resp = AsyncMock(status_code=200, json=lambda: {"count": 1203})
+        resp.raise_for_status = lambda: None
+        factory, _ = _make_mock_httpx_client(get_response=resp)
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get("/api/search/index-stats")
+        assert response.status_code == 200
+        assert response.json() == {"doc_count": 1203}
+
+    @pytest.mark.asyncio
+    async def test_index_not_found_returns_zero(self, async_client: AsyncClient):
+        resp = AsyncMock(status_code=404)
+        factory, _ = _make_mock_httpx_client(get_response=resp)
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get("/api/search/index-stats")
+        assert response.status_code == 200
+        assert response.json() == {"doc_count": 0}
+
+    @pytest.mark.asyncio
+    async def test_opensearch_unavailable_returns_503(self, async_client: AsyncClient):
+        import httpx
+        factory, _ = _make_mock_httpx_client(get_side_effect=httpx.ConnectError("refused"))
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get("/api/search/index-stats")
+        assert response.status_code == 503
+
+
+class TestIndexImpactAPI:
+    """Tests for GET /api/search/impact."""
+
+    @pytest.mark.asyncio
+    async def test_returns_impacted_total_and_pct(self, async_client: AsyncClient):
+        total_resp = AsyncMock(status_code=200, json=lambda: {"count": 1000})
+        total_resp.raise_for_status = lambda: None
+        impact_resp = AsyncMock(status_code=200, json=lambda: {"count": 47})
+        impact_resp.raise_for_status = lambda: None
+        factory, _ = _make_mock_httpx_client(get_response=total_resp, post_response=impact_resp)
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get(
+                "/api/search/impact", params={"since_mz_timestamp": 1746000000000}
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1000
+        assert data["impacted"] == 47
+        assert data["pct"] == 4.7
+
+    @pytest.mark.asyncio
+    async def test_missing_param_returns_422(self, async_client: AsyncClient):
+        response = await async_client.get("/api/search/impact")
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_index_not_found_returns_zeros(self, async_client: AsyncClient):
+        resp = AsyncMock(status_code=404)
+        factory, _ = _make_mock_httpx_client(get_response=resp)
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get(
+                "/api/search/impact", params={"since_mz_timestamp": 1746000000000}
+            )
+        assert response.status_code == 200
+        assert response.json() == {"impacted": 0, "total": 0, "pct": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_opensearch_unavailable_returns_503(self, async_client: AsyncClient):
+        import httpx
+        factory, _ = _make_mock_httpx_client(get_side_effect=httpx.ConnectError("refused"))
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get(
+                "/api/search/impact", params={"since_mz_timestamp": 1746000000000}
+            )
+        assert response.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_zero_total_returns_zero_pct(self, async_client: AsyncClient):
+        total_resp = AsyncMock(status_code=200, json=lambda: {"count": 0})
+        total_resp.raise_for_status = lambda: None
+        impact_resp = AsyncMock(status_code=200, json=lambda: {"count": 0})
+        impact_resp.raise_for_status = lambda: None
+        factory, _ = _make_mock_httpx_client(get_response=total_resp, post_response=impact_resp)
+        with patch("src.routes.search.httpx.AsyncClient", factory):
+            response = await async_client.get(
+                "/api/search/impact", params={"since_mz_timestamp": 1746000000000}
+            )
+        assert response.status_code == 200
+        assert response.json()["pct"] == 0.0

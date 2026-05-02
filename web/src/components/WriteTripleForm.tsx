@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Edit3 } from "lucide-react";
-import { queryStatsApi } from "../api/client";
+import { queryStatsApi, searchApi } from "../api/client";
 
 const predicatesBySubjectType: Record<string, string[]> = {
   order: ['order_status', 'order_number', 'delivery_window_start', 'delivery_window_end'],
@@ -36,6 +36,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
   const [predicate, setPredicate] = useState("quantity");
   const [value, setValue]         = useState("");
   const [status, setStatus]       = useState<string | null>(null);
+  const [impact, setImpact]       = useState<{ impacted: number; total: number; pct: number } | null>(null);
+  const [watchingImpact, setWatchingImpact] = useState(false);
 
   useEffect(() => { setSubject(initialSubject); }, [initialSubject]);
 
@@ -57,6 +59,25 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
     }
   }, [availablePredicates, predicate]);
 
+  const watchImpact = async (lowerBound: number) => {
+    setWatchingImpact(true);
+    setImpact(null);
+    let lastImpacted = -1;
+    for (let i = 0; i < 8; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const res = await searchApi.indexImpact(lowerBound);
+        const data = res.data;
+        if (data.impacted > 0 && data.impacted === lastImpacted) break;
+        lastImpacted = data.impacted;
+        setImpact(data);
+      } catch {
+        break;
+      }
+    }
+    setWatchingImpact(false);
+  };
+
   const handleWrite = async () => {
     if (!subject || !predicate || !value) return;
     if (subject.length > 255) { flash("Error: Subject too long"); return; }
@@ -65,10 +86,14 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
     if (!subject.includes(':') && !subject.includes('_')) {
       flash("Error: Subject should be 'type:id' or 'type_id'"); return;
     }
+    setImpact(null);
     try {
-      await queryStatsApi.writeTriple({ subject_id: subject, predicate, object_value: value });
+      const res = await queryStatsApi.writeTriple({ subject_id: subject, predicate, object_value: value });
       flash(`Written at ${new Date().toLocaleTimeString()}`);
       onWritten?.();
+      if (res.data.mz_timestamp_lower_bound != null) {
+        watchImpact(res.data.mz_timestamp_lower_bound);
+      }
     } catch {
       flash("Write failed");
     }
@@ -133,6 +158,25 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
           </span>
         )}
       </div>
+      {(watchingImpact || impact) && (
+        <div className="mt-2 text-xs text-gray-600 flex items-center gap-1.5">
+          {watchingImpact && !impact && (
+            <span className="text-gray-400 animate-pulse">Watching pipeline...</span>
+          )}
+          {impact && (
+            <>
+              <span className="font-mono text-purple-700 font-semibold">{impact.impacted}</span>
+              <span className="text-gray-400">/</span>
+              <span className="font-mono text-gray-600">{impact.total}</span>
+              <span className="text-gray-500">docs re-indexed</span>
+              <span className={`font-semibold ml-1 ${impact.pct > 10 ? 'text-orange-600' : 'text-purple-600'}`}>
+                ({impact.pct}%)
+              </span>
+              {watchingImpact && <span className="text-gray-400 animate-pulse ml-1">…</span>}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

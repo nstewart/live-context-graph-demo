@@ -389,6 +389,12 @@ export interface TripleWriteRequest {
   object_value: string
 }
 
+export interface WriteTripleResponse {
+  status: string
+  timestamp: string
+  mz_timestamp_lower_bound: number | null
+}
+
 export interface ViewDefinitionResponse {
   view_name: string
   object_type: string
@@ -415,7 +421,7 @@ export const queryStatsApi = {
   getOrderData: () =>
     apiClient.get<OrderDataResponse>('/api/query-stats/order-data'),
   writeTriple: (data: TripleWriteRequest) =>
-    apiClient.post('/api/query-stats/write-triple', data),
+    apiClient.post<WriteTripleResponse>('/api/query-stats/write-triple', data),
   // Get view definition from Materialize
   getViewDefinition: (viewName: string) =>
     apiClient.get<ViewDefinitionResponse>(`/api/query-stats/view-definition/${encodeURIComponent(viewName)}`),
@@ -683,5 +689,9 @@ export const searchApi = {
   vectorSearchOrders: (query: string, limit?: number) =>
     apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
       params: { q: query, limit: limit || 3 },
+    }),
+  indexImpact: (since_mz_timestamp: number) =>
+    apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
+      params: { since_mz_timestamp },
     }),
 }

@@ -1029,6 +1029,20 @@ async def write_triple(data: TripleWrite):
     allowing you to observe how the change propagates through
     each data access pattern.
     """
+    # Capture mz_now() BEFORE the PostgreSQL write as a lower bound for impact detection.
+    # Materialize transactions are read-only OR write-only, so this is a separate read.
+    # Any OpenSearch document re-indexed as a result of this write will have
+    # mz_timestamp >= this value (guaranteed by the monotonic Materialize clock).
+    mz_lower_bound: Optional[int] = None
+    try:
+        async with get_mz_session() as mz_session:
+            result = await mz_session.execute(text("SELECT mz_now()::text AS ts"))
+            row = result.fetchone()
+            if row:
+                mz_lower_bound = int(row[0])
+    except Exception as mz_err:
+        logger.warning(f"Could not get mz_now() before write: {mz_err}")
+
     try:
         async with get_pg_session() as session:
             result = await session.execute(
@@ -1052,7 +1066,11 @@ async def write_triple(data: TripleWrite):
                 )
             await session.commit()
 
-        return {"status": "written", "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {
+            "status": "written",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mz_timestamp_lower_bound": mz_lower_bound,
+        }
     except HTTPException:
         raise
     except Exception as e:
