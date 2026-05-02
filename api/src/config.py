@@ -35,6 +35,29 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_port: int = 8080
 
+    # Database connection pools.
+    # The pool needs to be large enough that the heartbeat (50ms cadence) and
+    # all polling loops (postgresql_view, batch_cache, materialize) can each
+    # hold a connection without starving each other. With pool_size=5 the
+    # heartbeat starves; pool_size=20 is comfortable.
+    pg_pool_size: int = 20
+    pg_max_overflow: int = 20
+    mz_pool_size: int = 5
+    mz_max_overflow: int = 10
+
+    # Per-source concurrency for the query-stats polling loops.
+    # Higher = more throughput per source; lower = lower per-query latency
+    # because there's less contention on the optimizer / cluster. The demo's
+    # latency story reads cleaner with concurrency=1, but increasing these
+    # is fair game for throughput-focused demos.
+    qs_concurrency_postgresql_view: int = 1
+    qs_concurrency_batch_cache: int = 1
+    qs_concurrency_materialize: int = 1
+
+    # Heartbeat cadence (seconds). Drives `effective_updated_at` on the
+    # polled order's pricing data. Lower is fresher but adds PG write load.
+    qs_heartbeat_interval: float = 0.05
+
     # Feature flags
     # Use Materialize for FreshMart read queries
     use_materialize_for_reads: bool = True

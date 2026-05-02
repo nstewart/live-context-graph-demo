@@ -58,7 +58,9 @@ services:
     # procedure is `docker compose down -v` + re-seed.
     restart: unless-stopped
     command: >
-      --system-parameter-default=pg_offset_known_interval=100ms
+      --system-parameter-default=default_timestamp_interval=100ms
+      --system-parameter-default=min_timestamp_interval=100ms
+      --system-parameter-default=max_timestamp_interval=100ms
       --system-parameter-default=enable_create_table_from_source=true
       --system-parameter-default=enable_logical_compaction_window=true
     ports:

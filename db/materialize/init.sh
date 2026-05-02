@@ -94,7 +94,8 @@ echo "Creating source IN CLUSTER ingest..."
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
-    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source');"
+    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source')
+    WITH (TIMESTAMP INTERVAL = '100ms');"
 
 # Create table from source (new v26 syntax, replaces FOR ALL TABLES).
 # RETAIN HISTORY 5min is required so SUBSCRIBEs from materialize-zero don't

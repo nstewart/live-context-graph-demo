@@ -34,7 +34,8 @@ CREATE CONNECTION IF NOT EXISTS pg_connection TO POSTGRES (
 -- =============================================================================
 CREATE SOURCE IF NOT EXISTS pg_source
     IN CLUSTER ingest
-    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source');
+    FROM POSTGRES CONNECTION pg_connection (PUBLICATION 'mz_source')
+    WITH (TIMESTAMP INTERVAL = '100ms');
 
 CREATE TABLE IF NOT EXISTS triples
     FROM SOURCE pg_source (REFERENCE public.triples);

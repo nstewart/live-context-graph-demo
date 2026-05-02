@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from src.config import get_settings
 from src.db.client import get_mz_session, get_pg_session
 
 logger = logging.getLogger(__name__)
@@ -38,21 +39,23 @@ router = APIRouter(prefix="/api/query-stats", tags=["Query Statistics"])
 # Configuration
 MAX_SAMPLES = 500000  # Keep 3 min of history even at high QPS (~2700 QPS * 180s). Memory: ~12MB per source.
 BATCH_REFRESH_INTERVAL = 60  # seconds
-HEARTBEAT_INTERVAL = 0.5  # 500ms
 QPS_WINDOW_SIZE = 1.0  # 1 second rolling window for QPS calculation
 
-# Concurrency limits per source (Freshmart approach)
-# PostgreSQL VIEW is slow, so limit to 1 concurrent query
-# Batch cache and Materialize are fast, allow more concurrency
-#
-# NOTE: Connection Pool Management
-# Total concurrent connections = sum of concurrency limits across all sources
-# PostgreSQL (1) + Batch queries (5) + Materialize (5) + Batch refresh (1) + Heartbeat (1) = 13 connections
-# Ensure your database connection pools are sized accordingly (e.g., pg_pool_size >= 15, mz_pool_size >= 10)
+# These are read from environment via Settings so they can be tuned without
+# editing code.
+_settings = get_settings()
+HEARTBEAT_INTERVAL = _settings.qs_heartbeat_interval
+
+# Per-source concurrency limits. Trade-off:
+#  - Higher  → more throughput per source, more contention on optimizer/cluster
+#  - Lower   → lower per-query latency, cleaner reaction-time signal
+# Connection-pool note: total concurrent PG connections =
+#   qs_concurrency_postgresql_view + qs_concurrency_batch_cache + 1 (batch_refresh)
+#   + 1 (heartbeat). Size pg_pool_size accordingly.
 CONCURRENCY_LIMITS = {
-    "postgresql_view": 1,   # Slow query - 1 at a time
-    "batch_cache": 5,       # Memory read - up to 5 concurrent
-    "materialize": 5,       # Fast query - up to 5 concurrent
+    "postgresql_view": _settings.qs_concurrency_postgresql_view,
+    "batch_cache":     _settings.qs_concurrency_batch_cache,
+    "materialize":     _settings.qs_concurrency_materialize,
 }
 
 # Throttle rates per source (seconds between query batches)
