@@ -169,7 +169,7 @@ async def vector_search_orders(
                 }
             }
         },
-        "_source": ["order_id", "embedding_text", "embedded_at", "line_items"],
+        "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
         "size": limit,
     }
 
@@ -247,6 +247,7 @@ async def vector_search_orders(
         merged: dict[str, Any] = {
             "order_id": order_id,
             "score": hit.get("_score"),
+            "embedding": source.get("embedding") or [],
             "embedding_text": source.get("embedding_text"),
             "embedded_at": source.get("embedded_at"),
             # Line items come from OpenSearch (indexed from Materialize CDC,
@@ -259,6 +260,7 @@ async def vector_search_orders(
         # Re-pin OS-only fields so they aren't clobbered by OrderFlat.
         merged["order_id"] = order_id
         merged["score"] = hit.get("_score")
+        merged["embedding"] = source.get("embedding") or []
         merged["embedding_text"] = source.get("embedding_text")
         merged["embedded_at"] = source.get("embedded_at")
         merged["line_items"] = source.get("line_items") or []

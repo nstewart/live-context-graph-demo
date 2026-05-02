@@ -654,6 +654,7 @@ export type VectorLineItem = {
 export type VectorSearchResult = {
   order_id: string;
   score: number;
+  embedding: number[];
   embedding_text: string;
   embedded_at: string | null;
   order_number?: string;
