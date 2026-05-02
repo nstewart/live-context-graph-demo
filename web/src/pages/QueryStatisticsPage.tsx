@@ -986,7 +986,7 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-Time Data Products' : 'Data Products'}</h3>
               <p className="text-xs text-gray-500">
                 Integrate writes from siloed operational systems and apply complex business logic to transform them into live context that can be delivered at agent scale
               </p>
@@ -1001,6 +1001,7 @@ export default function QueryStatisticsPage() {
               <LineageGraph
                 selectedNodeId={selectedNodeId}
                 onNodeClick={handleNodeClick}
+                scenario={viewMode === 'materialize' ? 'materialize' : 'postgres'}
               />
             </div>
 

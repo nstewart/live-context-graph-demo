@@ -6,6 +6,7 @@ import {
   Background,
   Position,
   Handle,
+  MarkerType,
   NodeMouseHandler,
   NodeTypes,
 } from '@xyflow/react';
@@ -146,6 +147,45 @@ const FgacBandNode = () => (
   </div>
 );
 
+// Source wrapper band — Postgres scenario: covers Bronze + Silver + Gold
+const SourceWrapperBandNode = () => (
+  <div
+    style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-end',
+      padding: '10px',
+      boxSizing: 'border-box',
+      userSelect: 'none',
+      pointerEvents: 'none',
+    }}
+  >
+    {/* PostgreSQL branding at bottom only */}
+    <div style={{ textAlign: 'center', paddingBottom: '2px' }}>
+      <span
+        style={{
+          fontSize: '13px',
+          fontWeight: 700,
+          color: '#1e40af',
+          opacity: 0.5,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        PostgreSQL
+      </span>
+    </div>
+    <Handle
+      type="target"
+      position={Position.Top}
+      id="top"
+      style={{ pointerEvents: 'all', opacity: 0 }}
+    />
+  </div>
+);
+
 // Source Systems column node (CRM / ERP / Apps / External Data)
 const SourceSystemsNode = () => (
   <div
@@ -252,6 +292,7 @@ const McpNode = () => (
 const nodeTypes: NodeTypes = {
   band: BandNode,
   fgac_band: FgacBandNode,
+  source_wrapper_band: SourceWrapperBandNode,
   source_systems_node: SourceSystemsNode,
   agent_node: AgentNode,
   mcp_node: McpNode,
@@ -329,7 +370,7 @@ const BAND_PADDING_X = 20;
 const BAND_PADDING_Y = 32;
 // Source Systems box (taller to accommodate 4 items)
 const SS_W = 150;
-const SS_H = 136;
+const SS_H = 170;
 // Floating nodes above the graph
 const AGENT_W = 100;
 const AGENT_H = 76;
@@ -344,14 +385,24 @@ const FLOAT_GAP = 28;
 function getLayoutedElements(
   nodeDefs: typeof nodeDefinitions,
   edgeDefs: typeof edgeDefinitions,
-  selectedNodeId: string | null | undefined
+  selectedNodeId: string | null | undefined,
+  scenario: 'materialize' | 'postgres' = 'materialize'
 ): { nodes: Node[]; edges: Edge[] } {
+  const isMaterialize = scenario === 'materialize';
+
+  // In Postgres mode, triples lives in the Bronze column (no separate CDC source lane)
+  const effectiveNodeDefs = nodeDefs.map((n) =>
+    n.id === 'triples' && !isMaterialize
+      ? { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer }
+      : n
+  );
+
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   dagreGraph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100, marginx: 20, marginy: 20 });
 
   // Add lineage nodes + source_systems_box to dagre for layout
-  nodeDefs.forEach((node) => {
+  effectiveNodeDefs.forEach((node) => {
     dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   });
   edgeDefs.forEach((edge) => {
@@ -373,7 +424,7 @@ function getLayoutedElements(
   let graphMinY = Infinity;
   let graphMaxY = -Infinity;
 
-  nodeDefs.forEach((nodeDef) => {
+  effectiveNodeDefs.forEach((nodeDef) => {
     const pos = dagreGraph.node(nodeDef.id);
     graphMinY = Math.min(graphMinY, pos.y - NODE_HEIGHT / 2);
     graphMaxY = Math.max(graphMaxY, pos.y + NODE_HEIGHT / 2);
@@ -415,23 +466,27 @@ function getLayoutedElements(
       };
     });
 
-  // FGAC wrapper band (behind bronze/silver/gold, with label above them)
-  const fgacMinX = Math.min(layerBounds.bronze.minX, layerBounds.silver.minX, layerBounds.gold.minX);
-  const fgacMaxX = Math.max(layerBounds.bronze.maxX, layerBounds.silver.maxX, layerBounds.gold.maxX);
-  const fgacLeft = fgacMinX - BAND_PADDING_X - FGAC_PAD;
-  const fgacTop = graphMinY - BAND_PADDING_Y - FGAC_LABEL_TOP - FGAC_PAD;
-  const fgacWidth = fgacMaxX - fgacMinX + (BAND_PADDING_X + FGAC_PAD) * 2;
-  const fgacHeight = graphMaxY - graphMinY + (BAND_PADDING_Y + FGAC_PAD) * 2 + FGAC_LABEL_TOP + FGAC_LABEL_BOTTOM;
+  // Outer wrapper band — spans bronze → gold in both scenarios.
+  // In Postgres mode, triples has been moved into bronze so sources is empty.
+  // In Materialize mode, sources stays separate (left of the wrapper).
+  const wrapperMinX = Math.min(layerBounds.bronze.minX, layerBounds.silver.minX, layerBounds.gold.minX);
+  const wrapperMaxX = Math.max(layerBounds.bronze.maxX, layerBounds.silver.maxX, layerBounds.gold.maxX);
+  const wrapperLeft = wrapperMinX - BAND_PADDING_X - FGAC_PAD;
+  // Materialize needs extra top room for the FGAC header rectangle; Postgres just needs padding
+  const wrapperLabelTop = isMaterialize ? FGAC_LABEL_TOP : FGAC_PAD;
+  const wrapperTop = graphMinY - BAND_PADDING_Y - wrapperLabelTop - FGAC_PAD;
+  const wrapperWidth = wrapperMaxX - wrapperMinX + (BAND_PADDING_X + FGAC_PAD) * 2;
+  const wrapperHeight = graphMaxY - graphMinY + (BAND_PADDING_Y + FGAC_PAD) * 2 + wrapperLabelTop + FGAC_LABEL_BOTTOM;
 
-  const fgacBandNode: Node = {
-    id: '__fgac__',
-    type: 'fgac_band',
-    position: { x: fgacLeft, y: fgacTop },
+  const outerBandNode: Node = {
+    id: isMaterialize ? '__fgac__' : '__source_wrapper__',
+    type: isMaterialize ? 'fgac_band' : 'source_wrapper_band',
+    position: { x: wrapperLeft, y: wrapperTop },
     style: {
-      width: fgacWidth,
-      height: fgacHeight,
-      background: 'rgba(124, 58, 237, 0.04)',
-      border: '1.5px solid rgba(124, 58, 237, 0.35)',
+      width: wrapperWidth,
+      height: wrapperHeight,
+      background: isMaterialize ? 'rgba(124, 58, 237, 0.04)' : 'rgba(30, 64, 175, 0.04)',
+      border: isMaterialize ? '1.5px solid rgba(124, 58, 237, 0.35)' : '1.5px solid rgba(30, 64, 175, 0.30)',
       borderRadius: '12px',
     },
     data: { label: '' },
@@ -442,9 +497,9 @@ function getLayoutedElements(
   };
 
   // Floating Agent + MCP nodes above the graph
-  const floatY = fgacTop - FLOAT_GAP - AGENT_H;
+  const floatY = wrapperTop - FLOAT_GAP - AGENT_H;
   const ssCenterX = (layerBounds.source_systems.minX + layerBounds.source_systems.maxX) / 2;
-  const fgacCenterX = fgacLeft + fgacWidth / 2;
+  const wrapperCenterX = wrapperLeft + wrapperWidth / 2;
 
   const agentNode: Node = {
     id: '__agent__',
@@ -461,7 +516,7 @@ function getLayoutedElements(
   const mcpNode: Node = {
     id: '__mcp__',
     type: 'mcp_node',
-    position: { x: fgacCenterX - MCP_W / 2, y: floatY },
+    position: { x: wrapperCenterX - MCP_W / 2, y: floatY },
     style: { width: MCP_W, height: MCP_H },
     data: { label: 'MCP Server' },
     zIndex: 2,
@@ -484,13 +539,14 @@ function getLayoutedElements(
   };
 
   // Lineage nodes
-  const nodes: Node[] = nodeDefs.map((nodeDef) => {
+  const nodes: Node[] = effectiveNodeDefs.map((nodeDef) => {
     const pos = dagreGraph.node(nodeDef.id);
     const isSelected = nodeDef.id === selectedNodeId;
     const isHighlighted = nodeDef.highlighted || false;
 
-    let style = getNodeStyle(nodeDef.type, isSelected);
-    if (isHighlighted && !isSelected) {
+    const effectiveType = !isMaterialize && nodeDef.type === 'mv' ? 'view' : nodeDef.type;
+    let style = getNodeStyle(effectiveType, isSelected);
+    if (isHighlighted && !isSelected && isMaterialize) {
       style = { ...style, border: '3px solid #059669', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' };
     }
 
@@ -511,7 +567,8 @@ function getLayoutedElements(
     source: edgeDef.source,
     target: edgeDef.target,
     style: edgeStyle,
-    animated: true,
+    animated: isMaterialize,
+    markerStart: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' },
     zIndex: 1,
   }));
 
@@ -523,7 +580,8 @@ function getLayoutedElements(
       target: 'triples',
       sourceHandle: 'right',
       style: edgeStyle,
-      animated: true,
+      animated: isMaterialize,
+      markerStart: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' },
       zIndex: 1,
     },
     {
@@ -553,19 +611,23 @@ function getLayoutedElements(
       zIndex: 3,
     },
     {
-      id: 'e-mcp-fgac',
+      id: 'e-mcp-wrapper',
       source: '__mcp__',
-      target: '__fgac__',
+      target: isMaterialize ? '__fgac__' : '__source_wrapper__',
       sourceHandle: 'bottom',
       targetHandle: 'top',
-      style: { stroke: '#a855f7', strokeWidth: 1.5, strokeDasharray: '5,3' },
+      style: {
+        stroke: isMaterialize ? '#a855f7' : '#1e40af',
+        strokeWidth: 1.5,
+        strokeDasharray: '5,3',
+      },
       animated: false,
       zIndex: 3,
     },
   ];
 
   return {
-    nodes: [...bandNodes, fgacBandNode, agentNode, mcpNode, sourceSysNode, ...nodes],
+    nodes: [...bandNodes, outerBandNode, agentNode, mcpNode, sourceSysNode, ...nodes],
     edges: [...edges, ...overlayEdges],
   };
 }
@@ -573,12 +635,13 @@ function getLayoutedElements(
 interface LineageGraphProps {
   selectedNodeId?: string | null;
   onNodeClick?: (nodeId: string) => void;
+  scenario?: 'materialize' | 'postgres';
 }
 
-export function LineageGraph({ selectedNodeId, onNodeClick }: LineageGraphProps) {
+export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'materialize' }: LineageGraphProps) {
   const { nodes, edges } = useMemo(
-    () => getLayoutedElements(nodeDefinitions, edgeDefinitions, selectedNodeId),
-    [selectedNodeId]
+    () => getLayoutedElements(nodeDefinitions, edgeDefinitions, selectedNodeId, scenario),
+    [selectedNodeId, scenario]
   );
 
   const handleNodeClick: NodeMouseHandler = useCallback(
