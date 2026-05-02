@@ -173,8 +173,14 @@ up-agent-bundling:
 	@echo "All services ready (including agents with delivery bundling)!"
 
 down:
-	$(DOCKER_COMPOSE) --profile agent down
-	docker volume rm live-agent-ontology-demo_postgres_data 2>/dev/null
+	$(DOCKER_COMPOSE) --profile agent down -v --remove-orphans
+	@# Belt-and-suspenders: explicitly drop named volumes that have lived
+	@# under different project names over time. The `-v` above takes care
+	@# of the current ones; these handle stale leftovers from renames.
+	@docker volume rm live-context-graph-demo_postgres_data 2>/dev/null || true
+	@docker volume rm live-context-graph-demo_zero_data 2>/dev/null || true
+	@docker volume rm live-context-graph-demo_opensearch_data 2>/dev/null || true
+	@docker volume rm live-agent-ontology-demo_postgres_data 2>/dev/null || true
 
 # Logs
 logs:
