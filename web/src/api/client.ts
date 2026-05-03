@@ -389,6 +389,12 @@ export interface TripleWriteRequest {
   object_value: string
 }
 
+export interface WriteTripleResponse {
+  status: string
+  timestamp: string
+  mz_timestamp_lower_bound: number | null
+}
+
 export interface ViewDefinitionResponse {
   view_name: string
   object_type: string
@@ -415,7 +421,7 @@ export const queryStatsApi = {
   getOrderData: () =>
     apiClient.get<OrderDataResponse>('/api/query-stats/order-data'),
   writeTriple: (data: TripleWriteRequest) =>
-    apiClient.post('/api/query-stats/write-triple', data),
+    apiClient.post<WriteTripleResponse>('/api/query-stats/write-triple', data),
   // Get view definition from Materialize
   getViewDefinition: (viewName: string) =>
     apiClient.get<ViewDefinitionResponse>(`/api/query-stats/view-definition/${encodeURIComponent(viewName)}`),
@@ -639,9 +645,53 @@ export const metricsApi = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type OpenSearchResponse = Record<string, any>
 
+export type VectorLineItem = {
+  line_id?: string;
+  product_id?: string;
+  product_name?: string;
+  category?: string;
+  quantity?: number;
+  unit_price?: number;
+  live_price?: number;
+  base_price?: number;
+  price_change?: number;
+  line_amount?: number;
+  perishable_flag?: boolean;
+}
+
+export type VectorSearchResult = {
+  order_id: string;
+  score: number;
+  embedding: number[];
+  embedding_text: string;
+  embedded_at: string | null;
+  order_number?: string;
+  order_status?: string;
+  customer_name?: string;
+  store_name?: string;
+  store_zone?: string;
+  order_total_amount?: number;
+  effective_updated_at?: string;
+  line_items?: VectorLineItem[];
+}
+
+export type VectorSearchResponse = {
+  results: VectorSearchResult[];
+  query: string;
+  total: number;
+}
+
 export const searchApi = {
   searchOrders: (query: string, limit?: number) =>
     apiClient.get<OpenSearchResponse>('/api/search/orders', {
       params: { q: query, limit: limit || 5 },
+    }),
+  vectorSearchOrders: (query: string, limit?: number, filters?: { store_zone?: string; order_status?: string }) =>
+    apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
+      params: { q: query, limit: limit || 3, ...filters },
+    }),
+  indexImpact: (since_mz_timestamp: number) =>
+    apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
+      params: { since_mz_timestamp },
     }),
 }

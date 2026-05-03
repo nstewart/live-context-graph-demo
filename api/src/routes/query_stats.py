@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from src.audit.write_store import WriteEvent, generate_batch_id, get_write_store
 from src.db.client import get_mz_session, get_pg_session
 
 logger = logging.getLogger(__name__)
@@ -1029,8 +1030,21 @@ async def write_triple(data: TripleWrite):
     allowing you to observe how the change propagates through
     each data access pattern.
     """
+    # Capture wall-clock ms BEFORE the PostgreSQL write as a lower bound for impact detection.
+    # Any OpenSearch doc stamped by the search-sync worker after this point will have
+    # mz_timestamp (also wall-clock ms) >= this value, so the range query is always correct.
+    # mz_now() in a standalone SELECT returns the uint64 sentinel (2^64-1), not epoch ms.
+    mz_lower_bound: int = int(time.time() * 1000)
+
     try:
         async with get_pg_session() as session:
+            old_row = await session.execute(
+                text("SELECT object_value FROM triples WHERE subject_id = :subject_id AND predicate = :predicate"),
+                {"subject_id": data.subject_id, "predicate": data.predicate},
+            )
+            old = old_row.fetchone()
+            old_value = old.object_value if old else None
+
             result = await session.execute(
                 text("""
                     UPDATE triples
@@ -1052,7 +1066,20 @@ async def write_triple(data: TripleWrite):
                 )
             await session.commit()
 
-        return {"status": "written", "timestamp": datetime.now(timezone.utc).isoformat()}
+        get_write_store().add_event(WriteEvent(
+            subject_id=data.subject_id,
+            predicate=data.predicate,
+            old_value=old_value,
+            new_value=data.object_value,
+            operation="UPDATE",
+            batch_id=generate_batch_id(),
+        ))
+
+        return {
+            "status": "written",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mz_timestamp_lower_bound": mz_lower_bound,
+        }
     except HTTPException:
         raise
     except Exception as e:

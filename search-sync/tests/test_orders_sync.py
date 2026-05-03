@@ -7,6 +7,217 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+class TestOrdersSyncWorkerEmbedding:
+    """Tests for the local-CPU vector embedding pipeline in OrdersSyncWorker.
+
+    Behavior under test:
+    - First time we see an order (no hash in cache) -> embed + bulk_upsert
+      with `embedding`, `embedding_text`, `embedded_at` fields populated.
+    - Same order, same line items (hash unchanged) -> NO embed call,
+      use bulk_patch with the non-vector fields only.
+    - Same order, different line items (hash changed) -> re-embed +
+      bulk_upsert with the fresh vector.
+    """
+
+    @pytest.fixture
+    def worker(self, mock_os_client, mock_embedder):
+        """Build an OrdersSyncWorker with mocked OS client and embedder."""
+        with patch("src.base_subscribe_worker.get_settings") as mock_settings:
+            mock_settings.return_value = MagicMock(
+                use_subscribe=True,
+                backpressure_threshold=10000,
+                backpressure_resume=5000,
+                retry_initial_delay=1,
+                retry_max_delay=10,
+            )
+            from src.orders_sync import OrdersSyncWorker
+
+            w = OrdersSyncWorker(mock_os_client)
+            w._embedder = mock_embedder
+            return w
+
+    def _doc(self, order_id="order:FM-1001", line_items=None, **overrides):
+        """Build a minimal order doc dict (already in OS doc form)."""
+        doc = {
+            "order_id": order_id,
+            "order_number": order_id.split(":")[-1],
+            "order_status": "OUT_FOR_DELIVERY",
+            "store_id": "store:BK-01",
+            "customer_id": "customer:101",
+            "order_total_amount": 45.99,
+            "line_items": line_items
+            if line_items is not None
+            else [
+                {"product_name": "Whole Milk", "category": "Dairy"},
+                {"product_name": "Bananas", "category": "Produce"},
+            ],
+            "line_item_count": 2,
+            "has_perishable_items": True,
+        }
+        doc.update(overrides)
+        return doc
+
+    @pytest.mark.asyncio
+    async def test_new_order_embeds_and_upserts(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """A new order (not in hash cache) is embedded + bulk_upserted."""
+        mock_embedder.embed.return_value = [[0.42] * 384]
+
+        worker.pending_upserts = [self._doc()]
+        await worker._flush_batch()
+
+        # Embedder was called exactly once for the new order
+        mock_embedder.embed.assert_called_once()
+        # bulk_upsert was called with the doc carrying embedding + embedded_at
+        mock_os_client.bulk_upsert.assert_called_once()
+        upsert_args = mock_os_client.bulk_upsert.call_args
+        assert upsert_args.args[0] == "orders"
+        upserted_doc = upsert_args.args[1][0]
+        assert upserted_doc["embedding"] == [0.42] * 384
+        assert upserted_doc["embedding_text"] == (
+            "Whole Milk (Dairy) | Bananas (Produce)"
+        )
+        assert "embedded_at" in upserted_doc
+        # bulk_patch should NOT have been called
+        mock_os_client.bulk_patch.assert_not_called()
+        # Hash cache populated
+        assert "order:FM-1001" in worker._hash_cache
+
+    @pytest.mark.asyncio
+    async def test_unchanged_line_items_skips_embed_and_patches(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """When line items are unchanged, do NOT re-embed and use bulk_patch."""
+        # First flush: embed + upsert
+        mock_embedder.embed.return_value = [[0.1] * 384]
+        worker.pending_upserts = [self._doc()]
+        await worker._flush_batch()
+        assert mock_embedder.embed.call_count == 1
+        assert mock_os_client.bulk_upsert.call_count == 1
+
+        # Second flush: same line items, only price changed -> patch only
+        worker.pending_upserts = [self._doc(order_total_amount=99.99)]
+        await worker._flush_batch()
+
+        # Embed was NOT called again
+        assert mock_embedder.embed.call_count == 1
+        # bulk_patch was called for the price-only change
+        mock_os_client.bulk_patch.assert_called_once()
+        patch_args = mock_os_client.bulk_patch.call_args
+        assert patch_args.args[0] == "orders"
+        patches = patch_args.args[1]
+        assert len(patches) == 1
+        assert patches[0]["_id"] == "order:FM-1001"
+        # Patch should NOT contain the vector (it's untouched)
+        assert "embedding" not in patches[0]["doc"]
+        # Patch DOES contain the changed price field
+        assert patches[0]["doc"]["order_total_amount"] == 99.99
+        # bulk_upsert was not called the second time
+        assert mock_os_client.bulk_upsert.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_changed_line_items_reembeds_and_upserts(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """When line items change, re-embed and use bulk_upsert."""
+        # First flush
+        mock_embedder.embed.return_value = [[0.1] * 384]
+        worker.pending_upserts = [self._doc()]
+        await worker._flush_batch()
+        assert mock_embedder.embed.call_count == 1
+
+        # Second flush: line items DIFFERENT -> re-embed
+        new_items = [
+            {"product_name": "Sourdough Bread", "category": "Bakery"},
+            {"product_name": "Bananas", "category": "Produce"},
+        ]
+        mock_embedder.embed.return_value = [[0.9] * 384]
+        worker.pending_upserts = [self._doc(line_items=new_items)]
+        await worker._flush_batch()
+
+        # Embedder was called again for the changed items
+        assert mock_embedder.embed.call_count == 2
+        # bulk_upsert was called twice (both flushes had a hash change)
+        assert mock_os_client.bulk_upsert.call_count == 2
+        # No patches
+        mock_os_client.bulk_patch.assert_not_called()
+        # Latest upsert carries the new vector
+        last_upsert = mock_os_client.bulk_upsert.call_args.args[1][0]
+        assert last_upsert["embedding"] == [0.9] * 384
+        assert "Sourdough Bread (Bakery)" in last_upsert["embedding_text"]
+
+    @pytest.mark.asyncio
+    async def test_build_embedding_text_called_with_line_items(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """build_embedding_text is invoked with the order's line_items."""
+        mock_embedder.embed.return_value = [[0.0] * 384]
+
+        with patch(
+            "src.orders_sync.build_embedding_text",
+            wraps=__import__(
+                "src.embedder", fromlist=["build_embedding_text"]
+            ).build_embedding_text,
+        ) as spy:
+            worker.pending_upserts = [self._doc()]
+            await worker._flush_batch()
+
+        # Called once per doc in the batch
+        assert spy.call_count == 1
+        called_with = spy.call_args.args[0]
+        assert called_with == [
+            {"product_name": "Whole Milk", "category": "Dairy"},
+            {"product_name": "Bananas", "category": "Produce"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_worker_initializes_hash_cache_and_embedder(self, mock_os_client):
+        """Worker has a hash cache dict and embedder attribute on init."""
+        with patch("src.base_subscribe_worker.get_settings") as mock_settings:
+            mock_settings.return_value = MagicMock(
+                use_subscribe=True,
+                backpressure_threshold=10000,
+                backpressure_resume=5000,
+                retry_initial_delay=1,
+                retry_max_delay=10,
+            )
+            from src.orders_sync import OrdersSyncWorker
+
+            w = OrdersSyncWorker(mock_os_client)
+
+            assert isinstance(w._hash_cache, dict)
+            assert w._hash_cache == {}
+            assert w._embedder is not None
+
+    @pytest.mark.asyncio
+    async def test_flush_batch_empty_does_nothing(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """Empty pending lists results in no calls."""
+        worker.pending_upserts = []
+        worker.pending_deletes = []
+
+        await worker._flush_batch()
+
+        mock_embedder.embed.assert_not_called()
+        mock_os_client.bulk_upsert.assert_not_called()
+        mock_os_client.bulk_patch.assert_not_called()
+        mock_os_client.bulk_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_orders_index_mapping_includes_knn_vector(self):
+        """The orders index mapping advertises a 384-dim knn_vector embedding field."""
+        from src.opensearch_client import ORDERS_INDEX_MAPPING
+
+        props = ORDERS_INDEX_MAPPING["mappings"]["properties"]
+        assert "embedding" in props
+        assert props["embedding"]["type"] == "knn_vector"
+        assert props["embedding"]["dimension"] == 384
+        assert props["embedding_text"]["type"] == "keyword"
+        assert props["embedded_at"]["type"] == "date"
+
+
 class TestOrdersSyncWorker:
     """Tests for OrdersSyncWorker."""
 

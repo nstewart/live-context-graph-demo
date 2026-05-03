@@ -59,6 +59,7 @@ if [[ -n "$SG_ID" ]]; then
       echo "Warning: Could not delete security group $SG_ID after 12 attempts"
       echo "         It may still have dependent ENIs. Delete manually in AWS Console."
     else
+      log "Security group still has dependent ENIs, retrying in 10s... (attempt $i/12)"
       sleep 10
     fi
   done

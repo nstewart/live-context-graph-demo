@@ -18,7 +18,6 @@ import {
   Database,
   Zap,
   Clock,
-  Edit3,
   ShoppingCart,
   User,
   Store,
@@ -43,7 +42,8 @@ import {
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
-import { AgentNativeReadsCard } from "../components/AgentNativeReadsCard";
+import { VectorPipelineCard } from "../components/VectorPipelineCard";
+import { WriteTripleForm } from "../components/WriteTripleForm";
 import { usePropagation } from "../contexts/PropagationContext";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -69,43 +69,6 @@ const predicatesBySubjectType: Record<string, string[]> = {
   task: ['task_status', 'assigned_to', 'eta'],
 };
 
-// Example placeholder values for each predicate
-const placeholdersByPredicate: Record<string, string> = {
-  // Order predicates
-  order_status: 'DELIVERED',
-  order_number: 'FM-1234',
-  delivery_window_start: '2025-01-15T10:00:00',
-  delivery_window_end: '2025-01-15T12:00:00',
-  // Order line predicates (perishable_flag is derived from product, not stored)
-  quantity: '5',
-  order_line_unit_price: '12.99',
-  line_sequence: '1',
-  // Customer predicates
-  customer_name: 'John Doe',
-  customer_email: 'john@example.com',
-  customer_address: '123 Main St',
-  // Store predicates
-  store_name: 'Downtown Market',
-  store_zone: 'MAN',
-  store_address: '456 Broadway',
-  // Product predicates
-  product_name: 'Organic Apples',
-  category: 'Produce',
-  unit_price: '4.99',
-  perishable: 'true',
-  unit_weight_grams: '500',
-  // Inventory predicates
-  stock_level: '100',
-  replenishment_eta: '2025-01-16T08:00:00',
-  // Courier predicates
-  courier_name: 'Alex Smith',
-  courier_phone: '555-0123',
-  courier_status: 'AVAILABLE',
-  // Task predicates
-  task_status: 'ASSIGNED',
-  assigned_to: 'courier:C-001',
-  eta: '2025-01-15T11:30:00',
-};
 
 // Highlighted JSON component that glows when values change
 const HighlightedJson = ({ data, trackingKey }: { data: object; trackingKey?: string }) => {
@@ -530,6 +493,12 @@ export default function QueryStatisticsPage() {
   const [useLogScale, setUseLogScale] = useState(false);
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(false);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
+  const [contextReactiveOpen, setContextReactiveOpen] = useState(false);
+  const [freshmartUIOpen, setFreshmartUIOpen] = useState(false);
+  const [trustedActionOpen, setTrustedActionOpen] = useState(true);
+  const [responseChartOpen, setResponseChartOpen] = useState(true);
+  const [reactionChartOpen, setReactionChartOpen] = useState(false);
+  const [queryStatsOpen, setQueryStatsOpen] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
@@ -624,8 +593,6 @@ export default function QueryStatisticsPage() {
   // Triple writer state
   const [tripleSubject, setTripleSubject] = useState("");
   const [triplePredicate, setTriplePredicate] = useState("quantity");
-  const [tripleValue, setTripleValue] = useState("");
-  const [writeStatus, setWriteStatus] = useState<string | null>(null);
   const userSetSubjectRef = useRef(false);
   const [triplesRefreshTrigger, setTriplesRefreshTrigger] = useState(0);
 
@@ -882,59 +849,13 @@ export default function QueryStatisticsPage() {
   }, [clearWrites]);
 
   // Handle triple row click - pre-populate the form
-  const handleTripleClick = useCallback((subject: string, predicate: string, value: string) => {
+  const handleTripleClick = useCallback((subject: string, predicate: string, _value: string) => {
     userSetSubjectRef.current = true;
     setTripleSubject(subject);
     setTriplePredicate(predicate);
-    setTripleValue(value);
   }, []);
 
   // Handle triple write
-  const handleWriteTriple = async () => {
-    if (!tripleSubject || !triplePredicate || !tripleValue) return;
-
-    // Validate input lengths
-    if (tripleSubject.length > 255) {
-      setWriteStatus("Error: Subject too long (max 255 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    if (triplePredicate.length > 255) {
-      setWriteStatus("Error: Predicate too long (max 255 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    if (tripleValue.length > 1000) {
-      setWriteStatus("Error: Value too long (max 1000 chars)");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    // Validate subject format (should contain a colon or underscore)
-    if (!tripleSubject.includes(':') && !tripleSubject.includes('_')) {
-      setWriteStatus("Error: Subject should be in format 'type:id' or 'type_id'");
-      setTimeout(() => setWriteStatus(null), 3000);
-      return;
-    }
-
-    try {
-      await queryStatsApi.writeTriple({
-        subject_id: tripleSubject,
-        predicate: triplePredicate,
-        object_value: tripleValue,
-      });
-      setWriteStatus(`Written at ${new Date().toLocaleTimeString()}`);
-      setTimeout(() => setWriteStatus(null), 3000);
-      // Trigger refresh of the triples card
-      setTriplesRefreshTrigger((prev) => prev + 1);
-    } catch (err) {
-      console.error("Failed to write triple:", err);
-      setWriteStatus("Write failed");
-    }
-  };
-
   // Handle lineage graph node click
   const handleNodeClick = useCallback(async (nodeId: string) => {
     // Toggle selection if clicking the same node
@@ -972,7 +893,7 @@ export default function QueryStatisticsPage() {
       <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         {/* Top row: Title and Controls */}
         <div className="flex justify-between items-start">
-          <h1 className="text-2xl font-bold text-gray-900">Agent Reference Architecture</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Freshmart Demo</h1>
 
           {/* Controls group */}
           <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
@@ -1069,144 +990,163 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Live Data Products</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-time data products for agents and apps' : viewMode === 'batch' ? 'Batch data products for agents and apps' : 'Data product APIs for agents and apps'}</h3>
               <p className="text-xs text-gray-500">
-                Integrate writes from siloed operational systems and apply complex business logic to transform them into live context that can be delivered at agent scale
+                A data product is a named dataset or view that is maintained and exposed for consumption by agents or applications. Unlike a one-off query, it is designed to be discoverable, reusable, and composable across teams and services.
               </p>
             </div>
           </div>
         </button>
         {lineageGraphOpen && (
-          <div className="p-6 pt-0">
-            {/* Order Cards - conditional rendering based on view mode */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {/* PostgreSQL VIEW - shown in all modes */}
-              <OrderCard
-                title="PostgreSQL VIEW"
-                subtitle="Fresh but SLOW (computes every query)"
-                icon={<Database className="h-5 w-5" />}
-                iconColor="text-orange-500"
-                bgColor="border-orange-500"
-                order={orderData?.postgresql_view || null}
-                isLoading={isPolling}
+          <div className="p-6 pt-0 space-y-6">
+            {/* Row 1: Lineage Graph — full width */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                {viewMode === 'materialize'
+                  ? 'Context maintained proactively via live medallion architecture'
+                  : viewMode === 'batch'
+                  ? 'Context is processed in periodic batches'
+                  : 'Context is calculated reactively'}
+              </h4>
+              <LineageGraph
+                selectedNodeId={selectedNodeId}
+                onNodeClick={handleNodeClick}
+                scenario={viewMode === 'materialize' ? 'materialize' : viewMode === 'batch' ? 'batch' : 'postgres'}
               />
-              {/* Batch MATERIALIZED VIEW - shown in batch and materialize modes */}
-              {(viewMode === 'batch' || viewMode === 'materialize') && (
-                <OrderCard
-                  title="Batch MATERIALIZED VIEW"
-                  subtitle="Fast but STALE (refreshes every 60s)"
-                  icon={<Clock className="h-5 w-5" />}
-                  iconColor="text-green-500"
-                  bgColor="border-green-500"
-                  order={orderData?.batch_cache || null}
-                  isLoading={isPolling}
-                />
-              )}
-              {/* Materialize - shown only in materialize mode */}
-              {viewMode === 'materialize' && (
-                <OrderCard
-                  title="Materialize"
-                  subtitle="Real-time sync - updates instantly"
-                  icon={<Zap className="h-5 w-5" />}
-                  iconColor="text-blue-500"
-                  bgColor="border-blue-500"
-                  order={zeroMaterializeOrder}
-                  isLoading={false}
-                />
-              )}
             </div>
 
-            {/* Write Triple Form */}
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Edit3 className="h-4 w-4 text-purple-600" />
-                <span className="font-medium text-gray-900">Write a Triple</span>
-                <span className="text-xs text-gray-500">
-                  - Update an order property and observe propagation
-                </span>
-              </div>
-
-              <div className="flex items-end gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
-                  <input
-                    type="text"
-                    value={tripleSubject}
-                    onChange={(e) => {
-                      userSetSubjectRef.current = true;
-                      setTripleSubject(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                    placeholder="order:FM-1001"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Predicate</label>
-                  <select
-                    value={triplePredicate}
-                    onChange={(e) => setTriplePredicate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                  >
-                    {availablePredicates.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Value</label>
-                  <input
-                    type="text"
-                    value={tripleValue}
-                    onChange={(e) => setTripleValue(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-                    placeholder={placeholdersByPredicate[triplePredicate] || 'value'}
-                  />
-                </div>
-                <button
-                  onClick={handleWriteTriple}
-                  disabled={!tripleSubject || !triplePredicate || !tripleValue}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-                >
-                  Write
-                </button>
-                {writeStatus && (
-                  <span className="text-sm text-green-600 flex items-center gap-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-                    {writeStatus}
-                  </span>
+            {/* Row 2: JSON API Response — two columns, collapsible */}
+            <div className="bg-gray-50 rounded-lg">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setContextReactiveOpen(!contextReactiveOpen)}
+                onKeyDown={(e) => e.key === 'Enter' && setContextReactiveOpen(!contextReactiveOpen)}
+                className="px-4 py-3 flex items-center gap-2 hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+              >
+                {contextReactiveOpen ? (
+                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-gray-500" />
                 )}
+                <h4 className="text-sm font-semibold text-gray-700">Context obtained reactively</h4>
               </div>
+              {contextReactiveOpen && (
+              <div className="px-4 pb-4">
+              <div className="flex gap-4 h-[300px]">
+                {/* Left: label + SQL */}
+                <div className="flex-1 bg-gray-900 rounded-lg overflow-hidden flex flex-col">
+                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-blue-400" />
+                      <span className="text-sm font-medium text-gray-200">API Response</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto px-4 py-3 font-mono text-xs text-gray-400 leading-relaxed">
+                    <div><span className="text-purple-400">SELECT</span></div>
+                    <div className="pl-4">o.order_id, o.order_number, o.order_status,</div>
+                    <div className="pl-4">o.store_id, o.customer_id,</div>
+                    <div className="pl-4">o.delivery_window_start, o.delivery_window_end,</div>
+                    <div className="pl-4">o.order_total_amount,</div>
+                    <div className="pl-4">o.customer_name, o.customer_email, o.customer_address,</div>
+                    <div className="pl-4">o.store_name, o.store_zone, o.store_address,</div>
+                    <div className="pl-4">o.assigned_courier_id, o.delivery_task_status,</div>
+                    <div className="pl-4">o.delivery_eta, o.effective_updated_at,</div>
+                    <div className="pl-4">p.base_price, p.live_price, p.price_change,</div>
+                    <div className="pl-4">p.zone_adjustment, p.perishable_adjustment,</div>
+                    <div className="pl-4">p.local_stock_adjustment, p.popularity_adjustment,</div>
+                    <div className="pl-4">p.scarcity_adjustment, p.demand_multiplier,</div>
+                    <div className="pl-4">p.demand_premium, p.stock_level</div>
+                    <div className="mt-1"><span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
+                    <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
+                    <div className="pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id</div>
+                    <div className="pl-4"><span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
+                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.order_id = <span className="text-green-400">:order_id</span></div>
+                  </div>
+                </div>
+                {/* Right: JSON response */}
+                <div className="flex-[2] bg-gray-900 rounded-lg overflow-hidden flex flex-col">
+                  <div className="flex-1 overflow-auto p-4">
+                    {zeroMaterializeOrder ? (
+                      <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
+                    ) : (
+                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
+                    )}
+                  </div>
+                </div>
+              </div>
+              </div>
+              )}
             </div>
 
-            {/* Response Time and Reaction Time Charts - Stacked */}
+          </div>
+        )}
+      </div>
+
+      {/* Time to Trusted Action (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setTrustedActionOpen(!trustedActionOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {trustedActionOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-gray-900">System Performance</h3>
+              <p className="text-xs text-gray-500">
+                Compare how quickly agents can act on fresh, trusted data across storage strategies
+              </p>
+            </div>
+          </div>
+        </button>
+        {trustedActionOpen && (
+          <div className="p-6 pt-0">
+            {/* Response Time and Reaction Time Charts - Stacked, each collapsible */}
             <div className="space-y-4 mb-6">
               {/* Response Time Chart */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
-                    <p className="text-xs text-gray-500">
-                      Query latency: how long does each query take to execute?
-                    </p>
+              <div className="bg-gray-50 rounded-lg">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setResponseChartOpen(!responseChartOpen)}
+                  onKeyDown={(e) => e.key === 'Enter' && setResponseChartOpen(!responseChartOpen)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    {responseChartOpen ? (
+                      <ChevronDown className="h-4 w-4 text-gray-500" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-500" />
+                    )}
+                    <div className="text-left">
+                      <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Query latency: how long does each query take to execute?</p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUseLogScaleResponseTime(false)}
-                      className={`px-2 py-1 text-xs rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Linear
-                    </button>
-                    <button
-                      onClick={() => setUseLogScaleResponseTime(true)}
-                      className={`px-2 py-1 text-xs rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Log
-                    </button>
-                  </div>
+                  {responseChartOpen && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setUseLogScaleResponseTime(false)}
+                        className={`px-2 py-1 text-xs rounded ${!useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Linear
+                      </button>
+                      <button
+                        onClick={() => setUseLogScaleResponseTime(true)}
+                        className={`px-2 py-1 text-xs rounded ${useLogScaleResponseTime ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Log
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <ResponsiveContainer width="100%" height={250}>
+                {responseChartOpen && (
+                <div className="px-4 pb-4">
+                  <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={responseTimeChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
@@ -1275,34 +1215,51 @@ export default function QueryStatisticsPage() {
                       />
                     )}
                   </LineChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                </div>
+                )}
               </div>
 
               {/* Reaction Time Chart */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
-                    <p className="text-xs text-gray-500">
-                      Data freshness: how stale is the data when the query completes?
-                    </p>
+              <div className="bg-gray-50 rounded-lg">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setReactionChartOpen(!reactionChartOpen)}
+                  onKeyDown={(e) => e.key === 'Enter' && setReactionChartOpen(!reactionChartOpen)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    {reactionChartOpen ? (
+                      <ChevronDown className="h-4 w-4 text-gray-500" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-500" />
+                    )}
+                    <div className="text-left">
+                      <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Data freshness: how stale is the data when the query completes?</p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUseLogScale(false)}
-                      className={`px-2 py-1 text-xs rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Linear
-                    </button>
-                    <button
-                      onClick={() => setUseLogScale(true)}
-                      className={`px-2 py-1 text-xs rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-                    >
-                      Log
-                    </button>
-                  </div>
+                  {reactionChartOpen && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setUseLogScale(false)}
+                        className={`px-2 py-1 text-xs rounded ${!useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Linear
+                      </button>
+                      <button
+                        onClick={() => setUseLogScale(true)}
+                        className={`px-2 py-1 text-xs rounded ${useLogScale ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
+                      >
+                        Log
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <ResponsiveContainer width="100%" height={250}>
+                {reactionChartOpen && (
+                <div className="px-4 pb-4">
+                  <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
@@ -1371,22 +1328,36 @@ export default function QueryStatisticsPage() {
                       />
                     )}
                   </LineChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                </div>
+                )}
               </div>
             </div>
 
             {/* Statistics Table */}
             <div className="bg-gray-50 rounded-lg mb-6">
-              <div className="p-4 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Query Statistics - Orders with Lines View
-                </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
-                </p>
-              </div>
-              <div className="overflow-x-auto">
+              <button
+                onClick={() => setQueryStatsOpen(!queryStatsOpen)}
+                className="w-full p-4 flex items-center justify-between hover:bg-gray-100 transition-colors rounded-lg"
+              >
+                <div className="flex items-center gap-2">
+                  {queryStatsOpen ? (
+                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                  )}
+                  <div className="text-left">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5" />
+                      Query Statistics - Orders with Lines View
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput
+                    </p>
+                  </div>
+                </div>
+              </button>
+              {queryStatsOpen && <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
@@ -1511,9 +1482,8 @@ export default function QueryStatisticsPage() {
                           <div className="flex items-center gap-2">
                             <Zap className="h-4 w-4 text-blue-500" />
                             <div>
-                              <div className="font-medium text-gray-900 flex items-center gap-1">
+                              <div className="font-medium text-gray-900">
                                 Materialize
-                                <span className="text-xs text-blue-600 font-normal bg-blue-100 px-1 rounded">Best</span>
                               </div>
                               <div className="text-xs text-gray-500">Fast AND Fresh (incremental via CDC)</div>
                             </div>
@@ -1544,51 +1514,16 @@ export default function QueryStatisticsPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </div>}
             </div>
 
-            {/* Lineage Graph and API Response - 2 column layout */}
-            <div className="flex gap-6">
-              {/* Left: Lineage Graph */}
-              <div className="flex-[3]">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context maintained proactively via live medallion architecture</h4>
-                <LineageGraph
-                  selectedNodeId={selectedNodeId}
-                  onNodeClick={handleNodeClick}
-                />
-              </div>
+          </div>
+        )}
+      </div>
 
-              {/* Right: JSON API Response */}
-              <div className="flex-[2] flex flex-col">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Context obtained reactively</h4>
-                <div className="bg-gray-900 rounded-lg overflow-hidden flex flex-col h-[430px]">
-                  {/* Header */}
-                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-blue-400" />
-                      <span className="text-sm font-medium text-gray-200">API Response</span>
-                    </div>
-                    <div className="mt-2 font-mono text-xs text-gray-400 space-y-0.5">
-                      <div><span className="text-purple-400">SELECT</span> * <span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
-                      <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
-                      <div className="text-gray-500 pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id <span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
-                    </div>
-                  </div>
-                  {/* JSON Content */}
-                  <div className="flex-1 overflow-auto p-4">
-                    {zeroMaterializeOrder ? (
-                      <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
-                    ) : (
-                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* View Definition Modal */}
-            {selectedNodeId && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* View Definition Modal */}
+      {selectedNodeId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 {/* Backdrop */}
                 <div
                   className="absolute inset-0 bg-black/50"
@@ -1654,12 +1589,67 @@ export default function QueryStatisticsPage() {
                 </div>
               </div>
             )}
+
+      {/* Freshmart UI Components (Collapsible) */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          onClick={() => setFreshmartUIOpen(!freshmartUIOpen)}
+          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {freshmartUIOpen ? (
+              <ChevronDown className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-500" />
+            )}
+            <h3 className="text-lg font-semibold text-gray-900">UI components</h3>
+          </div>
+        </button>
+        {freshmartUIOpen && (
+          <div className="p-6 pt-0">
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <OrderCard
+                title="PostgreSQL VIEW"
+                subtitle="Fresh but SLOW (computes every query)"
+                icon={<Database className="h-5 w-5" />}
+                iconColor="text-orange-500"
+                bgColor="border-orange-500"
+                order={orderData?.postgresql_view || null}
+                isLoading={isPolling}
+              />
+              {(viewMode === 'batch' || viewMode === 'materialize') && (
+                <OrderCard
+                  title="Batch MATERIALIZED VIEW"
+                  subtitle="Fast but STALE (refreshes every 60s)"
+                  icon={<Clock className="h-5 w-5" />}
+                  iconColor="text-green-500"
+                  bgColor="border-green-500"
+                  order={orderData?.batch_cache || null}
+                  isLoading={isPolling}
+                />
+              )}
+              {viewMode === 'materialize' && (
+                <OrderCard
+                  title="Materialize"
+                  subtitle="Real-time sync - updates instantly"
+                  icon={<Zap className="h-5 w-5" />}
+                  iconColor="text-blue-500"
+                  bgColor="border-blue-500"
+                  order={zeroMaterializeOrder}
+                  isLoading={false}
+                />
+              )}
+            </div>
+            <WriteTripleForm
+              initialSubject={tripleSubject}
+              onWritten={() => setTriplesRefreshTrigger(prev => prev + 1)}
+            />
           </div>
         )}
       </div>
 
-      {/* Agent-native Reads Card */}
-      <AgentNativeReadsCard />
+      {/* Vector Pipeline Card */}
+      <VectorPipelineCard />
 
       {/* What is a Knowledge Graph? Card */}
       <WhatIsKnowledgeGraphCard />

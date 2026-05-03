@@ -113,19 +113,21 @@ fi
 SG_ID=$(load_state "security-group-id")
 MY_IP=$(curl -s --max-time 5 https://checkip.amazonaws.com | tr -d '[:space:]')
 
+update_sg_ingress() {
+  local sg="$1" ip="$2"
+  aws ec2 revoke-security-group-ingress --group-id "$sg" \
+    --protocol tcp --port 22 --cidr 0.0.0.0/0 2>/dev/null || true
+  aws ec2 revoke-security-group-ingress --group-id "$sg" \
+    --ip-permissions "$(aws ec2 describe-security-groups --group-ids "$sg" \
+      --query "SecurityGroups[0].IpPermissions" --output json 2>/dev/null)" 2>/dev/null || true
+  aws ec2 authorize-security-group-ingress --group-id "$sg" \
+    --protocol tcp --port 22 --cidr "${ip}/32" >/dev/null
+}
+
 if [[ -n "$SG_ID" ]]; then
-  # Validate the security group still exists
   if aws ec2 describe-security-groups --group-ids "$SG_ID" &>/dev/null; then
-    log "Using existing security group: $SG_ID"
-    # Update ingress to current IP
-    aws ec2 revoke-security-group-ingress --group-id "$SG_ID" \
-      --protocol tcp --port 22 --cidr 0.0.0.0/0 2>/dev/null || true
-    # Revoke any specific IP rules too
-    aws ec2 revoke-security-group-ingress --group-id "$SG_ID" \
-      --ip-permissions "$(aws ec2 describe-security-groups --group-ids "$SG_ID" \
-        --query "SecurityGroups[0].IpPermissions" --output json 2>/dev/null)" 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
-      --protocol tcp --port 22 --cidr "${MY_IP}/32" >/dev/null
+    log "Using existing security group: $SG_ID (updating ingress to $MY_IP)"
+    update_sg_ingress "$SG_ID" "$MY_IP"
   else
     log "Stale security group ID, creating new one..."
     SG_ID=""
@@ -148,7 +150,8 @@ if [[ -z "$SG_ID" ]]; then
       --protocol tcp --port 22 --cidr "${MY_IP}/32" >/dev/null
     log "Created security group: $SG_ID (SSH from $MY_IP)"
   else
-    log "Recovered existing security group: $SG_ID"
+    log "Recovered existing security group: $SG_ID (updating ingress to $MY_IP)"
+    update_sg_ingress "$SG_ID" "$MY_IP"
   fi
   save_state "security-group-id" "$SG_ID"
 fi
@@ -230,6 +233,7 @@ for i in $(seq 1 30); do
     echo "Error: SSH connection timed out after 30 attempts"
     exit 1
   fi
+  log "SSH not ready yet, retrying in 5s... (attempt $i/30)"
   sleep 5
 done
 
@@ -242,6 +246,7 @@ for i in $(seq 1 60); do
     echo "Error: cloud-init did not complete within timeout"
     exit 1
   fi
+  log "cloud-init still running, retrying in 5s... (attempt $i/60)"
   sleep 5
 done
 
@@ -352,6 +357,7 @@ wait_for_hydration() {
       echo "  All $EXPECTED views hydrated after $((i*5))s"
       return 0
     fi
+    echo "  $hydrated/$EXPECTED views hydrated, retrying in 5s... ($((i*5))s elapsed)"
   done
   echo "  ERROR: only $hydrated/$EXPECTED views hydrated after 300s"
   docker compose exec -T mz psql -h localhost -p 6875 -U materialize -d materialize -c "SELECT mv.name, hs.hydrated FROM mz_internal.mz_hydration_statuses hs RIGHT JOIN mz_catalog.mz_materialized_views mv ON mv.id = hs.object_id WHERE mv.name IN ($QUOTED) ORDER BY mv.name;" || true

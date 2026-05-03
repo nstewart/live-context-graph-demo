@@ -719,7 +719,15 @@ FROM store_inventory_mv inv
 LEFT JOIN pricing_factors pf ON pf.product_id = inv.product_id
 WHERE inv.unit_price IS NOT NULL;"
 
-# Orders with aggregated line items and search fields (customer, store, delivery info)
+echo "Creating dynamic pricing materialized view and indexes..."
+
+# Materialize the dynamic pricing view
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_items_with_dynamic_pricing_mv
+IN CLUSTER compute AS
+SELECT * FROM inventory_items_with_dynamic_pricing;"
+
+# Orders with aggregated line items, search fields, and live pricing (joins inventory MV above)
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS orders_with_lines_mv IN CLUSTER compute AS
 SELECT
@@ -744,7 +752,7 @@ SELECT
     dt.assigned_courier_id,
     dt.task_status AS delivery_task_status,
     dt.eta AS delivery_eta,
-    -- Line items (static order data only - no dynamic pricing)
+    -- Line items with dynamic pricing from inventory
     COALESCE(
         jsonb_agg(
             jsonb_build_object(
@@ -757,7 +765,20 @@ SELECT
                 'line_amount', ol.line_amount,
                 'line_sequence', ol.line_sequence,
                 'perishable_flag', ol.perishable_flag,
-                'unit_weight_grams', ol.unit_weight_grams
+                'unit_weight_grams', ol.unit_weight_grams,
+                -- Dynamic pricing (null if no inventory record for this product+store)
+                'inventory_id', ip.inventory_id,
+                'base_price', ip.base_price,
+                'live_price', ip.live_price,
+                'price_change', ip.price_change,
+                'zone_adjustment', ip.zone_adjustment,
+                'perishable_adjustment', ip.perishable_adjustment,
+                'local_stock_adjustment', ip.local_stock_adjustment,
+                'popularity_adjustment', ip.popularity_adjustment,
+                'scarcity_adjustment', ip.scarcity_adjustment,
+                'demand_multiplier', ip.demand_multiplier,
+                'demand_premium', ip.demand_premium,
+                'current_stock', ip.available_quantity
             ) ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
@@ -771,13 +792,16 @@ SELECT
         MAX(ol.effective_updated_at),
         c.effective_updated_at,
         s.effective_updated_at,
-        dt.effective_updated_at
+        dt.effective_updated_at,
+        MAX(ip.effective_updated_at)
     ) AS effective_updated_at
 FROM orders_flat_mv o
 LEFT JOIN customers_flat c ON c.customer_id = o.customer_id
 LEFT JOIN stores_flat s ON s.store_id = o.store_id
 LEFT JOIN delivery_tasks_flat dt ON dt.order_id = o.order_id
 LEFT JOIN order_lines_flat_mv ol ON ol.order_id = o.order_id
+LEFT JOIN inventory_items_with_dynamic_pricing_mv ip
+    ON ip.product_id = ol.product_id AND ip.store_id = o.store_id
 GROUP BY
     o.order_id,
     o.order_number,
@@ -801,14 +825,6 @@ GROUP BY
     dt.task_status,
     dt.eta,
     dt.effective_updated_at;"
-
-echo "Creating dynamic pricing materialized view and indexes..."
-
-# Materialize the dynamic pricing view
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
-CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_items_with_dynamic_pricing_mv
-IN CLUSTER compute AS
-SELECT * FROM inventory_items_with_dynamic_pricing;"
 echo "Creating indexes IN CLUSTER serving on materialized views..."
 
 # Create indexes in serving cluster on materialized views
