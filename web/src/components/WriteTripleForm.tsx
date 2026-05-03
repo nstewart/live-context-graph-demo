@@ -1,6 +1,23 @@
 import { useState, useEffect, useMemo } from "react";
 import { Edit3 } from "lucide-react";
 import { queryStatsApi, searchApi } from "../api/client";
+import { usePropagation } from "../contexts/PropagationContext";
+
+const VIRTUAL_SIZE = 65536; // large space so marks are proportionally sparse
+
+function hashDocId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(31, h) + id.charCodeAt(i) >>> 0;
+  }
+  return h % VIRTUAL_SIZE;
+}
+
+const OP_COLORS: Record<string, string> = {
+  INSERT: '#10b981',
+  UPDATE: '#a855f7',
+  DELETE: '#ef4444',
+};
 
 const predicatesBySubjectType: Record<string, string[]> = {
   order: ['order_status', 'order_number', 'delivery_window_start', 'delivery_window_end'],
@@ -38,8 +55,33 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
   const [status, setStatus]       = useState<string | null>(null);
   const [impact, setImpact]       = useState<{ impacted: number; total: number; pct: number } | null>(null);
   const [watchingImpact, setWatchingImpact] = useState(false);
+  const [writeTimestamp, setWriteTimestamp] = useState<number | null>(null);
+
+  const { events } = usePropagation();
+
+  // Marks: one per unique doc_id changed since last write, at a proportional position
+  const marks = useMemo(() => {
+    if (!writeTimestamp) return null;
+    const relevant = events.filter((e) => e.timestamp >= writeTimestamp);
+    if (relevant.length === 0) return null;
+    const seen = new Map<string, string>(); // doc_id → color
+    for (const e of relevant) {
+      seen.set(e.doc_id, OP_COLORS[e.operation] ?? '#6b7280');
+    }
+    return Array.from(seen.entries()).map(([doc_id, color]) => ({
+      doc_id,
+      color,
+      pct: (hashDocId(doc_id) / VIRTUAL_SIZE) * 100,
+    }));
+  }, [events, writeTimestamp]);
 
   useEffect(() => { setSubject(initialSubject); }, [initialSubject]);
+
+  // Clear impact + buckets whenever the user starts a new search
+  useEffect(() => {
+    setImpact(null);
+    setWriteTimestamp(null);
+  }, [subject, predicate, value]);
 
   const availablePredicates = useMemo(() => {
     let base = predicatesBySubjectType.orderline;
@@ -87,8 +129,10 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
       flash("Error: Subject should be 'type:id' or 'type_id'"); return;
     }
     setImpact(null);
+    setWriteTimestamp(null);
     try {
       const res = await queryStatsApi.writeTriple({ subject_id: subject, predicate, object_value: value });
+      setWriteTimestamp(Date.now() / 1000); // seconds to match PropagationEvent.timestamp
       flash(`Written at ${new Date().toLocaleTimeString()}`);
       onWritten?.();
       if (res.data.mz_timestamp_lower_bound != null) {
@@ -158,23 +202,42 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
           </span>
         )}
       </div>
-      {(watchingImpact || impact) && (
-        <div className="mt-2 text-xs text-gray-600 flex items-center gap-1.5">
-          {watchingImpact && !impact && (
-            <span className="text-gray-400 animate-pulse">Watching pipeline...</span>
-          )}
-          {impact && (
-            <>
-              <span className="font-mono text-purple-700 font-semibold">{impact.impacted}</span>
-              <span className="text-gray-400">/</span>
-              <span className="font-mono text-gray-600">{impact.total}</span>
-              <span className="text-gray-500">docs re-indexed</span>
-              <span className={`font-semibold ml-1 ${impact.pct > 10 ? 'text-orange-600' : 'text-purple-600'}`}>
-                ({impact.pct}%)
-              </span>
-              {watchingImpact && <span className="text-gray-400 animate-pulse ml-1">…</span>}
-            </>
-          )}
+      {(watchingImpact || marks || impact) && (
+        <div className="mt-3">
+          {/* Proportional marker bar */}
+          <div className="relative h-4 rounded overflow-hidden bg-gray-200">
+            {marks?.map(({ doc_id, color, pct }) => (
+              <div
+                key={doc_id}
+                className="absolute top-0 bottom-0"
+                style={{ left: `${pct}%`, width: '2px', backgroundColor: color }}
+                title={doc_id}
+              />
+            ))}
+          </div>
+          {/* Count row */}
+          <div className="mt-1 text-xs text-gray-500 flex items-center gap-2">
+            {watchingImpact && !impact && (
+              <span className="text-gray-400 animate-pulse">Watching pipeline…</span>
+            )}
+            {impact && (
+              <>
+                <span className="font-mono font-semibold text-purple-700">{impact.impacted}</span>
+                <span className="text-gray-400">/</span>
+                <span className="font-mono text-gray-600">{impact.total}</span>
+                <span>docs re-indexed</span>
+                <span className={`font-semibold ${impact.pct > 10 ? 'text-orange-600' : 'text-purple-600'}`}>
+                  ({impact.pct}%)
+                </span>
+                {watchingImpact && <span className="text-gray-400 animate-pulse">…</span>}
+              </>
+            )}
+            <div className="ml-auto flex items-center gap-3 text-gray-400">
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: OP_COLORS.INSERT }} />insert</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: OP_COLORS.UPDATE }} />update</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: OP_COLORS.DELETE }} />delete</span>
+            </div>
+          </div>
         </div>
       )}
     </div>
