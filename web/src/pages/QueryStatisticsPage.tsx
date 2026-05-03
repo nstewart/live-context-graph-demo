@@ -990,9 +990,9 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-Time Data Products' : 'Data Products'}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-time data products for agents and apps' : viewMode === 'batch' ? 'Batch data products for agents and apps' : 'Data product APIs for agents and apps'}</h3>
               <p className="text-xs text-gray-500">
-                Integrate writes from siloed operational systems and apply complex business logic to transform them into live context that can be delivered at agent scale
+                A data product is a named dataset or view that is maintained and exposed for consumption by agents or applications. Unlike a one-off query, it is designed to be discoverable, reusable, and composable across teams and services.
               </p>
             </div>
           </div>
