@@ -242,7 +242,7 @@ export const VectorPipelineCard = () => {
         ...(filterStatus ? { order_status: filterStatus } : {}),
       };
       const response = await searchApi.vectorSearchOrders(query, 5, filters);
-      applyResults(response.data.results ?? []);
+      applyResults((response.data.results ?? []).filter(r => r.score >= 0.6));
     } catch (err) {
       if (!silent) {
         console.error("Vector search failed:", err);
@@ -297,7 +297,7 @@ export const VectorPipelineCard = () => {
           <div className="border rounded-lg overflow-hidden mb-4">
             <div className="bg-gray-50 px-4 py-2 border-b flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
-              <span className="text-sm font-medium text-gray-700">Semantic Search</span>
+              <span className="text-sm font-medium text-gray-700">Hybrid Search</span>
             </div>
             <div className="p-4 space-y-3">
               <div className="flex gap-2">
