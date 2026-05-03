@@ -42,7 +42,6 @@ import {
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
-import { VectorPipelineCard } from "../components/VectorPipelineCard";
 import { WriteTripleForm } from "../components/WriteTripleForm";
 import { usePropagation } from "../contexts/PropagationContext";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -1647,9 +1646,6 @@ export default function QueryStatisticsPage() {
           </div>
         )}
       </div>
-
-      {/* Vector Pipeline Card */}
-      <VectorPipelineCard />
 
       {/* What is a Knowledge Graph? Card */}
       <WhatIsKnowledgeGraphCard />
