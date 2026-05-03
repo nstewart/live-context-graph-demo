@@ -202,9 +202,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
           </span>
         )}
       </div>
-      {(watchingImpact || marks || impact) && (
-        <div className="mt-3">
-          {/* Proportional marker bar */}
+      <div className="mt-3">
+          {/* Proportional marker bar — always visible, markers fill in after write */}
           <div className="relative h-4 rounded overflow-hidden bg-gray-200">
             {marks?.map(({ doc_id, color, pct }) => (
               <div
@@ -215,7 +214,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
               />
             ))}
           </div>
-          {/* Count row */}
+          {/* Count row — only shown after a write */}
+          {(watchingImpact || impact) && (
           <div className="mt-1 text-xs text-gray-500 flex items-center gap-2">
             {watchingImpact && !impact && (
               <span className="text-gray-400 animate-pulse">Watching pipeline…</span>
@@ -238,8 +238,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten }: WriteTripleF
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: OP_COLORS.DELETE }} />delete</span>
             </div>
           </div>
+          )}
         </div>
-      )}
     </div>
   );
 };

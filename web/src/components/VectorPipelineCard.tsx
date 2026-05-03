@@ -8,45 +8,25 @@ import {
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 
-// ── Embedding strip ──────────────────────────────────────────────────────────
+// ── Embedding fingerprint ─────────────────────────────────────────────────────
 
-const BANDS = 32;
-
-function downsample(vector: number[], bands: number): number[] {
-  const chunkSize = Math.floor(vector.length / bands);
-  return Array.from({ length: bands }, (_, i) => {
-    const slice = vector.slice(i * chunkSize, (i + 1) * chunkSize);
-    return slice.reduce((a, b) => a + b, 0) / slice.length;
-  });
+function embeddingFingerprint(vector: number[]): string {
+  if (!vector || vector.length < 8) return '—';
+  return vector.slice(0, 12)
+    .map(v => Math.round(((v + 1) / 2) * 255) & 0xff)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join(' ') + '…';
 }
 
-const EmbeddingStrip = ({ vector, flashing, height = 16 }: { vector: number[]; flashing?: boolean; height?: number }) => {
-  if (!vector || vector.length < BANDS) {
-    return <span className="text-xs text-gray-400 italic">—</span>;
-  }
-  const samples = downsample(vector, BANDS);
-  const min = Math.min(...samples);
-  const max = Math.max(...samples);
-  const range = max - min || 1;
+const EmbeddingStrip = ({ vector, flashing }: { vector: number[]; flashing?: boolean; height?: number }) => {
+  const fp = embeddingFingerprint(vector);
   return (
-    <div
-      className={`w-full rounded overflow-hidden transition-all duration-300 ${flashing ? "ring-2 ring-yellow-400 shadow-[0_0_12px_3px_rgba(250,204,21,0.5)]" : ""}`}
-      title={`384-dim embedding (${BANDS} bands shown)`}
+    <span
+      className={`font-mono text-xs flex-1 transition-all duration-300 ${flashing ? "text-yellow-400 font-semibold" : "text-gray-400"}`}
+      title="384-dim embedding vector (first 12 values as hex)"
     >
-      <div className="flex w-full">
-        {samples.map((v, i) => {
-          const t = (v - min) / range;
-          const hue = Math.round(240 - t * 240);
-          const lightness = Math.round(70 - t * 40);
-          return (
-            <div
-              key={i}
-              style={{ flex: 1, height, backgroundColor: `hsl(${hue}, 65%, ${lightness}%)` }}
-            />
-          );
-        })}
-      </div>
-    </div>
+      {fp}
+    </span>
   );
 };
 
@@ -114,15 +94,14 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSel
       </span>
     </div>
 
-    {/* Embedding strip + text */}
-    <div className="flex items-center gap-2">
-      <div className="flex-1">
-        <EmbeddingStrip vector={result.embedding} flashing={embeddingFlashing} height={12} />
-      </div>
-      <span className="text-xs text-gray-400 font-mono whitespace-nowrap flex-shrink-0">
+    {/* Embedding fingerprint bar */}
+    <div className={`flex items-center gap-2 bg-gray-900 rounded px-2 py-1 transition-all duration-300 ${embeddingFlashing ? "ring-2 ring-yellow-400 shadow-[0_0_10px_2px_rgba(250,204,21,0.4)]" : ""}`}>
+      <span className="text-xs font-medium text-gray-500 whitespace-nowrap flex-shrink-0">emb</span>
+      <EmbeddingStrip vector={result.embedding} flashing={embeddingFlashing} />
+      <span className="text-xs text-gray-500 font-mono whitespace-nowrap flex-shrink-0">
         {embeddingFlashing
-          ? <span className="text-yellow-600 font-semibold animate-pulse">↻ re-embedded</span>
-          : `emb ${fmtTime(result.embedded_at)}`}
+          ? <span className="text-yellow-400 font-semibold animate-pulse">↻ re-embedded</span>
+          : fmtTime(result.embedded_at)}
       </span>
     </div>
     {result.embedding_text && (
