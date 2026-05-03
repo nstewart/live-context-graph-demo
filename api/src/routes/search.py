@@ -4,6 +4,7 @@ These endpoints proxy search requests to OpenSearch, allowing the frontend
 to perform semantic searches across denormalized order documents.
 """
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -234,37 +235,32 @@ async def vector_search_orders(
             detail=f"Vector search failed: {str(e)}",
         )
 
-    # 3 + 4. Hydrate each hit from Materialize and merge
+    # 3. Hydrate all hits from Materialize concurrently (avoid N+1 round-trips).
     hits = os_result.get("hits", {}).get("hits", []) or []
-    results: list[dict[str, Any]] = []
 
-    for hit in hits:
+    async def _hydrate(hit: dict) -> dict | None:
         source = hit.get("_source", {}) or {}
         order_id = source.get("order_id") or hit.get("_id")
         if not order_id:
-            continue
-
-        # Live hydration via Materialize
+            return None
         try:
             order = await service.get_order(order_id)
         except Exception as e:
-            logger.warning(
-                f"Failed to hydrate order {order_id} from Materialize: {e}",
-                exc_info=True,
-            )
-            continue
-
+            logger.warning(f"Failed to hydrate order {order_id} from Materialize: {e}", exc_info=True)
+            return None
         if order is None:
-            # Order was deleted between indexing and now - skip
             logger.debug(f"Skipping {order_id}: not found in Materialize")
-            continue
+            return None
 
         # model_dump(mode="json") serializes Decimal as str; convert to float.
         live = order.model_dump(mode="json")
         if live.get("order_total_amount") is not None:
             live["order_total_amount"] = float(live["order_total_amount"])
 
-        merged: dict[str, Any] = {
+        # Start from live Materialize fields; then layer in OS-only fields that
+        # must survive (embedding, line_items, score — not present in OrderFlat).
+        merged: dict[str, Any] = {**live}
+        merged.update({
             "order_id": order_id,
             "score": hit.get("_score"),
             "embedding": source.get("embedding") or [],
@@ -274,17 +270,11 @@ async def vector_search_orders(
             # <2s latency). They carry live_price, base_price, etc. because
             # search-sync joins inventory_items_with_dynamic_pricing_mv.
             "line_items": source.get("line_items") or [],
-        }
-        # Merge live Materialize fields — live values win on conflicts.
-        merged.update(live)
-        # Re-pin OS-only fields so they aren't clobbered by OrderFlat.
-        merged["order_id"] = order_id
-        merged["score"] = hit.get("_score")
-        merged["embedding"] = source.get("embedding") or []
-        merged["embedding_text"] = source.get("embedding_text")
-        merged["embedded_at"] = source.get("embedded_at")
-        merged["line_items"] = source.get("line_items") or []
-        results.append(merged)
+        })
+        return merged
+
+    hydrated = await asyncio.gather(*[_hydrate(h) for h in hits])
+    results = [r for r in hydrated if r is not None]
 
     return {"results": results, "query": q, "total": len(results)}
 

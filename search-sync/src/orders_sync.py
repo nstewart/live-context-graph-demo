@@ -167,7 +167,8 @@ class OrdersSyncWorker(BaseSubscribeWorker):
         super().__init__(os_client)
         # Maps order_id -> last embedded MD5 hash. Stored in memory only;
         # rebuilds naturally on restart since the next change will trigger
-        # a re-embed.
+        # a re-embed. Unbounded — acceptable for this demo, but would need a
+        # TTL or size cap for a long-running production worker.
         self._hash_cache: dict[str, str] = {}
         self._embedder = Embedder()
 
@@ -345,8 +346,8 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 doc["embedded_at"] = now_iso
                 full_upserts.append(doc)
 
-        # Stamp wall-clock ms on patches (full_upserts are stamped by base _flush_batch
-        # before this override runs, but patches bypass that path).
+        # Stamp wall-clock ms on all docs. This is a full override with no super() call,
+        # so both full_upserts and patches must be stamped here.
         mz_ts_int = int(datetime.now(timezone.utc).timestamp() * 1000)
         for doc in full_upserts:
             doc["mz_timestamp"] = mz_ts_int

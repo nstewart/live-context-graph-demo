@@ -610,6 +610,8 @@ class TestIndexImpactAPI:
 
     @pytest.mark.asyncio
     async def test_returns_impacted_total_and_pct(self, async_client: AsyncClient):
+        # IMPACT_INDEXES has 2 entries; each returns count=1000 (total) / count=47 (impacted).
+        # The endpoint sums across all indexes: total=2000, impacted=94, pct=4.7.
         total_resp = AsyncMock(status_code=200, json=lambda: {"count": 1000})
         total_resp.raise_for_status = lambda: None
         impact_resp = AsyncMock(status_code=200, json=lambda: {"count": 47})
@@ -621,8 +623,8 @@ class TestIndexImpactAPI:
             )
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 1000
-        assert data["impacted"] == 47
+        assert data["total"] == 2000
+        assert data["impacted"] == 94
         assert data["pct"] == 4.7
 
     @pytest.mark.asyncio
@@ -639,7 +641,10 @@ class TestIndexImpactAPI:
                 "/api/search/impact", params={"since_mz_timestamp": 1746000000000}
             )
         assert response.status_code == 200
-        assert response.json() == {"impacted": 0, "total": 0, "pct": 0.0}
+        data = response.json()
+        assert data["impacted"] == 0
+        assert data["total"] == 0
+        assert data["pct"] == 0.0
 
     @pytest.mark.asyncio
     async def test_opensearch_unavailable_returns_503(self, async_client: AsyncClient):
