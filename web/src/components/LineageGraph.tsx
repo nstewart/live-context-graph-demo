@@ -392,7 +392,10 @@ const nodeDefinitions: Array<{
   medallionLayer: MedallionLayer;
   highlighted?: boolean;
 }> = [
-  { id: 'triples', label: 'OLTP', type: 'source', medallionLayer: 'sources' },
+  { id: 'triples',        label: 'OLTP',              type: 'source', medallionLayer: 'sources' },
+  { id: 'src_customers',  label: 'Customers DB',       type: 'source', medallionLayer: 'sources' },
+  { id: 'src_operations', label: 'Operations DB',      type: 'source', medallionLayer: 'sources' },
+  { id: 'src_courier',    label: 'Courier Stream',     type: 'source', medallionLayer: 'sources' },
   { id: 'customers_flat', label: 'customers_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'stores_flat', label: 'stores_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'products_flat', label: 'products_flat', type: 'view', medallionLayer: 'bronze' },
@@ -463,12 +466,39 @@ function getLayoutedElements(
   const isPostgres = scenario === 'postgres';
   const isBatch = scenario === 'batch';
 
-  // In Postgres mode, triples lives in the Bronze column (no separate CDC source lane)
-  const effectiveNodeDefs = nodeDefs.map((n) =>
-    n.id === 'triples' && isPostgres
-      ? { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer }
-      : n
-  );
+  // Map triples → X edges to the correct named source in materialize/batch mode
+  const tripleSourceMap: Record<string, string> = {
+    customers_flat:    'src_customers',
+    stores_flat:       'src_operations',
+    products_flat:     'src_operations',
+    order_lines_base:  'src_operations',
+    orders_flat_mv:    'src_operations',
+    store_inventory_mv:'src_operations',
+    delivery_tasks_flat:'src_courier',
+  };
+
+  // In Postgres mode: triples moves to Bronze; src_* nodes hidden.
+  // In Materialize/Batch: triples hidden; src_* nodes shown; edges remapped.
+  const effectiveNodeDefs = nodeDefs
+    .filter((n) => {
+      if (n.id === 'triples') return true; // always keep; visibility handled below
+      if (['src_customers', 'src_operations', 'src_courier'].includes(n.id)) return !isPostgres;
+      return true;
+    })
+    .map((n) => {
+      if (n.id === 'triples' && isPostgres)
+        return { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer };
+      return n;
+    })
+    .filter((n) => !(n.id === 'triples' && !isPostgres));
+
+  const effectiveEdgeDefs = isPostgres
+    ? edgeDefs
+    : edgeDefs.map((e) =>
+        e.source === 'triples'
+          ? { ...e, source: tripleSourceMap[e.target] ?? e.source }
+          : e
+      );
 
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -478,13 +508,32 @@ function getLayoutedElements(
   effectiveNodeDefs.forEach((node) => {
     dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   });
-  edgeDefs.forEach((edge) => {
+  effectiveEdgeDefs.forEach((edge) => {
     dagreGraph.setEdge(edge.source, edge.target);
   });
   dagreGraph.setNode('source_systems_box', { width: SS_W, height: SS_H });
-  dagreGraph.setEdge('source_systems_box', 'triples');
+  // Anchor source_systems_box to source nodes so they all end up at the same dagre rank
+  if (isPostgres) {
+    dagreGraph.setEdge('source_systems_box', 'triples');
+  } else {
+    dagreGraph.setEdge('source_systems_box', 'src_customers');
+    dagreGraph.setEdge('source_systems_box', 'src_operations');
+    dagreGraph.setEdge('source_systems_box', 'src_courier');
+  }
 
   dagre.layout(dagreGraph);
+
+  // Force all three source nodes into the same x column and desired top-to-bottom order:
+  // Customers DB, Operations DB, Courier Stream
+  if (!isPostgres) {
+    const orderedSourceIds = ['src_customers', 'src_operations', 'src_courier'];
+    const minX = Math.min(...orderedSourceIds.map(id => dagreGraph.node(id).x));
+    const ys = orderedSourceIds.map(id => dagreGraph.node(id).y).sort((a, b) => a - b);
+    orderedSourceIds.forEach((id, i) => {
+      const n = dagreGraph.node(id);
+      dagreGraph.setNode(id, { ...n, x: minX, y: ys[i] });
+    });
+  }
 
   // Compute bounding boxes per medallion layer and overall graph
   const layerBounds: Record<MedallionLayer, { minX: number; maxX: number }> = {
@@ -648,10 +697,10 @@ function getLayoutedElements(
   });
 
   // Lineage edges
-  const edges: Edge[] = edgeDefs.map((edgeDef, index) => {
-    // In batch mode, edges from OLTP (triples) point forward toward their targets;
-    // all other non-materialize edges point backward (arrowhead at source end).
-    const batchForward = isBatch && edgeDef.source === 'triples';
+  const srcNodeIds = new Set(['triples', 'src_customers', 'src_operations', 'src_courier']);
+  const edges: Edge[] = effectiveEdgeDefs.map((edgeDef, index) => {
+    // In batch mode, edges from source nodes point forward; all others point backward.
+    const batchForward = isBatch && srcNodeIds.has(edgeDef.source);
     return {
       id: `e-${edgeDef.source}-${edgeDef.target}-${index}`,
       source: edgeDef.source,
@@ -673,13 +722,32 @@ function getLayoutedElements(
     {
       id: 'e-src-triples',
       source: 'source_systems_box',
-      target: 'triples',
+      target: isPostgres ? 'triples' : 'src_operations',
       sourceHandle: 'right',
       style: edgeStyle,
-      animated: isMaterialize,
-      markerEnd: isMaterialize ? undefined : { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+      animated: true,
       zIndex: 1,
     },
+    ...(!isPostgres ? [
+      {
+        id: 'e-src-customers',
+        source: 'source_systems_box',
+        target: 'src_customers',
+        sourceHandle: 'right',
+        style: edgeStyle,
+        animated: true,
+        zIndex: 1,
+      },
+      {
+        id: 'e-src-courier',
+        source: 'source_systems_box',
+        target: 'src_courier',
+        sourceHandle: 'right',
+        style: edgeStyle,
+        animated: true,
+        zIndex: 1,
+      },
+    ] : []),
     {
       id: 'e-agent-mcp',
       source: '__agent__',
