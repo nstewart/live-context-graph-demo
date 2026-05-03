@@ -13,7 +13,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 
-type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold';
+type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic';
 
 // Node type colors (object type)
 const nodeColors = {
@@ -61,10 +61,16 @@ const medallionColors: Record<MedallionLayer, {
     labelColor: '#854d0e',
     legendLabel: 'Gold',
   },
+  biz_logic: {
+    bg: 'rgba(99, 102, 241, 0.05)',
+    border: 'rgba(99, 102, 241, 0.28)',
+    labelColor: '#4338ca',
+    legendLabel: 'Business Logic',
+  },
 };
 
 // Swim-lane label band
-const BandNode = ({ data }: { data: { layer: MedallionLayer } }) => {
+const BandNode = ({ data }: { data: { layer: MedallionLayer; overrideLabel?: string } }) => {
   const colors = medallionColors[data.layer];
   return (
     <div
@@ -88,7 +94,7 @@ const BandNode = ({ data }: { data: { layer: MedallionLayer } }) => {
           opacity: 0.75,
         }}
       >
-        {colors.legendLabel}
+        {data.overrideLabel ?? colors.legendLabel}
       </span>
     </div>
   );
@@ -202,7 +208,7 @@ const OlapBandNode = () => (
   </div>
 );
 
-// Source wrapper band — Postgres scenario: covers Bronze + Silver + Gold
+// Source wrapper band — Postgres scenario: covers Bronze + Business Logic
 const SourceWrapperBandNode = () => (
   <div
     style={{
@@ -477,20 +483,18 @@ function getLayoutedElements(
     delivery_tasks_flat:'src_courier',
   };
 
-  // In Postgres mode: triples moves to Bronze; src_* nodes hidden.
-  // In Materialize/Batch: triples hidden; src_* nodes shown; edges remapped.
-  const effectiveNodeDefs = nodeDefs
-    .filter((n) => {
-      if (n.id === 'triples') return true; // always keep; visibility handled below
-      if (['src_customers', 'src_operations', 'src_courier'].includes(n.id)) return !isPostgres;
-      return true;
-    })
-    .map((n) => {
-      if (n.id === 'triples' && isPostgres)
-        return { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer };
-      return n;
-    })
-    .filter((n) => !(n.id === 'triples' && !isPostgres));
+  // Postgres: triples stays in bronze ("Base Tables"), all other content nodes remapped to biz_logic.
+  // Materialize/Batch: hide triples, show src_* nodes with remapped edges.
+  const effectiveNodeDefs = isPostgres
+    ? nodeDefs
+        .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
+        .map((n) => {
+          if (n.id === 'triples') return { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer };
+          if (['bronze', 'silver', 'gold'].includes(n.medallionLayer))
+            return { ...n, medallionLayer: 'biz_logic' as MedallionLayer };
+          return n;
+        })
+    : nodeDefs.filter((n) => n.id !== 'triples');
 
   const effectiveEdgeDefs = isPostgres
     ? edgeDefs
@@ -542,6 +546,7 @@ function getLayoutedElements(
     bronze: { minX: Infinity, maxX: -Infinity },
     silver: { minX: Infinity, maxX: -Infinity },
     gold: { minX: Infinity, maxX: -Infinity },
+    biz_logic: { minX: Infinity, maxX: -Infinity },
   };
   let graphMinY = Infinity;
   let graphMaxY = -Infinity;
@@ -562,12 +567,16 @@ function getLayoutedElements(
   layerBounds.source_systems.minX = ssPos.x - SS_W / 2;
   layerBounds.source_systems.maxX = ssPos.x + SS_W / 2;
 
-  // Swim-lane band nodes for each layer
+  // Swim-lane band nodes for each layer.
+  // Postgres shows only bronze (as "Base Tables") + biz_logic (as "Business Logic").
+  // Materialize/Batch show bronze/silver/gold; biz_logic is postgres-only.
   const bandNodes: Node[] = (Object.keys(layerBounds) as MedallionLayer[])
     .filter((layer) => layerBounds[layer].minX !== Infinity)
+    .filter((layer) => isPostgres ? (layer === 'bronze' || layer === 'biz_logic') : layer !== 'biz_logic')
     .map((layer) => {
       const b = layerBounds[layer];
       const colors = medallionColors[layer];
+      const overrideLabel = isPostgres && layer === 'bronze' ? 'Base Tables' : undefined;
       return {
         id: `__band__${layer}`,
         type: 'band',
@@ -580,7 +589,7 @@ function getLayoutedElements(
           borderRadius: '10px',
           pointerEvents: 'none' as const,
         },
-        data: { label: '', layer },
+        data: { label: '', layer, overrideLabel },
         zIndex: -1,
         selectable: false,
         draggable: false,
@@ -588,11 +597,9 @@ function getLayoutedElements(
       };
     });
 
-  // Outer wrapper band — spans bronze → gold in both scenarios.
-  // In Postgres mode, triples has been moved into bronze so sources is empty.
-  // In Materialize mode, sources stays separate (left of the wrapper).
-  const wrapperMinX = Math.min(layerBounds.bronze.minX, layerBounds.silver.minX, layerBounds.gold.minX);
-  const wrapperMaxX = Math.max(layerBounds.bronze.maxX, layerBounds.silver.maxX, layerBounds.gold.maxX);
+  // Outer wrapper band — spans bronze → gold (+ biz_logic for postgres).
+  const wrapperMinX = Math.min(layerBounds.bronze.minX, layerBounds.silver.minX, layerBounds.gold.minX, layerBounds.biz_logic.minX);
+  const wrapperMaxX = Math.max(layerBounds.bronze.maxX, layerBounds.silver.maxX, layerBounds.gold.maxX, layerBounds.biz_logic.maxX);
   const wrapperLeft = wrapperMinX - BAND_PADDING_X - FGAC_PAD;
   // All scenarios have a header rectangle, so all need the same top clearance
   const wrapperLabelTop = FGAC_LABEL_TOP;
@@ -674,12 +681,10 @@ function getLayoutedElements(
     const isSelected = nodeDef.id === selectedNodeId;
     const isHighlighted = nodeDef.highlighted || false;
 
-    // Postgres: MVs → view color, triples → tables color; Materialize/Batch keep originals
-    const effectiveType = isPostgres && nodeDef.type === 'mv'
-      ? 'view'
-      : isPostgres && nodeDef.id === 'triples'
-        ? 'tables'
-        : nodeDef.type;
+    // Postgres: triples → tables color; Materialize/Batch keep originals
+    const effectiveType = isPostgres && nodeDef.id === 'triples'
+      ? 'tables'
+      : nodeDef.type;
     let style = getNodeStyle(effectiveType, isSelected);
     if (isHighlighted && !isSelected && !isPostgres) {
       style = { ...style, border: '3px solid #059669', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' };
@@ -699,18 +704,20 @@ function getLayoutedElements(
   // Lineage edges
   const srcNodeIds = new Set(['triples', 'src_customers', 'src_operations', 'src_courier']);
   const edges: Edge[] = effectiveEdgeDefs.map((edgeDef, index) => {
-    // In batch mode, edges from source nodes point forward; all others point backward.
+    // Forward arrow: batch edges from source nodes, or postgres triples→biz_logic
     const batchForward = isBatch && srcNodeIds.has(edgeDef.source);
+    const postgresForward = isPostgres && edgeDef.source === 'triples';
+    const useForwardArrow = batchForward || postgresForward;
     return {
       id: `e-${edgeDef.source}-${edgeDef.target}-${index}`,
       source: edgeDef.source,
       target: edgeDef.target,
       style: edgeStyle,
       animated: isMaterialize,
-      markerStart: (!isMaterialize && !batchForward)
+      markerStart: (!isMaterialize && !useForwardArrow)
         ? { type: MarkerType.ArrowClosed, color: '#94a3b8', orient: 'auto-start-reverse' }
         : undefined,
-      markerEnd: batchForward
+      markerEnd: useForwardArrow
         ? { type: MarkerType.ArrowClosed, color: '#94a3b8' }
         : undefined,
       zIndex: 1,
@@ -758,7 +765,7 @@ function getLayoutedElements(
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
-      animated: false,
+      animated: true,
       zIndex: 3,
     },
     {
@@ -771,7 +778,7 @@ function getLayoutedElements(
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
-      animated: false,
+      animated: true,
       zIndex: 3,
     },
     {
@@ -785,7 +792,7 @@ function getLayoutedElements(
         strokeWidth: 1.5,
         strokeDasharray: '5,3',
       },
-      animated: false,
+      animated: true,
       zIndex: 3,
     },
   ];
