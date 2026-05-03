@@ -186,6 +186,8 @@ export const VectorPipelineCard = () => {
   const [flashedEmbeddings, setFlashedEmbeddings]     = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
   const [writeSubject, setWriteSubject]     = useState("");
+  const [filterZone, setFilterZone]         = useState("");
+  const [filterStatus, setFilterStatus]     = useState("");
 
   // Keyed by order_id so they survive result reordering
   const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
@@ -235,7 +237,11 @@ export const VectorPipelineCard = () => {
     }
     if (!silent) { setIsSearching(true); setSearchError(null); setSubmittedQuery(query); setHasSearched(true); }
     try {
-      const response = await searchApi.vectorSearchOrders(query, 3);
+      const filters = {
+        ...(filterZone ? { store_zone: filterZone } : {}),
+        ...(filterStatus ? { order_status: filterStatus } : {}),
+      };
+      const response = await searchApi.vectorSearchOrders(query, 5, filters);
       applyResults(response.data.results ?? []);
     } catch (err) {
       if (!silent) {
@@ -246,7 +252,7 @@ export const VectorPipelineCard = () => {
     } finally {
       if (!silent) setIsSearching(false);
     }
-  }, [applyResults]);
+  }, [applyResults, filterZone, filterStatus]);
 
   // Auto-refresh every 5s after a successful search
   useEffect(() => {
@@ -311,6 +317,32 @@ export const VectorPipelineCard = () => {
                   <Search className="h-4 w-4" />
                   Search
                 </button>
+              </div>
+              <div className="flex gap-2 items-center">
+                <span className="text-xs text-gray-500">Filters:</span>
+                <select
+                  value={filterZone}
+                  onChange={e => setFilterZone(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">All zones</option>
+                  <option value="MAN">MAN</option>
+                  <option value="BK">BK</option>
+                  <option value="QNS">QNS</option>
+                  <option value="BX">BX</option>
+                  <option value="SI">SI</option>
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">All statuses</option>
+                  <option value="CREATED">CREATED</option>
+                  <option value="PICKING">PICKING</option>
+                  <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
+                  <option value="DELIVERED">DELIVERED</option>
+                </select>
               </div>
               <div className="text-xs text-gray-500">
                 Try:{" "}

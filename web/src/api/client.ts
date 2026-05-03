@@ -686,9 +686,9 @@ export const searchApi = {
     apiClient.get<OpenSearchResponse>('/api/search/orders', {
       params: { q: query, limit: limit || 5 },
     }),
-  vectorSearchOrders: (query: string, limit?: number) =>
+  vectorSearchOrders: (query: string, limit?: number, filters?: { store_zone?: string; order_status?: string }) =>
     apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
-      params: { q: query, limit: limit || 3 },
+      params: { q: query, limit: limit || 3, ...filters },
     }),
   indexImpact: (since_mz_timestamp: number) =>
     apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {

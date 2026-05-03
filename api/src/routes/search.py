@@ -5,7 +5,7 @@ to perform semantic searches across denormalized order documents.
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -138,6 +138,8 @@ async def search_orders(
 async def vector_search_orders(
     q: str = Query(..., min_length=1, description="Natural language search query"),
     limit: int = Query(default=DEFAULT_SEARCH_LIMIT, ge=1, le=MAX_SEARCH_LIMIT),
+    store_zone: Optional[str] = Query(default=None),
+    order_status: Optional[str] = Query(default=None),
     service: FreshMartService = Depends(get_freshmart_service),
 ) -> dict[str, Any]:
     """
@@ -160,18 +162,36 @@ async def vector_search_orders(
     vector = embedder.embed([q])[0]
 
     # 2. Build OpenSearch knn body
-    search_body = {
-        "query": {
-            "knn": {
-                "embedding": {
-                    "vector": list(vector),
-                    "k": limit,
+    filters = []
+    if store_zone:
+        filters.append({"term": {"store_zone": store_zone}})
+    if order_status:
+        filters.append({"term": {"order_status": order_status}})
+
+    if filters:
+        search_body = {
+            "query": {
+                "bool": {
+                    "must": {"knn": {"embedding": {"vector": list(vector), "k": limit}}},
+                    "filter": filters,
                 }
-            }
-        },
-        "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
-        "size": limit,
-    }
+            },
+            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "size": limit,
+        }
+    else:
+        search_body = {
+            "query": {
+                "knn": {
+                    "embedding": {
+                        "vector": list(vector),
+                        "k": limit,
+                    }
+                }
+            },
+            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "size": limit,
+        }
 
     try:
         async with httpx.AsyncClient(timeout=OPENSEARCH_TIMEOUT) as client:
