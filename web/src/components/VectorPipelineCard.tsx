@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
+import { SearchIndexUpdates } from "./SearchIndexUpdates";
 
 // ── Embedding fingerprint ─────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSel
       </span>
     </div>
     {result.embedding_text && (
-      <code className="block bg-gray-100 text-xs font-mono text-gray-600 px-2 py-1 rounded break-words leading-relaxed">
+      <code className={`block text-xs font-mono px-2 py-1 rounded break-words leading-relaxed transition-all duration-300 ${embeddingFlashing ? "bg-yellow-950 text-yellow-300 ring-2 ring-yellow-400 shadow-[0_0_10px_2px_rgba(250,204,21,0.4)]" : "bg-gray-100 text-gray-600"}`}>
         {result.embedding_text}
       </code>
     )}
@@ -186,6 +187,7 @@ export const VectorPipelineCard = () => {
   const [flashedEmbeddings, setFlashedEmbeddings]     = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
   const [writeSubject, setWriteSubject]     = useState("");
+  const [writeTrigger, setWriteTrigger]     = useState<{ mzLowerBound: number; wallClock: number } | null>(null);
   const [filterZone, setFilterZone]         = useState("");
   const [filterStatus, setFilterStatus]     = useState("");
 
@@ -358,7 +360,13 @@ export const VectorPipelineCard = () => {
 
           {/* Write a Triple */}
           <div className="mb-4">
-            <WriteTripleForm initialSubject={writeSubject} />
+            <WriteTripleForm
+              initialSubject={writeSubject}
+              onWriteComplete={(mzLowerBound, wallClock) => setWriteTrigger({ mzLowerBound, wallClock })}
+            />
+          </div>
+          <div className="mb-4">
+            <SearchIndexUpdates writeTrigger={writeTrigger} />
           </div>
 
           {/* Live order results */}
