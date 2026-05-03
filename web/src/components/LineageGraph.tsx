@@ -506,7 +506,7 @@ function getLayoutedElements(
 
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100, marginx: 20, marginy: 20 });
+  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 35, ranksep: 100, marginx: 20, marginy: 20 });
 
   // Add lineage nodes + source_systems_box to dagre for layout
   effectiveNodeDefs.forEach((node) => {
@@ -763,7 +763,7 @@ function getLayoutedElements(
       targetHandle: 'left',
       label: 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
+      labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
       animated: true,
       zIndex: 3,
@@ -776,7 +776,7 @@ function getLayoutedElements(
       targetHandle: 'top',
       label: 'Act',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '12px', fill: '#6b7280', fontWeight: 600 },
+      labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
       animated: true,
       zIndex: 3,
@@ -828,14 +828,14 @@ export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'material
   return (
     <div className="w-full">
       {/* Graph */}
-      <div className="h-[480px] w-full border border-gray-200 rounded-lg bg-gray-50">
+      <div className="h-[720px] w-full border border-gray-200 rounded-lg bg-gray-50">
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           onNodeClick={handleNodeClick}
           fitView
-          fitViewOptions={{ padding: 0.15 }}
+          fitViewOptions={{ padding: 0.12 }}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={true}
@@ -876,14 +876,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'material
         )}
       </div>
 
-      {/* Description */}
-      <p className="mt-3 text-sm text-gray-500">
-        Three data products from the same <span className="font-medium text-blue-600">OLTP source</span>:{' '}
-        <span className="font-medium text-green-600">store_inventory_mv</span> (stock levels),{' '}
-        <span className="font-medium text-green-600">orders_with_lines_mv</span> (order details), and{' '}
-        <span className="font-medium text-green-600">dynamic_pricing_mv</span> (live pricing with 9 factors).
-        The agent observes via MCP and acts on source systems. Click any node to view its SQL.
-      </p>
+
     </div>
   );
 }
