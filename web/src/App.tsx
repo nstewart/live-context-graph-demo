@@ -12,13 +12,15 @@ import VectorSearchPage from './pages/VectorSearchPage'
 import BundlingPage from './pages/BundlingPage'
 import { PropagationProvider } from './contexts/PropagationContext'
 import { ChatProvider, useChat } from './contexts/ChatContext'
-import { LayoutProvider } from './contexts/LayoutContext'
+import { LayoutProvider, useLayout } from './contexts/LayoutContext'
 import PropagationWidget from './components/PropagationWidget'
 import ChatWidget from './components/ChatWidget'
 import Sidebar from './components/Sidebar'
+import QrModal from './components/QrModal'
 
 function AppLayout() {
   const { isOpen: chatOpen, isExpanded: chatExpanded } = useChat()
+  const { showQr, setShowQr } = useLayout()
 
   return (
     <div className="flex h-screen">
@@ -53,6 +55,9 @@ function AppLayout() {
 
       {/* Propagation Widget */}
       <PropagationWidget />
+
+      {/* QR Code Modal */}
+      <QrModal open={showQr} onClose={() => setShowQr(false)} />
     </div>
   )
 }
