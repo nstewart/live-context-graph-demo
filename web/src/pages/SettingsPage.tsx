@@ -2,11 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo } from '../api/client'
 import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck, QrCode } from 'lucide-react'
-
-const QR_URL_KEY = 'demo_qr_url'
-const QR_CTA_KEY = 'demo_qr_cta'
-const DEFAULT_QR_URL = 'https://materialize.com/demo/'
-const DEFAULT_QR_CTA = 'Schedule a demo'
+import { QR_URL_KEY, QR_CTA_KEY, DEFAULT_QR_URL, DEFAULT_QR_CTA } from '../qrConfig'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()

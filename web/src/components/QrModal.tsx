@@ -1,11 +1,7 @@
-import { useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { X } from 'lucide-react';
-
-const QR_URL_KEY = 'demo_qr_url';
-const QR_CTA_KEY = 'demo_qr_cta';
-const DEFAULT_URL = 'https://materialize.com/demo/';
-const DEFAULT_CTA = 'Schedule a demo';
+import { useEffect } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
+import { X } from 'lucide-react'
+import { QR_URL_KEY, QR_CTA_KEY, DEFAULT_QR_URL, DEFAULT_QR_CTA } from '../qrConfig'
 
 interface QrModalProps {
   open: boolean;
@@ -13,8 +9,8 @@ interface QrModalProps {
 }
 
 export default function QrModal({ open, onClose }: QrModalProps) {
-  const url = localStorage.getItem(QR_URL_KEY) || DEFAULT_URL;
-  const cta = localStorage.getItem(QR_CTA_KEY) || DEFAULT_CTA;
+  const url = localStorage.getItem(QR_URL_KEY) || DEFAULT_QR_URL
+  const cta = localStorage.getItem(QR_CTA_KEY) || DEFAULT_QR_CTA
 
   useEffect(() => {
     if (!open) return;
@@ -31,8 +27,7 @@ export default function QrModal({ open, onClose }: QrModalProps) {
       onClick={onClose}
     >
       <div
-        className="relative bg-white rounded-3xl shadow-2xl flex flex-col items-center gap-6 p-16 mx-4"
-        style={{ minWidth: 520 }}
+        className="relative bg-white rounded-3xl shadow-2xl flex flex-col items-center gap-6 p-16 mx-4 min-w-[520px]"
         onClick={e => e.stopPropagation()}
       >
         <button
