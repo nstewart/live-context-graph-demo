@@ -10,6 +10,7 @@ import {
   BarChart3,
   Layers,
   Search,
+  QrCode,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -29,7 +30,7 @@ const navItems = [
 ]
 
 export default function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar } = useLayout()
+  const { sidebarCollapsed, toggleSidebar, setShowQr } = useLayout()
 
   return (
     <aside
@@ -80,6 +81,16 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* QR Code Button */}
+      <button
+        onClick={() => setShowQr(true)}
+        title={sidebarCollapsed ? 'Show QR Code' : undefined}
+        className={`flex items-center gap-3 px-4 py-3 text-sm transition-colors border-t border-gray-700 text-gray-300 hover:bg-gray-800 ${sidebarCollapsed ? 'justify-center' : ''}`}
+      >
+        <QrCode className="h-5 w-5 flex-shrink-0" />
+        {!sidebarCollapsed && <span>Show QR Code</span>}
+      </button>
     </aside>
   )
 }
