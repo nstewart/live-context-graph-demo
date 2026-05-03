@@ -94,7 +94,7 @@ describe('VectorPipelineCard', () => {
       fireEvent.click(searchButton)
 
       await waitFor(() => {
-        expect(searchApi.vectorSearchOrders).toHaveBeenCalledWith('dairy products', 3)
+        expect(searchApi.vectorSearchOrders).toHaveBeenCalledWith('dairy products', 5, expect.any(Object))
       })
     })
 
@@ -113,7 +113,7 @@ describe('VectorPipelineCard', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
 
       await waitFor(() => {
-        expect(searchApi.vectorSearchOrders).toHaveBeenCalledWith('organic produce', 3)
+        expect(searchApi.vectorSearchOrders).toHaveBeenCalledWith('organic produce', 5, expect.any(Object))
       })
     })
 

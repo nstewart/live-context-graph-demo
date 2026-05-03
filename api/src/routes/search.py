@@ -313,33 +313,29 @@ async def get_index_impact(
     range_query = {"query": {"range": {"mz_timestamp": {"gte": since_mz_timestamp}}}}
     try:
         async with httpx.AsyncClient(timeout=OPENSEARCH_TIMEOUT) as client:
-            total = 0
-            impacted = 0
-            breakdown: dict[str, dict] = {}
-
-            for index in IMPACT_INDEXES:
-                total_resp = await client.get(f"{settings.os_url}/{index}/_count")
-                if total_resp.status_code == 404:
-                    breakdown[index] = {"impacted": 0, "total": 0}
-                    continue
-                total_resp.raise_for_status()
-                idx_total = total_resp.json().get("count", 0)
-
-                impact_resp = await client.post(
-                    f"{settings.os_url}/{index}/_count",
-                    json=range_query,
-                    headers={"Content-Type": "application/json"},
+            async def fetch_index(index: str) -> tuple[str, dict]:
+                total_r, impact_r = await asyncio.gather(
+                    client.get(f"{settings.os_url}/{index}/_count"),
+                    client.post(
+                        f"{settings.os_url}/{index}/_count",
+                        json=range_query,
+                        headers={"Content-Type": "application/json"},
+                    ),
                 )
-                if impact_resp.status_code == 404:
+                if total_r.status_code == 404:
+                    return index, {"impacted": 0, "total": 0}
+                total_r.raise_for_status()
+                if impact_r.status_code == 404:
                     idx_impacted = 0
                 else:
-                    impact_resp.raise_for_status()
-                    idx_impacted = impact_resp.json().get("count", 0)
+                    impact_r.raise_for_status()
+                    idx_impacted = impact_r.json().get("count", 0)
+                return index, {"impacted": idx_impacted, "total": total_r.json().get("count", 0)}
 
-                breakdown[index] = {"impacted": idx_impacted, "total": idx_total}
-                total += idx_total
-                impacted += idx_impacted
-
+            results = await asyncio.gather(*[fetch_index(idx) for idx in IMPACT_INDEXES])
+            breakdown = dict(results)
+            total = sum(v["total"] for v in breakdown.values())
+            impacted = sum(v["impacted"] for v in breakdown.values())
             pct = round(impacted / total * 100, 1) if total > 0 else 0.0
             return {"impacted": impacted, "total": total, "pct": pct, "breakdown": breakdown}
     except httpx.ConnectError as e:

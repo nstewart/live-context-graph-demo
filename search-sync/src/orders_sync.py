@@ -310,6 +310,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
         # Split upserts into "needs full embedding" vs "patch only"
         full_upserts: list[dict] = []
         patches: list[dict] = []
+        pending_cache_updates: list[tuple[str, str]] = []
 
         # Bulk-embed all docs that need embedding in one shot.
         docs_needing_embedding: list[dict] = []
@@ -333,10 +334,8 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 doc["embedding_text"] = embedding_text
                 docs_needing_embedding.append(doc)
                 texts_to_embed.append(embedding_text)
-                # Update hash cache eagerly; if the embedding fails the
-                # next event will reset it via re-embedding anyway.
                 if order_id is not None:
-                    self._hash_cache[order_id] = new_hash
+                    pending_cache_updates.append((order_id, new_hash))
 
         if docs_needing_embedding:
             vectors = self._embedder.embed(texts_to_embed)
@@ -403,6 +402,8 @@ class OrdersSyncWorker(BaseSubscribeWorker):
 
                 self.events_processed += upsert_count + patch_count + delete_count
                 self.flush_count += 1
+                for order_id, new_hash in pending_cache_updates:
+                    self._hash_cache[order_id] = new_hash
                 return
 
             except Exception as e:
