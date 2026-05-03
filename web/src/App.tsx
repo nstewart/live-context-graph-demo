@@ -8,6 +8,7 @@ import CouriersSchedulePage from './pages/CouriersSchedulePage'
 import SettingsPage from './pages/SettingsPage'
 import MetricsDashboardPage from './pages/MetricsDashboardPage'
 import QueryStatisticsPage from './pages/QueryStatisticsPage'
+import VectorSearchPage from './pages/VectorSearchPage'
 import BundlingPage from './pages/BundlingPage'
 import { PropagationProvider } from './contexts/PropagationContext'
 import { ChatProvider, useChat } from './contexts/ChatContext'
@@ -28,6 +29,7 @@ function AppLayout() {
       <main className="flex-1 overflow-auto pb-10 transition-all duration-300">
         <Routes>
           <Route path="/" element={<QueryStatisticsPage />} />
+          <Route path="/vector-search" element={<VectorSearchPage />} />
           <Route path="/metrics" element={<MetricsDashboardPage />} />
           <Route path="/bundling" element={<BundlingPage />} />
           <Route path="/orders" element={<OrdersDashboardPage />} />

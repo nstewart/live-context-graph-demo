@@ -175,8 +175,8 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSel
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export const VectorPipelineCard = () => {
-  const [isExpanded, setIsExpanded]         = useState(false);
+export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpanded?: boolean }) => {
+  const [isExpanded, setIsExpanded]         = useState(defaultExpanded);
   const [searchQuery, setSearchQuery]       = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [isSearching, setIsSearching]       = useState(false);

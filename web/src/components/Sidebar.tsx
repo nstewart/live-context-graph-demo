@@ -9,6 +9,7 @@ import {
   TrendingUp,
   BarChart3,
   Layers,
+  Search,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -16,6 +17,7 @@ import { useLayout } from '../contexts/LayoutContext'
 
 const navItems = [
   { path: '/', icon: BarChart3, label: 'Agent Ref. Architecture' },
+  { path: '/vector-search', icon: Search, label: 'Freshmart Agent Search Demo' },
   { path: '/orders', icon: ShoppingCart, label: 'Orders' },
   { path: '/couriers', icon: Truck, label: 'Couriers' },
   { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
