@@ -13,7 +13,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 
-type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic';
+type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic' | 'destination_systems';
 
 // Node type colors (object type)
 const nodeColors = {
@@ -66,6 +66,12 @@ const medallionColors: Record<MedallionLayer, {
     border: 'rgba(99, 102, 241, 0.28)',
     labelColor: '#4338ca',
     legendLabel: 'Business Logic',
+  },
+  destination_systems: {
+    bg: 'rgba(148, 163, 184, 0.07)',
+    border: 'rgba(148, 163, 184, 0.30)',
+    labelColor: '#475569',
+    legendLabel: 'Dest Systems',
   },
 };
 
@@ -331,6 +337,56 @@ const SourceSystemsNode = () => (
   </div>
 );
 
+// Destination Systems column node (Iceberg / Kafka / Subscribe)
+const DestinationSystemsNode = () => (
+  <div
+    style={{
+      width: '100%',
+      height: '100%',
+      background: '#f8fafc',
+      border: '1.5px solid #94a3b8',
+      borderRadius: '10px',
+      padding: '8px 10px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '5px',
+      boxSizing: 'border-box',
+      userSelect: 'none',
+    }}
+  >
+    <Handle type="target" position={Position.Left} id="left" style={{ opacity: 0 }} />
+    <div
+      style={{
+        fontSize: '12px',
+        fontWeight: 700,
+        color: '#374151',
+        textAlign: 'center',
+        borderBottom: '1px solid #e5e7eb',
+        paddingBottom: '4px',
+        marginBottom: '2px',
+      }}
+    >
+      Destinations
+    </div>
+    {['Iceberg', 'Kafka', 'Subscribe'].map((s) => (
+      <div
+        key={s}
+        style={{
+          fontSize: '11px',
+          color: '#475569',
+          background: '#f1f5f9',
+          border: '1px solid #e2e8f0',
+          borderRadius: '4px',
+          padding: '3px 6px',
+          textAlign: 'center',
+        }}
+      >
+        {s}
+      </div>
+    ))}
+  </div>
+);
+
 // Agent node
 const AgentNode = () => (
   <div
@@ -392,6 +448,7 @@ const nodeTypes: NodeTypes = {
   olap_band: OlapBandNode,
   source_wrapper_band: SourceWrapperBandNode,
   source_systems_node: SourceSystemsNode,
+  destination_systems_node: DestinationSystemsNode,
   agent_node: AgentNode,
   mcp_node: McpNode,
 };
@@ -467,11 +524,14 @@ const edgeStyle = { stroke: '#94a3b8', strokeWidth: 2 };
 // Node dimensions for dagre layout
 const NODE_WIDTH = 168;
 const NODE_HEIGHT = 44;
-const BAND_PADDING_X = 20;
+const BAND_PADDING_X = 12;
 const BAND_PADDING_Y = 32;
 // Source Systems box (taller to accommodate 4 items)
 const SS_W = 150;
 const SS_H = 170;
+// Destination Systems box (3 items)
+const DS_W = 150;
+const DS_H = 140;
 // Floating nodes above the graph
 const AGENT_W = 130;
 const AGENT_H = 90;
@@ -527,7 +587,7 @@ function getLayoutedElements(
 
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 35, ranksep: 100, marginx: 20, marginy: 20 });
+  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: 50, marginx: 10, marginy: 20 });
 
   // Add lineage nodes + source_systems_box to dagre for layout
   effectiveNodeDefs.forEach((node) => {
@@ -545,18 +605,29 @@ function getLayoutedElements(
     dagreGraph.setEdge('source_systems_box', 'src_operations');
     dagreGraph.setEdge('source_systems_box', 'src_courier');
   }
+  // Anchor destination_systems_box to gold/silver outputs for layout.
+  // Added in both materialize and batch so the bronze/silver/gold placement is identical;
+  // the visual node and band are only rendered in Materialize.
+  if (!isPostgres) {
+    dagreGraph.setNode('destination_systems_box', { width: DS_W, height: DS_H });
+    dagreGraph.setEdge('store_inventory_mv', 'destination_systems_box');
+    dagreGraph.setEdge('orders_with_lines_mv', 'destination_systems_box');
+    dagreGraph.setEdge('inventory_items_with_dynamic_pricing_mv', 'destination_systems_box');
+  }
 
   dagre.layout(dagreGraph);
 
-  // Force all three source nodes into the same x column and desired top-to-bottom order:
-  // Customers DB, Operations DB, Courier Stream
+  // Pin source nodes to be evenly distributed within the source_systems_box vertical span,
+  // and aligned to the same x column. This makes the layout identical across all scenarios.
+  const ssPos = dagreGraph.node('source_systems_box');
   if (!isPostgres) {
     const orderedSourceIds = ['src_customers', 'src_operations', 'src_courier'];
     const minX = Math.min(...orderedSourceIds.map(id => dagreGraph.node(id).x));
-    const ys = orderedSourceIds.map(id => dagreGraph.node(id).y).sort((a, b) => a - b);
+    const spacing = (SS_H - NODE_HEIGHT) / (orderedSourceIds.length - 1);
+    const startY = ssPos.y - SS_H / 2 + NODE_HEIGHT / 2;
     orderedSourceIds.forEach((id, i) => {
       const n = dagreGraph.node(id);
-      dagreGraph.setNode(id, { ...n, x: minX, y: ys[i] });
+      dagreGraph.setNode(id, { ...n, x: minX, y: startY + i * spacing });
     });
   }
 
@@ -568,6 +639,7 @@ function getLayoutedElements(
     silver: { minX: Infinity, maxX: -Infinity },
     gold: { minX: Infinity, maxX: -Infinity },
     biz_logic: { minX: Infinity, maxX: -Infinity },
+    destination_systems: { minX: Infinity, maxX: -Infinity },
   };
   let graphMinY = Infinity;
   let graphMaxY = -Infinity;
@@ -582,18 +654,32 @@ function getLayoutedElements(
   });
 
   // Include source_systems_box in graph + layer bounds
-  const ssPos = dagreGraph.node('source_systems_box');
   graphMinY = Math.min(graphMinY, ssPos.y - SS_H / 2);
   graphMaxY = Math.max(graphMaxY, ssPos.y + SS_H / 2);
   layerBounds.source_systems.minX = ssPos.x - SS_W / 2;
   layerBounds.source_systems.maxX = ssPos.x + SS_W / 2;
+
+  // Include destination_systems_box in graph height bounds for both materialize and batch
+  // (keeps canvas size identical). Only populate layerBounds for Materialize so the band
+  // and visual node are not rendered in Batch.
+  const dsPos = !isPostgres ? dagreGraph.node('destination_systems_box') : null;
+  if (dsPos) {
+    graphMinY = Math.min(graphMinY, dsPos.y - DS_H / 2);
+    graphMaxY = Math.max(graphMaxY, dsPos.y + DS_H / 2);
+    if (isMaterialize) {
+      layerBounds.destination_systems.minX = dsPos.x - DS_W / 2;
+      layerBounds.destination_systems.maxX = dsPos.x + DS_W / 2;
+    }
+  }
 
   // Swim-lane band nodes for each layer.
   // Postgres shows only bronze (as "Base Tables") + biz_logic (as "Business Logic").
   // Materialize/Batch show bronze/silver/gold; biz_logic is postgres-only.
   const bandNodes: Node[] = (Object.keys(layerBounds) as MedallionLayer[])
     .filter((layer) => layerBounds[layer].minX !== Infinity)
-    .filter((layer) => isPostgres ? (layer === 'bronze' || layer === 'biz_logic') : layer !== 'biz_logic')
+    .filter((layer) => isPostgres
+      ? (layer === 'bronze' || layer === 'biz_logic')
+      : layer !== 'biz_logic' && (isMaterialize || layer !== 'destination_systems'))
     .map((layer) => {
       const b = layerBounds[layer];
       const colors = medallionColors[layer];
@@ -663,6 +749,8 @@ function getLayoutedElements(
     id: '__agent__',
     type: 'agent_node',
     position: { x: ssCenterX - AGENT_W / 2, y: floatY },
+    width: AGENT_W,
+    height: AGENT_H,
     style: { width: AGENT_W, height: AGENT_H },
     data: { label: 'Agent' },
     zIndex: 2,
@@ -675,6 +763,8 @@ function getLayoutedElements(
     id: '__mcp__',
     type: 'mcp_node',
     position: { x: wrapperCenterX - MCP_W / 2, y: floatY },
+    width: MCP_W,
+    height: MCP_H,
     style: { width: MCP_W, height: MCP_H },
     data: { label: 'MCP Server' },
     zIndex: 2,
@@ -688,6 +778,8 @@ function getLayoutedElements(
     id: 'source_systems_box',
     type: 'source_systems_node',
     position: { x: ssPos.x - SS_W / 2, y: ssPos.y - SS_H / 2 },
+    width: SS_W,
+    height: SS_H,
     style: { width: SS_W, height: SS_H },
     data: { label: '' },
     zIndex: 1,
@@ -695,6 +787,21 @@ function getLayoutedElements(
     draggable: false,
     focusable: false,
   };
+
+  // Destination Systems box node (Materialize only)
+  const destinationSysNode: Node | null = (isMaterialize && dsPos) ? {
+    id: 'destination_systems_box',
+    type: 'destination_systems_node',
+    position: { x: dsPos.x - DS_W / 2, y: dsPos.y - DS_H / 2 },
+    width: DS_W,
+    height: DS_H,
+    style: { width: DS_W, height: DS_H },
+    data: { label: '' },
+    zIndex: 1,
+    selectable: false,
+    draggable: false,
+    focusable: false,
+  } : null;
 
   // Lineage nodes
   const nodes: Node[] = effectiveNodeDefs.map((nodeDef) => {
@@ -797,11 +904,40 @@ function getLayoutedElements(
       targetHandle: 'top',
       label: 'Act',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700 },
-      labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
+      labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700, transform: 'translateY(-48px)' },
+      labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85, transform: 'translateY(-48px)' },
       animated: true,
       zIndex: 3,
     },
+    ...(isMaterialize ? [
+      {
+        id: 'e-silver-store-dst',
+        source: 'store_inventory_mv',
+        target: 'destination_systems_box',
+        style: edgeStyle,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+        zIndex: 1,
+      },
+      {
+        id: 'e-silver-orders-dst',
+        source: 'orders_with_lines_mv',
+        target: 'destination_systems_box',
+        style: edgeStyle,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+        zIndex: 1,
+      },
+      {
+        id: 'e-gold-dst',
+        source: 'inventory_items_with_dynamic_pricing_mv',
+        target: 'destination_systems_box',
+        style: edgeStyle,
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+        zIndex: 1,
+      },
+    ] : []),
     {
       id: 'e-mcp-wrapper',
       source: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
@@ -819,7 +955,7 @@ function getLayoutedElements(
   ];
 
   return {
-    nodes: [...bandNodes, outerBandNode, agentNode, mcpNode, sourceSysNode, ...nodes],
+    nodes: [...bandNodes, outerBandNode, agentNode, mcpNode, sourceSysNode, ...(destinationSysNode ? [destinationSysNode] : []), ...nodes],
     edges: [...edges, ...overlayEdges],
   };
 }
@@ -838,7 +974,7 @@ export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'material
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
-      if (node.id.startsWith('__') || node.id === 'source_systems_box') return;
+      if (node.id.startsWith('__') || node.id === 'source_systems_box' || node.id === 'destination_systems_box') return;
       if (onNodeClick) {
         onNodeClick(node.id);
       }
@@ -851,16 +987,17 @@ export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'material
       {/* Graph */}
       <div className="h-[720px] w-full border border-gray-200 rounded-lg bg-gray-50">
         <ReactFlow
+          key={scenario}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           onNodeClick={handleNodeClick}
           fitView
-          fitViewOptions={{ padding: 0.12 }}
+          fitViewOptions={{ padding: 0.02 }}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={true}
-          panOnDrag={false}
+          panOnDrag={true}
           zoomOnScroll={false}
           zoomOnPinch={false}
           zoomOnDoubleClick={false}
