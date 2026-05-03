@@ -893,7 +893,7 @@ export default function QueryStatisticsPage() {
       <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         {/* Top row: Title and Controls */}
         <div className="flex justify-between items-start">
-          <h1 className="text-2xl font-bold text-gray-900">Agent Reference Architecture</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Freshmart Demo</h1>
 
           {/* Controls group */}
           <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
@@ -1096,7 +1096,7 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">Time to trusted action</h3>
+              <h3 className="text-lg font-semibold text-gray-900">System Performance</h3>
               <p className="text-xs text-gray-500">
                 Compare how quickly agents can act on fresh, trusted data across storage strategies
               </p>

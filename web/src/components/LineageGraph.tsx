@@ -126,7 +126,7 @@ const FgacBandNode = () => (
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: '13px', fontWeight: 700, color: '#7c3aed' }}>
+      <span style={{ fontSize: '20px', fontWeight: 700, color: '#7c3aed' }}>
         Incremental View Maintenance via Timely Dataflow
       </span>
     </div>
@@ -149,6 +149,12 @@ const FgacBandNode = () => (
       type="target"
       position={Position.Top}
       id="top"
+      style={{ pointerEvents: 'all', opacity: 0 }}
+    />
+    <Handle
+      type="source"
+      position={Position.Top}
+      id="top-out"
       style={{ pointerEvents: 'all', opacity: 0 }}
     />
   </div>
@@ -180,7 +186,7 @@ const OlapBandNode = () => (
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: '13px', fontWeight: 700, color: '#92400e' }}>
+      <span style={{ fontSize: '20px', fontWeight: 700, color: '#92400e' }}>
         Scheduled Refresh
       </span>
     </div>
@@ -203,6 +209,12 @@ const OlapBandNode = () => (
       type="target"
       position={Position.Top}
       id="top"
+      style={{ pointerEvents: 'all', opacity: 0 }}
+    />
+    <Handle
+      type="source"
+      position={Position.Top}
+      id="top-out"
       style={{ pointerEvents: 'all', opacity: 0 }}
     />
   </div>
@@ -234,7 +246,7 @@ const SourceWrapperBandNode = () => (
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e40af' }}>
+      <span style={{ fontSize: '20px', fontWeight: 700, color: '#1e40af' }}>
         Reactive query processing
       </span>
     </div>
@@ -257,6 +269,12 @@ const SourceWrapperBandNode = () => (
       type="target"
       position={Position.Top}
       id="top"
+      style={{ pointerEvents: 'all', opacity: 0 }}
+    />
+    <Handle
+      type="source"
+      position={Position.Top}
+      id="top-out"
       style={{ pointerEvents: 'all', opacity: 0 }}
     />
   </div>
@@ -333,8 +351,9 @@ const AgentNode = () => (
     }}
   >
     <span style={{ fontSize: '22px', lineHeight: 1 }}>🤖</span>
-    <span style={{ fontSize: '13px', fontWeight: 700, color: '#9a3412' }}>Agent</span>
+    <span style={{ fontSize: '20px', fontWeight: 700, color: '#9a3412' }}>Agent</span>
     <Handle type="source" position={Position.Right} id="right" style={{ opacity: 0 }} />
+    <Handle type="target" position={Position.Right} id="right-in" style={{ opacity: 0 }} />
     <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
   </div>
 );
@@ -359,9 +378,11 @@ const McpNode = () => (
     }}
   >
     <span style={{ fontSize: '20px', lineHeight: 1 }}>⚙️</span>
-    <span style={{ fontSize: '13px', fontWeight: 700, color: '#7e22ce' }}>MCP Server</span>
+    <span style={{ fontSize: '20px', fontWeight: 700, color: '#7e22ce' }}>MCP Server</span>
     <Handle type="target" position={Position.Left} id="left" style={{ opacity: 0 }} />
+    <Handle type="source" position={Position.Left} id="left-out" style={{ opacity: 0 }} />
     <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    <Handle type="target" position={Position.Bottom} id="bottom-in" style={{ opacity: 0 }} />
   </div>
 );
 
@@ -452,10 +473,10 @@ const BAND_PADDING_Y = 32;
 const SS_W = 150;
 const SS_H = 170;
 // Floating nodes above the graph
-const AGENT_W = 100;
-const AGENT_H = 76;
-const MCP_W = 118;
-const MCP_H = 76;
+const AGENT_W = 130;
+const AGENT_H = 90;
+const MCP_W = 155;
+const MCP_H = 90;
 // FGAC wrapper extra space: top accommodates the header rectangle, bottom accommodates "Materialize"
 const FGAC_LABEL_TOP = 54;
 const FGAC_LABEL_BOTTOM = 32;
@@ -757,10 +778,10 @@ function getLayoutedElements(
     ] : []),
     {
       id: 'e-agent-mcp',
-      source: '__agent__',
-      target: '__mcp__',
-      sourceHandle: 'right',
-      targetHandle: 'left',
+      source: '__mcp__',
+      target: '__agent__',
+      sourceHandle: 'left-out',
+      targetHandle: 'right-in',
       label: 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700 },
@@ -783,10 +804,10 @@ function getLayoutedElements(
     },
     {
       id: 'e-mcp-wrapper',
-      source: '__mcp__',
-      target: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
-      sourceHandle: 'bottom',
-      targetHandle: 'top',
+      source: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
+      target: '__mcp__',
+      sourceHandle: 'top-out',
+      targetHandle: 'bottom-in',
       style: {
         stroke: isMaterialize ? '#a855f7' : isBatch ? '#d97706' : '#1e40af',
         strokeWidth: 1.5,
