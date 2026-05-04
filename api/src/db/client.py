@@ -135,6 +135,7 @@ def get_pg_engine():
             echo=settings.log_level == "DEBUG",
             pool_size=5,
             max_overflow=10,
+            pool_pre_ping=True,
         )
         _setup_query_logging(_pg_engine, "PostgreSQL")
     return _pg_engine
@@ -167,6 +168,7 @@ def get_mz_engine():
             echo=settings.log_level == "DEBUG",
             pool_size=5,
             max_overflow=10,
+            pool_pre_ping=True,
             connect_args={
                 # Disable asyncpg's prepared statement cache (Materialize compatibility)
                 "prepared_statement_cache_size": 0,

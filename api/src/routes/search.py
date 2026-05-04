@@ -158,9 +158,9 @@ async def vector_search_orders(
 
     Orders that no longer exist in Materialize (e.g. deleted) are dropped.
     """
-    # 1. Embed query
-    embedder = get_query_embedder()
-    vector = embedder.embed([q])[0]
+    # 1. Embed query — run in a thread so the model load/inference doesn't block the event loop
+    embedder = await asyncio.to_thread(get_query_embedder)
+    vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
 
     # 2. Build OpenSearch knn body
     filters = []
