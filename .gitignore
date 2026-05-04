@@ -65,3 +65,6 @@ coverage/
 
 # AWS deployment state
 aws/.state/
+
+# fastembed model cache (downloaded locally when running outside Docker)
+api/.fastembed_cache/
