@@ -486,7 +486,7 @@ export default function PropagationWidget() {
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="h-[calc(40vh-2.5rem)] overflow-y-auto">
+        <div className="h-[calc(40vh-2.5rem)] overflow-y-auto select-text">
           {sourceWrites.length === 0 && displayedTimestamps.length === 0 ? (
             <div className="flex items-center justify-center h-full text-gray-500 text-sm">
               No propagation events yet - make a change to see updates flow through
@@ -531,9 +531,7 @@ export default function PropagationWidget() {
                     <span className="text-xs font-medium text-green-400 uppercase tracking-wide">
                       Index Propagation
                     </span>
-                    <span className="text-xs text-gray-500">
-                      ({totalIndexUpdates} update{totalIndexUpdates !== 1 ? 's' : ''})
-                    </span>
+
                     {propagationLimitHit && (
                       <span className="text-xs text-yellow-500" title="Showing max 100 events per poll - more events may exist">
                         (limit reached)

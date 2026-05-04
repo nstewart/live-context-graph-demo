@@ -4,6 +4,8 @@ interface LayoutContextValue {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  showQr: boolean;
+  setShowQr: (show: boolean) => void;
 }
 
 const LayoutContext = createContext<LayoutContextValue | null>(null);
@@ -13,6 +15,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved === 'true';
   });
+  const [showQr, setShowQr] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => {
@@ -31,7 +34,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     <LayoutContext.Provider value={{
       sidebarCollapsed,
       toggleSidebar,
-      setSidebarCollapsed: handleSetSidebarCollapsed
+      setSidebarCollapsed: handleSetSidebarCollapsed,
+      showQr,
+      setShowQr,
     }}>
       {children}
     </LayoutContext.Provider>

@@ -44,6 +44,7 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Optional
 
 from src.config import get_settings
@@ -881,6 +882,12 @@ class BaseSubscribeWorker(ABC):
         # Clear buffers immediately to accept new events
         self.pending_upserts = []
         self.pending_deletes = []
+
+        # Stamp wall-clock ms on every upsert so /api/search/impact can count
+        # docs re-indexed after a write across all indexes.
+        mz_ts_int = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for doc in upserts_to_flush:
+            doc["mz_timestamp"] = mz_ts_int
 
         # Flush with retry
         max_attempts = 3

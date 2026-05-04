@@ -8,16 +8,19 @@ import CouriersSchedulePage from './pages/CouriersSchedulePage'
 import SettingsPage from './pages/SettingsPage'
 import MetricsDashboardPage from './pages/MetricsDashboardPage'
 import QueryStatisticsPage from './pages/QueryStatisticsPage'
+import VectorSearchPage from './pages/VectorSearchPage'
 import BundlingPage from './pages/BundlingPage'
 import { PropagationProvider } from './contexts/PropagationContext'
 import { ChatProvider, useChat } from './contexts/ChatContext'
-import { LayoutProvider } from './contexts/LayoutContext'
+import { LayoutProvider, useLayout } from './contexts/LayoutContext'
 import PropagationWidget from './components/PropagationWidget'
 import ChatWidget from './components/ChatWidget'
 import Sidebar from './components/Sidebar'
+import QrModal from './components/QrModal'
 
 function AppLayout() {
   const { isOpen: chatOpen, isExpanded: chatExpanded } = useChat()
+  const { showQr, setShowQr } = useLayout()
 
   return (
     <div className="flex h-screen">
@@ -28,6 +31,7 @@ function AppLayout() {
       <main className="flex-1 overflow-auto pb-10 transition-all duration-300">
         <Routes>
           <Route path="/" element={<QueryStatisticsPage />} />
+          <Route path="/vector-search" element={<VectorSearchPage />} />
           <Route path="/metrics" element={<MetricsDashboardPage />} />
           <Route path="/bundling" element={<BundlingPage />} />
           <Route path="/orders" element={<OrdersDashboardPage />} />
@@ -51,6 +55,9 @@ function AppLayout() {
 
       {/* Propagation Widget */}
       <PropagationWidget />
+
+      {/* QR Code Modal */}
+      <QrModal open={showQr} onClose={() => setShowQr(false)} />
     </div>
   )
 }

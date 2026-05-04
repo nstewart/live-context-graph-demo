@@ -56,6 +56,7 @@ start_tunnel() {
     -L 5432:localhost:5432 \
     -L 6874:localhost:6874 \
     -L 6875:localhost:6875 \
+    -L 6876:localhost:6876 \
     -L 9200:localhost:9200 \
     -L 5601:localhost:5601 \
     -L 8080:localhost:8080 \
@@ -79,6 +80,7 @@ start_tunnel() {
     echo "  PostgreSQL:            localhost:5432"
     echo "  Materialize Console:   localhost:6874"
     echo "  Materialize SQL:       localhost:6875"
+    echo "  Materialize MCP:       localhost:6876"
     echo "  OpenSearch:            localhost:9200"
     echo "  OpenSearch Dashboards: localhost:5601"
     echo "  API:                   localhost:8080"

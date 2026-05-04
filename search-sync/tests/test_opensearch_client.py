@@ -183,6 +183,119 @@ class TestBulkUpsert:
             assert errors == 1
 
 
+class TestBulkPatch:
+    """Tests for OpenSearchClient.bulk_patch."""
+
+    @pytest.fixture
+    def client(self):
+        """Create client with mocked internal client."""
+        with patch("src.opensearch_client.get_settings") as mock_settings:
+            mock_settings.return_value = MagicMock(
+                os_host="localhost",
+                os_port=9200,
+                os_user=None,
+                os_password=None,
+            )
+            with patch("src.opensearch_client.AsyncOpenSearch"):
+                from src.opensearch_client import OpenSearchClient
+
+                client = OpenSearchClient()
+                client.client = AsyncMock()
+                return client
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_for_empty_list(self, client):
+        """Returns (0, 0) for empty patch list and does not call helpers."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            success, errors = await client.bulk_patch("test_index", [])
+
+            assert success == 0
+            assert errors == 0
+            mock_bulk.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_uses_update_op_type(self, client):
+        """Uses update _op_type (not index)."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            mock_bulk.return_value = (1, [])
+
+            patches = [
+                {
+                    "_id": "order:FM-1001",
+                    "doc": {"order_total_amount": 49.99},
+                }
+            ]
+
+            await client.bulk_patch("test_index", patches)
+
+            actions = list(mock_bulk.call_args.args[1])
+            assert actions[0]["_op_type"] == "update"
+
+    @pytest.mark.asyncio
+    async def test_passes_doc_as_upsert_true(self, client):
+        """Sets doc_as_upsert: True so first patch creates the doc."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            mock_bulk.return_value = (1, [])
+
+            patches = [{"_id": "order:FM-1001", "doc": {"order_status": "DELIVERED"}}]
+
+            await client.bulk_patch("test_index", patches)
+
+            actions = list(mock_bulk.call_args.args[1])
+            assert actions[0]["doc_as_upsert"] is True
+
+    @pytest.mark.asyncio
+    async def test_passes_doc_field(self, client):
+        """Forwards the patch's `doc` field to the bulk action."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            mock_bulk.return_value = (1, [])
+
+            patch_doc = {"order_status": "DELIVERED", "order_total_amount": 12.34}
+            patches = [{"_id": "order:FM-1001", "doc": patch_doc}]
+
+            await client.bulk_patch("test_index", patches)
+
+            actions = list(mock_bulk.call_args.args[1])
+            assert actions[0]["doc"] == patch_doc
+            assert actions[0]["_id"] == "order:FM-1001"
+            assert actions[0]["_index"] == "test_index"
+
+    @pytest.mark.asyncio
+    async def test_returns_success_and_error_counts(self, client):
+        """Returns (success_count, error_count) tuple from helpers.async_bulk."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            # 2 succeeded, 1 errored
+            mock_bulk.return_value = (2, [{"error": "boom"}])
+
+            patches = [
+                {"_id": "order:1", "doc": {"order_status": "DELIVERED"}},
+                {"_id": "order:2", "doc": {"order_status": "DELIVERED"}},
+                {"_id": "order:3", "doc": {"order_status": "DELIVERED"}},
+            ]
+
+            success, errors = await client.bulk_patch("test_index", patches)
+
+            assert success == 2
+            assert errors == 1
+
+    @pytest.mark.asyncio
+    async def test_creates_one_action_per_patch(self, client):
+        """Builds exactly one bulk action per patch entry."""
+        with patch("src.opensearch_client.helpers.async_bulk") as mock_bulk:
+            mock_bulk.return_value = (3, [])
+
+            patches = [
+                {"_id": "order:1", "doc": {"a": 1}},
+                {"_id": "order:2", "doc": {"a": 2}},
+                {"_id": "order:3", "doc": {"a": 3}},
+            ]
+
+            await client.bulk_patch("test_index", patches)
+
+            actions = list(mock_bulk.call_args.args[1])
+            assert len(actions) == 3
+
+
 class TestSearchOrders:
     """Tests for OpenSearchClient.search_orders."""
 

@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download the embedding model so it's baked into the image (no
+# network/cold-start cost on first request). ~130MB ONNX weights.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+
 # Copy application code
 COPY . .
 

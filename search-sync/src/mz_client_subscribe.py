@@ -187,6 +187,7 @@ class MaterializeSubscribeClient:
             self._conninfo,
             autocommit=True
         )
+        await self._conn.execute("SET transaction_isolation = 'serializable'")
         logger.info("Connected to Materialize for SUBSCRIBE")
 
     async def close(self):

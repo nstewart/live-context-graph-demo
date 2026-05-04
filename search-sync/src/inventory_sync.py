@@ -85,6 +85,7 @@ INVENTORY_INDEX_MAPPING = {
             "availability_status": {"type": "keyword"},
             "low_stock": {"type": "boolean"},
             "effective_updated_at": {"type": "date"},
+            "mz_timestamp": {"type": "long"},
             "search_text": {
                 "type": "text",
                 "analyzer": "ingredient_analyzer",
