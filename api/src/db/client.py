@@ -133,8 +133,8 @@ def get_pg_engine():
         _pg_engine = create_async_engine(
             settings.pg_dsn,
             echo=settings.log_level == "DEBUG",
-            pool_size=5,
-            max_overflow=10,
+            pool_size=settings.pg_pool_size,
+            max_overflow=settings.pg_max_overflow,
             pool_pre_ping=True,
         )
         _setup_query_logging(_pg_engine, "PostgreSQL")
@@ -166,12 +166,18 @@ def get_mz_engine():
         _mz_engine = create_async_engine(
             settings.mz_dsn,
             echo=settings.log_level == "DEBUG",
-            pool_size=5,
-            max_overflow=10,
+            pool_size=settings.mz_pool_size,
+            max_overflow=settings.mz_max_overflow,
             pool_pre_ping=True,
             connect_args={
                 # Disable asyncpg's prepared statement cache (Materialize compatibility)
                 "prepared_statement_cache_size": 0,
+                # Use serializable (not strict serializable) for apples-to-apples
+                # latency comparison with PostgreSQL (which defaults to read committed
+                # — serializable is still strictly stronger).
+                "server_settings": {
+                    "transaction_isolation": "serializable",
+                },
             },
         )
         _setup_query_logging(_mz_engine, "Materialize")
