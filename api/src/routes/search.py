@@ -162,12 +162,13 @@ async def vector_search_orders(
     Orders that no longer exist in Materialize (e.g. deleted) are dropped.
     """
     # 1. Embed query — run in a thread so the model load/inference doesn't block the event loop.
-    # 30s timeout: if the model isn't cached and HuggingFace is slow, fail fast rather than hang.
+    # Single 30s budget covers both model load and inference so the route can't hang for 60s.
     try:
-        embedder = await asyncio.wait_for(asyncio.to_thread(get_query_embedder), timeout=30)
-        vector = (await asyncio.wait_for(asyncio.to_thread(embedder.embed, [q]), timeout=30))[0]
+        async with asyncio.timeout(30):
+            embedder = await asyncio.to_thread(get_query_embedder)
+            vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="Embedding model not ready. Try again in a few seconds.")
+        raise HTTPException(status_code=503, detail="Embedding model unavailable — check API logs.")
 
     # 2. Build OpenSearch knn body
     filters = []

@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.warning("fastembed pre-warm failed — model will load on first search.", exc_info=True)
 
-    asyncio.create_task(_prewarm_embedder())
+    _prewarm_task = asyncio.create_task(_prewarm_embedder())  # noqa: F841 — reference prevents GC mid-execution
 
     yield
     logger.info("Shutting down...")
