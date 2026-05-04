@@ -6,6 +6,7 @@ to perform semantic searches across denormalized order documents.
 
 import asyncio
 import logging
+import threading
 from typing import Any, Optional
 
 import httpx
@@ -30,6 +31,7 @@ OPENSEARCH_TIMEOUT = 10.0
 # Module-level lazy-init embedder singleton. The fastembed model is heavyweight,
 # so we only construct it on first use and reuse it across requests.
 _query_embedder = None
+_embedder_lock = threading.Lock()
 
 
 def get_query_embedder():
@@ -39,22 +41,23 @@ def get_query_embedder():
     method producing 384-dim vectors using BAAI/bge-small-en-v1.5.
     """
     global _query_embedder
-    if _query_embedder is None:
-        try:
-            from fastembed import TextEmbedding
+    with _embedder_lock:
+        if _query_embedder is None:
+            try:
+                from fastembed import TextEmbedding
 
-            class _Embedder:
-                def __init__(self):
-                    self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                class _Embedder:
+                    def __init__(self):
+                        self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
-                def embed(self, texts):
-                    return [[float(x) for x in v] for v in self._model.embed(texts)]
+                    def embed(self, texts):
+                        return [[float(x) for x in v] for v in self._model.embed(texts)]
 
-            _query_embedder = _Embedder()
-        except ImportError as e:
-            raise RuntimeError(
-                "fastembed not installed - run: pip install fastembed"
-            ) from e
+                _query_embedder = _Embedder()
+            except ImportError as e:
+                raise RuntimeError(
+                    "fastembed not installed - run: pip install fastembed"
+                ) from e
     return _query_embedder
 
 
@@ -158,9 +161,14 @@ async def vector_search_orders(
 
     Orders that no longer exist in Materialize (e.g. deleted) are dropped.
     """
-    # 1. Embed query
-    embedder = get_query_embedder()
-    vector = embedder.embed([q])[0]
+    # 1. Embed query — run in a thread so the model load/inference doesn't block the event loop.
+    # Single 30s budget covers both model load and inference so the route can't hang for 60s.
+    try:
+        async with asyncio.timeout(30):
+            embedder = await asyncio.to_thread(get_query_embedder)
+            vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Embedding model unavailable — check API logs.")
 
     # 2. Build OpenSearch knn body
     filters = []
