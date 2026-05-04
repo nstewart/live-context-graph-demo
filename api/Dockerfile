@@ -21,11 +21,8 @@ USER appuser
 # Pre-download the fastembed model into the image so the first vector search
 # doesn't stall waiting on a HuggingFace download at runtime.
 # FASTEMBED_CACHE_PATH is set here and inherited by the running container.
-# HF_TOKEN is optional — pass it via `HF_TOKEN=hf_xxx make up-agent` to avoid
-# HuggingFace rate limits on slow/shared connections.
-ARG HF_TOKEN
 ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
-RUN HF_TOKEN=${HF_TOKEN} python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
 
 EXPOSE 8080
 
