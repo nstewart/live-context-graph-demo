@@ -6,6 +6,7 @@ to perform semantic searches across denormalized order documents.
 
 import asyncio
 import logging
+import threading
 from typing import Any, Optional
 
 import httpx
@@ -30,6 +31,7 @@ OPENSEARCH_TIMEOUT = 10.0
 # Module-level lazy-init embedder singleton. The fastembed model is heavyweight,
 # so we only construct it on first use and reuse it across requests.
 _query_embedder = None
+_embedder_lock = threading.Lock()
 
 
 def get_query_embedder():
@@ -39,22 +41,23 @@ def get_query_embedder():
     method producing 384-dim vectors using BAAI/bge-small-en-v1.5.
     """
     global _query_embedder
-    if _query_embedder is None:
-        try:
-            from fastembed import TextEmbedding
+    with _embedder_lock:
+        if _query_embedder is None:
+            try:
+                from fastembed import TextEmbedding
 
-            class _Embedder:
-                def __init__(self):
-                    self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                class _Embedder:
+                    def __init__(self):
+                        self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
-                def embed(self, texts):
-                    return [[float(x) for x in v] for v in self._model.embed(texts)]
+                    def embed(self, texts):
+                        return [[float(x) for x in v] for v in self._model.embed(texts)]
 
-            _query_embedder = _Embedder()
-        except ImportError as e:
-            raise RuntimeError(
-                "fastembed not installed - run: pip install fastembed"
-            ) from e
+                _query_embedder = _Embedder()
+            except ImportError as e:
+                raise RuntimeError(
+                    "fastembed not installed - run: pip install fastembed"
+                ) from e
     return _query_embedder
 
 
