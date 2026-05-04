@@ -86,7 +86,7 @@ init-checkpointer:
 # Start services
 up:
 	@docker network create freshmart-network 2>/dev/null || true
-	$(DOCKER_COMPOSE) build web zero-permissions
+	$(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
 	$(DOCKER_COMPOSE) up -d
@@ -111,7 +111,7 @@ up:
 
 up-agent:
 	@docker network create freshmart-network 2>/dev/null || true
-	$(DOCKER_COMPOSE) build web zero-permissions
+	$(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
 	$(DOCKER_COMPOSE) --profile agent up -d
@@ -142,7 +142,7 @@ up-agent:
 
 up-agent-bundling:
 	@docker network create freshmart-network 2>/dev/null || true
-	ENABLE_DELIVERY_BUNDLING=true $(DOCKER_COMPOSE) build web zero-permissions
+	ENABLE_DELIVERY_BUNDLING=true $(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure bundling views are created
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
 	ENABLE_DELIVERY_BUNDLING=true $(DOCKER_COMPOSE) --profile agent up -d
