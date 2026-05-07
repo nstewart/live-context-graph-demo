@@ -69,11 +69,22 @@ ORDERS_INDEX_MAPPING = {
             "line_item_count": {"type": "integer"},
             "has_perishable_items": {"type": "boolean"},
             "search_text": {"type": "text"},
+            "mz_timestamp": {"type": "long"},
+            # Vector embedding of the order's line items (BAAI/bge-small-en-v1.5)
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 384,
+            },
+            "embedding_text": {"type": "keyword"},
+            "embedded_at": {"type": "date"},
         }
     },
     "settings": {
         "number_of_shards": 1,
         "number_of_replicas": 0,
+        "index": {
+            "knn": True,
+        },
     },
 }
 
@@ -243,6 +254,57 @@ class OpenSearchClient:
         except Exception as e:
             logger.error(f"Bulk upsert failed: {e}")
             return 0, len(documents)
+
+    async def bulk_patch(self, index_name: str, patches: list[dict]) -> tuple[int, int]:
+        """Patch existing documents (update subset of fields without replacing vector).
+
+        Each patch is ``{"_id": "<doc_id>", "doc": {<fields to merge>}}``. Uses
+        OpenSearch ``update`` op_type with ``doc_as_upsert: True`` so an absent
+        document is created from the patch.
+
+        This is intended for "non-vector" updates — e.g., when an order's price
+        changes but its line items (and thus its embedding) did not, we patch
+        only the changed fields and leave the existing ``embedding`` untouched.
+
+        Args:
+            index_name: Target index name.
+            patches: List of ``{"_id": ..., "doc": ...}`` dicts.
+
+        Returns:
+            ``(success_count, error_count)`` tuple.
+        """
+        if not patches:
+            return 0, 0
+
+        actions = []
+        for patch in patches:
+            actions.append(
+                {
+                    "_op_type": "update",
+                    "_index": index_name,
+                    "_id": patch["_id"],
+                    "doc": patch["doc"],
+                    "doc_as_upsert": True,
+                }
+            )
+
+        try:
+            success, errors = await helpers.async_bulk(
+                self.client,
+                actions,
+                raise_on_error=False,
+                raise_on_exception=False,
+            )
+            error_count = len(errors) if errors else 0
+
+            if errors:
+                for error in errors[:5]:
+                    logger.error(f"Bulk patch error detail: {error}")
+
+            return success, error_count
+        except Exception as e:
+            logger.error(f"Bulk patch failed: {e}")
+            return 0, len(patches)
 
     async def bulk_delete(self, index_name: str, doc_ids: list[str]) -> tuple[int, int]:
         """

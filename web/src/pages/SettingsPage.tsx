@@ -1,10 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo } from '../api/client'
-import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck } from 'lucide-react'
+import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck, QrCode } from 'lucide-react'
+import { QR_URL_KEY, QR_CTA_KEY, DEFAULT_QR_URL, DEFAULT_QR_CTA } from '../qrConfig'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+
+  // Demo presentation state
+  const [qrUrl, setQrUrl] = useState(() => localStorage.getItem(QR_URL_KEY) || DEFAULT_QR_URL)
+  const [qrCta, setQrCta] = useState(() => localStorage.getItem(QR_CTA_KEY) || DEFAULT_QR_CTA)
 
   // Demand state
   const [demandProfile, setDemandProfile] = useState<LoadGenProfile>('demo')
@@ -648,6 +653,45 @@ export default function SettingsPage() {
           <div className="text-xs text-gray-500 pt-2 border-t">
             <strong>Note:</strong> All orders are automatically synced to OpenSearch for full-text search capabilities.
             Currently indexing orders with customer names, addresses, and order details.
+          </div>
+        </div>
+      </div>
+
+      {/* Demo Presentation */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="font-semibold text-lg mb-1 flex items-center gap-2">
+          <QrCode className="h-5 w-5 text-gray-500" />
+          Demo Presentation
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">Configure the QR code shown via the sidebar button during live demos.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Demo URL</label>
+            <input
+              type="url"
+              value={qrUrl}
+              onChange={(e) => {
+                setQrUrl(e.target.value)
+                localStorage.setItem(QR_URL_KEY, e.target.value)
+              }}
+              placeholder={DEFAULT_QR_URL}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">The URL encoded in the QR code.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">CTA Text</label>
+            <input
+              type="text"
+              value={qrCta}
+              onChange={(e) => {
+                setQrCta(e.target.value)
+                localStorage.setItem(QR_CTA_KEY, e.target.value)
+              }}
+              placeholder={DEFAULT_QR_CTA}
+              className="w-full px-3 py-2 border rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">Displayed above the QR code in the modal.</p>
           </div>
         </div>
       </div>

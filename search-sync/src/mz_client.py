@@ -38,6 +38,7 @@ class MaterializeClient:
             with conn.cursor() as cur:
                 # Use the serving cluster for indexed queries
                 cur.execute("SET CLUSTER = serving")
+                cur.execute("SET transaction_isolation = 'serializable'")
                 # Note: Materialize requires LIMIT to be a constant expression,
                 # so we embed the batch_size directly in the query string
                 cur.execute(

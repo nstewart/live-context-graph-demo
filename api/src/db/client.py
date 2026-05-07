@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import get_settings
@@ -135,6 +135,7 @@ def get_pg_engine():
             echo=settings.log_level == "DEBUG",
             pool_size=settings.pg_pool_size,
             max_overflow=settings.pg_max_overflow,
+            pool_pre_ping=True,
         )
         _setup_query_logging(_pg_engine, "PostgreSQL")
     return _pg_engine
@@ -167,6 +168,7 @@ def get_mz_engine():
             echo=settings.log_level == "DEBUG",
             pool_size=settings.mz_pool_size,
             max_overflow=settings.mz_max_overflow,
+            pool_pre_ping=True,
             connect_args={
                 # Disable asyncpg's prepared statement cache (Materialize compatibility)
                 "prepared_statement_cache_size": 0,
@@ -229,6 +231,7 @@ async def get_mz_session() -> AsyncGenerator[AsyncSession, None]:
     """Get Materialize session context manager."""
     factory = get_mz_session_factory()
     async with factory() as session:
+        await session.execute(text("SET transaction_isolation = 'serializable'"))
         yield session
 
 

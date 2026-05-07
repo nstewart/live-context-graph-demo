@@ -81,6 +81,7 @@ async def get_store_health(
         try:
             # CRITICAL: Set cluster to serving for indexed queries
             await conn.execute("SET CLUSTER = serving")
+            await conn.execute("SET transaction_isolation = 'serializable'")
 
             # Route to appropriate view handler
             if view == "summary":

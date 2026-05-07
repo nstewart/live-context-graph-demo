@@ -283,3 +283,61 @@ class TestQueryStatsAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "stopped"
+
+
+class TestWriteTripleMzTimestamp:
+    """write_triple returns a wall-clock mz_timestamp_lower_bound before the PG write."""
+
+    @pytest.mark.asyncio
+    async def test_returns_wall_clock_lower_bound(self, async_client: AsyncClient):
+        import time
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        pg_result = MagicMock()
+        pg_result.fetchone.return_value = (1,)
+        pg_session = AsyncMock()
+        pg_session.execute = AsyncMock(return_value=pg_result)
+        pg_session.commit = AsyncMock()
+        pg_session.__aenter__ = AsyncMock(return_value=pg_session)
+        pg_session.__aexit__ = AsyncMock(return_value=False)
+
+        before_ms = int(time.time() * 1000)
+        with patch("src.routes.query_stats.get_pg_session", return_value=pg_session):
+            response = await async_client.post(
+                "/api/query-stats/write-triple",
+                json={"subject_id": "order:FM-001", "predicate": "order_status", "object_value": "DELIVERED"},
+            )
+        after_ms = int(time.time() * 1000)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "written"
+        lb = data["mz_timestamp_lower_bound"]
+        assert lb is not None
+        assert isinstance(lb, int)
+        # Lower bound must fall within the request window
+        assert before_ms <= lb <= after_ms
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_always_set(self, async_client: AsyncClient):
+        """Lower bound is always a wall-clock int — no Materialize dependency."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        pg_result = MagicMock()
+        pg_result.fetchone.return_value = (1,)
+        pg_session = AsyncMock()
+        pg_session.execute = AsyncMock(return_value=pg_result)
+        pg_session.commit = AsyncMock()
+        pg_session.__aenter__ = AsyncMock(return_value=pg_session)
+        pg_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.routes.query_stats.get_pg_session", return_value=pg_session):
+            response = await async_client.post(
+                "/api/query-stats/write-triple",
+                json={"subject_id": "order:FM-001", "predicate": "order_status", "object_value": "DELIVERED"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mz_timestamp_lower_bound"] is not None
+        # Sanity: epoch ms for dates after 2020-01-01
+        assert data["mz_timestamp_lower_bound"] > 1_577_836_800_000

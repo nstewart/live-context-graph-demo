@@ -130,7 +130,7 @@ services:
           - "4848:4848"
 
   materialize-zero:
-      image: a1q3r1n/materialize-zero:0.0.3
+      image: a1q3r1n/materialize-zero:0.0.4
       container_name: materialize-zero
       depends_on:
         mz:
