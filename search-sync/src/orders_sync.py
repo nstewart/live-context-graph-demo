@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from src.base_subscribe_worker import BaseSubscribeWorker
-from src.embedder import Embedder, build_embedding_text, compute_hash
+from src.embedder import Embedder, build_embedding_text
 from src.opensearch_client import OpenSearchClient
 
 logger = logging.getLogger(__name__)
@@ -129,6 +129,7 @@ ORDERS_INDEX_MAPPING = {
             },
             "embedding_text": {"type": "keyword"},
             "embedded_at": {"type": "date"},
+            "embedding_hash": {"type": "keyword"},
         }
     },
     "settings": {
@@ -269,6 +270,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 "line_item_count": data.get("line_item_count", 0),
                 "has_perishable_items": data.get("has_perishable_items", False),
                 "effective_updated_at": self._format_datetime(data.get("effective_updated_at")),
+                "embedding_hash": data.get("embedding_hash"),
             }
 
             return doc
@@ -318,19 +320,19 @@ class OrdersSyncWorker(BaseSubscribeWorker):
 
         for doc in upserts_to_process:
             order_id = doc.get("order_id")
-            line_items = doc.get("line_items") or []
-            embedding_text = build_embedding_text(line_items)
-            new_hash = compute_hash(embedding_text)
+            new_hash = doc.get("embedding_hash")  # computed by Materialize view
             prev_hash = self._hash_cache.get(order_id)
 
-            if prev_hash == new_hash and order_id is not None:
-                # Embedding text unchanged -> patch non-vector fields only.
+            if prev_hash is not None and prev_hash == new_hash and order_id is not None:
+                # Line items unchanged -> patch non-vector fields only.
                 patch_doc = {
                     k: v for k, v in doc.items() if k not in _EMBEDDING_FIELDS
                 }
                 patches.append({"_id": order_id, "doc": patch_doc})
             else:
                 # New order or line items changed -> embed + full upsert.
+                line_items = doc.get("line_items") or []
+                embedding_text = build_embedding_text(line_items)
                 doc["embedding_text"] = embedding_text
                 docs_needing_embedding.append(doc)
                 texts_to_embed.append(embedding_text)
@@ -498,7 +500,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
             doc["embedded_at"] = now_iso
             order_id = doc.get("order_id")
             if order_id:
-                self._hash_cache[order_id] = compute_hash(doc["embedding_text"])
+                self._hash_cache[order_id] = doc.get("embedding_hash")
 
     def _format_datetime(self, value) -> Optional[str]:
         """Format datetime value for OpenSearch ISO 8601."""

@@ -784,6 +784,14 @@ SELECT
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
     ) AS line_items,
+    md5(COALESCE(
+        string_agg(
+            ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
+            ' | '
+            ORDER BY ol.line_sequence
+        ) FILTER (WHERE ol.product_name IS NOT NULL),
+        ''
+    )) AS embedding_hash,
     COUNT(ol.line_id) AS line_item_count,
     SUM(ol.line_amount) AS computed_total,
     BOOL_OR(ol.perishable_flag) AS has_perishable_items,

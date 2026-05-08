@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.embedder import build_embedding_text, compute_hash
+
 
 class TestOrdersSyncWorkerEmbedding:
     """Tests for the local-CPU vector embedding pipeline in OrdersSyncWorker.
@@ -38,6 +40,10 @@ class TestOrdersSyncWorkerEmbedding:
 
     def _doc(self, order_id="order:FM-1001", line_items=None, **overrides):
         """Build a minimal order doc dict (already in OS doc form)."""
+        resolved_items = line_items if line_items is not None else [
+            {"product_name": "Whole Milk", "category": "Dairy"},
+            {"product_name": "Bananas", "category": "Produce"},
+        ]
         doc = {
             "order_id": order_id,
             "order_number": order_id.split(":")[-1],
@@ -45,14 +51,10 @@ class TestOrdersSyncWorkerEmbedding:
             "store_id": "store:BK-01",
             "customer_id": "customer:101",
             "order_total_amount": 45.99,
-            "line_items": line_items
-            if line_items is not None
-            else [
-                {"product_name": "Whole Milk", "category": "Dairy"},
-                {"product_name": "Bananas", "category": "Produce"},
-            ],
-            "line_item_count": 2,
+            "line_items": resolved_items,
+            "line_item_count": len(resolved_items),
             "has_perishable_items": True,
+            "embedding_hash": compute_hash(build_embedding_text(resolved_items)),
         }
         doc.update(overrides)
         return doc
