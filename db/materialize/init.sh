@@ -789,7 +789,7 @@ SELECT
             ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
             ' | '
             ORDER BY ol.line_sequence
-        ) FILTER (WHERE ol.product_name IS NOT NULL),
+        ) FILTER (WHERE ol.product_name IS NOT NULL AND ol.product_name <> ''),
         ''
     )) AS embedding_hash,
     COUNT(ol.line_id) AS line_item_count,

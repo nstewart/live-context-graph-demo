@@ -204,6 +204,15 @@ class TestOrdersSyncWorkerEmbedding:
         mock_os_client.bulk_patch.assert_not_called()
         mock_os_client.bulk_delete.assert_not_called()
 
+    def test_should_reembed_compares_hashes(self, worker):
+        """_should_reembed returns False only when embedding_hash is identical."""
+        old = {"embedding_hash": "abc"}
+        new_same = {"embedding_hash": "abc"}
+        new_diff = {"embedding_hash": "xyz"}
+        assert worker._should_reembed(old, new_same) is False
+        assert worker._should_reembed(old, new_diff) is True
+        assert worker._should_reembed({}, new_diff) is True  # missing old hash -> always re-embed
+
     @pytest.mark.asyncio
     async def test_orders_index_mapping_includes_knn_vector(self):
         """The orders index mapping advertises a 384-dim knn_vector embedding field."""

@@ -177,7 +177,13 @@ class OrdersSyncWorker(BaseSubscribeWorker):
         return "orders"
 
     def should_consolidate_events(self) -> bool:
-        """Enable UPDATE consolidation for orders."""
+        """Enable UPDATE consolidation for orders.
+
+        Orders receive frequent status and delivery updates (e.g. PICKING →
+        OUT_FOR_DELIVERY, ETA refreshes) that arrive as DELETE + INSERT pairs
+        at the same timestamp. Consolidating them avoids redundant embeddings
+        and keeps the OpenSearch write path efficient.
+        """
         return True
 
     def _should_reembed(self, old_data: dict, new_data: dict) -> bool:
