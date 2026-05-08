@@ -1,12 +1,14 @@
 """Tests for OrdersSyncWorker."""
 
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.embedder import build_embedding_text, compute_hash
+from src.mz_client_subscribe import SubscribeEvent
 
 
 class TestOrdersSyncWorkerEmbedding:
@@ -421,3 +423,185 @@ class TestOrdersSyncWorkerTransformations:
         await worker._sync_batch()
 
         mock_os_client.bulk_upsert.assert_called_once()
+
+
+class TestHashFormatAlignment:
+    """Verify Python build_embedding_text format matches the Materialize SQL contract.
+
+    The SQL expression in orders_with_lines_mv (db/materialize/init.sh) is:
+        md5(COALESCE(
+            string_agg(
+                ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
+                ' | '
+                ORDER BY ol.line_sequence
+            ) FILTER (WHERE ol.product_name IS NOT NULL AND ol.product_name <> ''),
+            ''
+        ))
+
+    Python must produce an identical string before hashing. Any divergence causes
+    _should_reembed to always return True, silently re-embedding on every update.
+    """
+
+    @pytest.mark.parametrize("line_items,expected_text", [
+        (
+            [{"product_name": "Whole Milk", "category": "Dairy"},
+             {"product_name": "Bananas", "category": "Produce"}],
+            "Whole Milk (Dairy) | Bananas (Produce)",
+        ),
+        (
+            [{"product_name": "Eggs", "category": "Dairy"}],
+            "Eggs (Dairy)",
+        ),
+        # Missing category key → empty parens (matches SQL: COALESCE(null_col, ''))
+        (
+            [{"product_name": "Whole Milk"}],
+            "Whole Milk ()",
+        ),
+        # None category value → empty parens (matches SQL: COALESCE(NULL, ''))
+        (
+            [{"product_name": "Whole Milk", "category": None}],
+            "Whole Milk ()",
+        ),
+        # Empty product_name → skipped (matches SQL: product_name <> '')
+        (
+            [{"product_name": "", "category": "Dairy"},
+             {"product_name": "Bananas", "category": "Produce"}],
+            "Bananas (Produce)",
+        ),
+        # None product_name → skipped (matches SQL: product_name IS NOT NULL)
+        (
+            [{"product_name": None, "category": "Dairy"},
+             {"product_name": "Bananas", "category": "Produce"}],
+            "Bananas (Produce)",
+        ),
+        # Empty list → empty string (matches SQL: COALESCE(NULL_agg, ''))
+        ([], ""),
+    ])
+    def test_embedding_text_format(self, line_items, expected_text):
+        """build_embedding_text must produce the canonical format matching the SQL."""
+        assert build_embedding_text(line_items) == expected_text
+
+    def test_compute_hash_is_md5(self):
+        """compute_hash returns md5(text) — the same function Materialize uses."""
+        text = "Whole Milk (Dairy) | Bananas (Produce)"
+        assert compute_hash(text) == hashlib.md5(text.encode()).hexdigest()
+
+    def test_empty_text_hash_matches_sql_empty_coalesce(self):
+        """Empty order: both paths yield md5('')."""
+        expected = hashlib.md5(b"").hexdigest()
+        assert compute_hash("") == expected
+        assert compute_hash(build_embedding_text([])) == expected
+
+
+class TestConsolidationIntegration:
+    """End-to-end: SUBSCRIBE events → consolidation → _should_reembed → flush."""
+
+    @pytest.fixture
+    def worker(self, mock_os_client, mock_embedder):
+        with patch("src.base_subscribe_worker.get_settings") as mock_settings:
+            mock_settings.return_value = MagicMock(
+                use_subscribe=True,
+                backpressure_threshold=10000,
+                backpressure_resume=5000,
+                retry_initial_delay=1,
+                retry_max_delay=10,
+            )
+            from src.orders_sync import OrdersSyncWorker
+
+            w = OrdersSyncWorker(mock_os_client)
+            w._embedder = mock_embedder
+            return w
+
+    def _event_data(self, order_id="order:FM-1001", line_items=None, **overrides):
+        """Build minimal raw Materialize event data dict for an order."""
+        resolved_items = line_items if line_items is not None else [
+            {"product_name": "Whole Milk", "category": "Dairy"},
+            {"product_name": "Bananas", "category": "Produce"},
+        ]
+        data = {
+            "order_id": order_id,
+            "order_number": order_id.split(":")[-1],
+            "order_status": "OUT_FOR_DELIVERY",
+            "store_id": "store:BK-01",
+            "customer_id": "customer:101",
+            "order_total_amount": "45.99",
+            "line_items": resolved_items,
+            "line_item_count": len(resolved_items),
+            "has_perishable_items": True,
+            "embedding_hash": compute_hash(build_embedding_text(resolved_items)),
+        }
+        data.update(overrides)
+        return data
+
+    @pytest.mark.asyncio
+    async def test_status_only_change_issues_patch_no_embed(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """DELETE+INSERT with same embedding_hash → bulk_patch only, no embed."""
+        old_data = self._event_data(order_status="PICKING")
+        new_data = self._event_data(order_status="OUT_FOR_DELIVERY")
+        assert old_data["embedding_hash"] == new_data["embedding_hash"]
+
+        events = [
+            SubscribeEvent(timestamp="1000", diff=-1, data=old_data),
+            SubscribeEvent(timestamp="1000", diff=1, data=new_data),
+        ]
+        mock_embedder.embed.return_value = [[0.1] * 384]
+
+        await worker._handle_events(events)
+
+        mock_embedder.embed.assert_not_called()
+        mock_os_client.bulk_patch.assert_called_once()
+        mock_os_client.bulk_upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_line_item_change_issues_embed_and_upsert(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """DELETE+INSERT with different embedding_hash → embed + bulk_upsert."""
+        old_items = [{"product_name": "Whole Milk", "category": "Dairy"}]
+        new_items = [
+            {"product_name": "Whole Milk", "category": "Dairy"},
+            {"product_name": "Bananas", "category": "Produce"},
+        ]
+        old_data = self._event_data(line_items=old_items)
+        new_data = self._event_data(line_items=new_items)
+        assert old_data["embedding_hash"] != new_data["embedding_hash"]
+
+        events = [
+            SubscribeEvent(timestamp="1000", diff=-1, data=old_data),
+            SubscribeEvent(timestamp="1000", diff=1, data=new_data),
+        ]
+        mock_embedder.embed.return_value = [[0.9] * 384]
+
+        await worker._handle_events(events)
+
+        mock_embedder.embed.assert_called_once()
+        mock_os_client.bulk_upsert.assert_called_once()
+        upserted = mock_os_client.bulk_upsert.call_args.args[1][0]
+        assert upserted["embedding"] == [0.9] * 384
+        mock_os_client.bulk_patch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_consolidation_sets_needs_embedding_on_new_doc(
+        self, worker, mock_os_client, mock_embedder
+    ):
+        """_handle_events_with_consolidation stamps _needs_embedding before flush.
+
+        Directly verifies the bridge between consolidation and _flush_batch:
+        if _should_reembed returns False, the doc queued in pending_upserts
+        carries _needs_embedding=False so _flush_batch routes it to bulk_patch.
+        """
+        old_data = self._event_data(order_status="PICKING")
+        new_data = self._event_data(order_status="OUT_FOR_DELIVERY")
+
+        events = [
+            SubscribeEvent(timestamp="2000", diff=-1, data=old_data),
+            SubscribeEvent(timestamp="2000", diff=1, data=new_data),
+        ]
+
+        await worker._handle_events_with_consolidation(events)
+
+        # The doc must be in pending_upserts with _needs_embedding=False
+        assert len(worker.pending_upserts) == 1
+        assert worker.pending_upserts[0]["_needs_embedding"] is False
