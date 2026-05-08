@@ -83,8 +83,6 @@ class TestOrdersSyncWorkerEmbedding:
         assert "embedded_at" in upserted_doc
         # bulk_patch should NOT have been called
         mock_os_client.bulk_patch.assert_not_called()
-        # Hash cache populated
-        assert "order:FM-1001" in worker._hash_cache
 
     @pytest.mark.asyncio
     async def test_unchanged_line_items_skips_embed_and_patches(
@@ -98,8 +96,9 @@ class TestOrdersSyncWorkerEmbedding:
         assert mock_embedder.embed.call_count == 1
         assert mock_os_client.bulk_upsert.call_count == 1
 
-        # Second flush: same line items, only price changed -> patch only
-        worker.pending_upserts = [self._doc(order_total_amount=99.99)]
+        # Second flush: same line items, only price changed -> patch only.
+        # Simulate what consolidation sets when embedding_hash is unchanged.
+        worker.pending_upserts = [self._doc(order_total_amount=99.99, _needs_embedding=False)]
         await worker._flush_batch()
 
         # Embed was NOT called again
@@ -174,8 +173,8 @@ class TestOrdersSyncWorkerEmbedding:
         ]
 
     @pytest.mark.asyncio
-    async def test_worker_initializes_hash_cache_and_embedder(self, mock_os_client):
-        """Worker has a hash cache dict and embedder attribute on init."""
+    async def test_worker_initializes_embedder(self, mock_os_client):
+        """Worker has an embedder attribute on init."""
         with patch("src.base_subscribe_worker.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
                 use_subscribe=True,
@@ -188,8 +187,6 @@ class TestOrdersSyncWorkerEmbedding:
 
             w = OrdersSyncWorker(mock_os_client)
 
-            assert isinstance(w._hash_cache, dict)
-            assert w._hash_cache == {}
             assert w._embedder is not None
 
     @pytest.mark.asyncio
