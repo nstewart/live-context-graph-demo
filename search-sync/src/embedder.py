@@ -78,7 +78,7 @@ def build_embedding_text(line_items: list[dict]) -> str:
         returns the empty string.
     """
     parts = [
-        f"{li.get('product_name', '')} ({li.get('category', '')})"
+        f"{li.get('product_name', '')} ({li.get('category') or ''})"
         for li in line_items
         if li.get("product_name")
     ]

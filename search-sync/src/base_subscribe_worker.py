@@ -200,6 +200,18 @@ class BaseSubscribeWorker(ABC):
     # Customization hooks (optional override)
     # ========================================================================
 
+    def _should_reembed(self, old_data: dict, new_data: dict) -> bool:
+        """Whether an UPDATE requires a fresh embedding.
+
+        Called only for consolidated UPDATE events (net_diff == 0) where both
+        old and new row data are available. Return False to skip re-embedding
+        and issue a patch-only update instead.
+
+        Default: always re-embed. Override in workers that carry an
+        embedding-relevant hash column in the view (e.g. OrdersSyncWorker).
+        """
+        return True
+
     def should_consolidate_events(self) -> bool:
         """Whether to consolidate events at same timestamp.
 
@@ -566,6 +578,9 @@ class BaseSubscribeWorker(ABC):
                 new_doc = self.transform_event_to_doc(new_data)
                 old_doc = self.transform_event_to_doc(old_data) if old_data else None
                 if new_doc:
+                    new_doc["_needs_embedding"] = self._should_reembed(
+                        old_data or {}, new_data or {}
+                    )
                     self.pending_upserts.append(new_doc)
                     update_diffs.append((doc_id, old_doc, new_doc))
 
