@@ -495,23 +495,7 @@ export default function MetricsDashboardPage() {
           </div>
         </div>
 
-        {/* Throughput */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-500">Throughput</h3>
-            <TrendingUp className="h-5 w-5 text-emerald-600" />
-          </div>
-          <p className="text-xs text-gray-500 mb-3">
-            Orders picked up per minute window
-          </p>
-          <TimeSeriesLineChart
-            data={systemChartData.throughput}
-            label="Picked Up"
-            color="#10b981"
-            unit=""
-            decimals={0}
-          />
-        </div>
+        {/* Throughput hidden */}
       </div>
 
       {/* Detailed Tables */}
