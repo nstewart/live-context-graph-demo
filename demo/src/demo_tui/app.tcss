@@ -1,0 +1,22 @@
+/* CQRS dashboard: three columns, full-height. write -> think -> read. */
+
+Screen {
+    background: $surface-darken-1;
+}
+
+#top_row {
+    height: 1fr;
+    layout: horizontal;
+}
+
+InputPane {
+    width: 28%;
+}
+
+AgentPanel {
+    width: 32%;
+}
+
+MzPanel {
+    width: 1fr;
+}
