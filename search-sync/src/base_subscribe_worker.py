@@ -902,6 +902,7 @@ class BaseSubscribeWorker(ABC):
         # docs re-indexed after a write across all indexes.
         mz_ts_int = int(datetime.now(timezone.utc).timestamp() * 1000)
         for doc in upserts_to_flush:
+            doc.pop("_needs_embedding", None)
             doc["mz_timestamp"] = mz_ts_int
 
         # Flush with retry
