@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # Fields that are excluded from a "patch-only" update — i.e., these are
 # either the vector itself or fields whose source is the embedding pipeline.
 # When line items are unchanged we patch every other field but leave these alone.
-_EMBEDDING_FIELDS = {"embedding", "embedding_text", "embedded_at"}
+_EMBEDDING_FIELDS = {"embedding", "embedding_text", "embedded_at", "embedding_hash"}
 
 
 # Orders index mapping - matches ORDERS_INDEX_MAPPING from opensearch_client.py
@@ -476,7 +476,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
             logger.warning("Continuing with SUBSCRIBE streaming despite hydration failure")
 
     def _embed_documents(self, documents: list[dict]) -> None:
-        """Embed a batch of documents in-place, updating hash cache."""
+        """Embed a batch of documents in-place."""
         texts = []
         for doc in documents:
             line_items = doc.get("line_items") or []
