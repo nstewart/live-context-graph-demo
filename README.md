@@ -100,6 +100,117 @@ Read path (semantic search):
 
 **Key property:** The search index's `mz_timestamp` field is stamped at flush time by `search-sync`. After a triple write, the `/api/search/impact` endpoint counts how many documents across both indexes have `mz_timestamp >= write_time`, giving a causal measure of propagation progress.
 
+## How Vector Embeddings Stay in Sync
+
+The key insight: Materialize's `SUBSCRIBE` protocol streams **differential updates** — each row carries a `mz_diff` of `+1` (insert/upsert) or `-1` (delete). The `search-sync` workers consume this stream and maintain the OpenSearch index incrementally, only re-computing embeddings when the underlying text actually changes.
+
+### Data Flow
+
+```
+PostgreSQL (triple writes)
+      ↓ CDC
+Materialize (orders_with_lines_mv)
+  — computes embedding_hash = md5(string_agg(product_name (category), ' | '))
+      ↓ SUBSCRIBE — differential stream of (+1/-1) row deltas
+OrdersSyncWorker (batches up to 1000 events, flushes every 5s)
+      ↓
+  consolidate DELETE+INSERT pairs into UPDATE events
+  _should_reembed(): compare embedding_hash from old vs. new row
+      ↙                        ↘
+ hash changed?             hash unchanged?
+ build text + embed         patch non-vector fields only
+      ↓
+OpenSearch (knn_vector index, 384 dims)
+```
+
+### The Smart Dedup Pattern
+
+Embedding is CPU-bound. Re-embedding every update (price change, status flip, qty tweak) would be wasteful. Rather than maintaining a separate in-process cache, the worker delegates the hash to Materialize itself: `embedding_hash` is a column in `orders_with_lines_mv`, computed incrementally as the view updates. When a SUBSCRIBE `UPDATE` arrives, the differential carries both the old and new row — the worker just compares the two `embedding_hash` values.
+
+```sql
+-- Materialize view: orders_with_lines_mv
+SELECT
+  ...
+  md5(
+    string_agg(
+      product_name || ' (' || category || ')',
+      ' | '
+      ORDER BY line_sequence
+    ) FILTER (WHERE product_name IS NOT NULL)
+  ) AS embedding_hash,
+  ...
+```
+
+```python
+# Pseudocode: BaseSubscribeWorker consolidation
+
+for DELETE, INSERT pair at same timestamp:
+    # This is an UPDATE — annotate before it reaches _flush_batch
+    doc["_needs_embedding"] = _should_reembed(old_row, new_row)
+
+# OrdersSyncWorker._should_reembed
+def _should_reembed(old_data, new_data):
+    return old_data["embedding_hash"] != new_data["embedding_hash"]
+```
+
+```python
+# Pseudocode: orders_sync._flush_batch()
+
+for doc in batch:
+    needs_embedding = doc.pop("_needs_embedding", True)  # new inserts always embed
+
+    if needs_embedding:
+        embedding_text = build_embedding_text(doc)       # build text only when needed
+        needs_embed_batch.append((doc, embedding_text))
+    else:
+        needs_patch_batch.append(doc)
+
+# Embed only what actually changed
+vectors = embedder.embed([text for _, text in needs_embed_batch])
+
+# Two bulk ops to OpenSearch:
+bulk_upsert(needs_embed_batch, vectors)   # full doc including new vector
+bulk_patch(needs_patch_batch)             # partial update, vector untouched
+```
+
+No in-memory hash cache — the hash lives in Materialize and rides along in the SUBSCRIBE stream.
+
+### Query-time Embedding
+
+Search queries use the same model so vector spaces are compatible:
+
+```python
+# Pseudocode: GET /api/search/vector/orders?q=<query>
+
+query_vector = embedder.embed([query_text])[0]   # 384-dim float list
+
+results = opensearch.knn_search(
+    index="orders",
+    vector=query_vector,
+    k=10,
+    filter={"order_status": status, "store_zone": zone}  # optional hybrid filters
+)
+
+# Hydrate with live fields from Materialize (price, status, timestamps)
+for hit in results:
+    hit.live_data = materialize.query(order_id=hit.id)
+```
+
+### Embedding Model
+
+Both paths use `BAAI/bge-small-en-v1.5` via `fastembed` (local ONNX runtime — no external API call):
+
+| Property | Value |
+|----------|-------|
+| Model | `BAAI/bge-small-en-v1.5` |
+| Dimensions | 384 |
+| Runtime | fastembed / ONNX (local CPU) |
+| Index field | `knn_vector` in OpenSearch |
+
+**Replicating this pattern:** Swap the Materialize `SUBSCRIBE` for any CDC stream (Kafka, Debezium, Postgres logical replication). Swap `fastembed` for any embedding API. The structural insight — push hash computation into the view, stream deltas with hashes, annotate at consolidation time, embed only on content change — is model and transport agnostic.
+
+---
+
 ## Core Components
 
 ### search-sync

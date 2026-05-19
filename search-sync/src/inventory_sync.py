@@ -156,6 +156,9 @@ class InventorySyncWorker(BaseSubscribeWorker):
         """Return OpenSearch index name."""
         return "inventory"
 
+    def _should_reembed(self, old_data: dict, new_data: dict) -> bool:
+        return False
+
     def should_consolidate_events(self) -> bool:
         """Enable UPDATE consolidation for inventory.
 

@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from src.base_subscribe_worker import BaseSubscribeWorker
-from src.embedder import Embedder, build_embedding_text, compute_hash
+from src.embedder import Embedder, build_embedding_text
 from src.opensearch_client import OpenSearchClient
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # Fields that are excluded from a "patch-only" update — i.e., these are
 # either the vector itself or fields whose source is the embedding pipeline.
 # When line items are unchanged we patch every other field but leave these alone.
-_EMBEDDING_FIELDS = {"embedding", "embedding_text", "embedded_at"}
+_EMBEDDING_FIELDS = {"embedding", "embedding_text", "embedded_at", "embedding_hash"}
 
 
 # Orders index mapping - matches ORDERS_INDEX_MAPPING from opensearch_client.py
@@ -129,6 +129,7 @@ ORDERS_INDEX_MAPPING = {
             },
             "embedding_text": {"type": "keyword"},
             "embedded_at": {"type": "date"},
+            "embedding_hash": {"type": "keyword"},
         }
     },
     "settings": {
@@ -165,11 +166,6 @@ class OrdersSyncWorker(BaseSubscribeWorker):
 
     def __init__(self, os_client: OpenSearchClient):
         super().__init__(os_client)
-        # Maps order_id -> last embedded MD5 hash. Stored in memory only;
-        # rebuilds naturally on restart since the next change will trigger
-        # a re-embed. Unbounded — acceptable for this demo, but would need a
-        # TTL or size cap for a long-running production worker.
-        self._hash_cache: dict[str, str] = {}
         self._embedder = Embedder()
 
     def get_view_name(self) -> str:
@@ -183,11 +179,16 @@ class OrdersSyncWorker(BaseSubscribeWorker):
     def should_consolidate_events(self) -> bool:
         """Enable UPDATE consolidation for orders.
 
-        Orders can be updated frequently (status changes, delivery updates),
-        so we consolidate DELETE + INSERT at the same timestamp into a
-        single UPDATE operation for efficiency.
+        Orders receive frequent status and delivery updates (e.g. PICKING →
+        OUT_FOR_DELIVERY, ETA refreshes) that arrive as DELETE + INSERT pairs
+        at the same timestamp. Consolidating them avoids redundant embeddings
+        and keeps the OpenSearch write path efficient.
         """
         return True
+
+    def _should_reembed(self, old_data: dict, new_data: dict) -> bool:
+        """Re-embed only when the line-item composition changes."""
+        return old_data.get("embedding_hash") != new_data.get("embedding_hash")
 
     def get_index_mapping(self) -> dict:
         """Return OpenSearch index mapping for orders."""
@@ -269,6 +270,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
                 "line_item_count": data.get("line_item_count", 0),
                 "has_perishable_items": data.get("has_perishable_items", False),
                 "effective_updated_at": self._format_datetime(data.get("effective_updated_at")),
+                "embedding_hash": data.get("embedding_hash"),
             }
 
             return doc
@@ -307,35 +309,31 @@ class OrdersSyncWorker(BaseSubscribeWorker):
         self.pending_upserts = []
         self.pending_deletes = []
 
-        # Split upserts into "needs full embedding" vs "patch only"
+        # Split upserts into "needs full embedding" vs "patch only".
+        # Net INSERTs default to True; UPDATE docs carry _needs_embedding set
+        # by _should_reembed() during consolidation.
         full_upserts: list[dict] = []
         patches: list[dict] = []
-        pending_cache_updates: list[tuple[str, str]] = []
-
-        # Bulk-embed all docs that need embedding in one shot.
         docs_needing_embedding: list[dict] = []
         texts_to_embed: list[str] = []
 
         for doc in upserts_to_process:
             order_id = doc.get("order_id")
-            line_items = doc.get("line_items") or []
-            embedding_text = build_embedding_text(line_items)
-            new_hash = compute_hash(embedding_text)
-            prev_hash = self._hash_cache.get(order_id)
+            needs_embedding = doc.pop("_needs_embedding", True)
 
-            if prev_hash == new_hash and order_id is not None:
-                # Embedding text unchanged -> patch non-vector fields only.
+            if not needs_embedding and order_id is not None:
+                # Line items unchanged -> patch non-vector fields only.
                 patch_doc = {
                     k: v for k, v in doc.items() if k not in _EMBEDDING_FIELDS
                 }
                 patches.append({"_id": order_id, "doc": patch_doc})
             else:
                 # New order or line items changed -> embed + full upsert.
+                line_items = doc.get("line_items") or []
+                embedding_text = build_embedding_text(line_items)
                 doc["embedding_text"] = embedding_text
                 docs_needing_embedding.append(doc)
                 texts_to_embed.append(embedding_text)
-                if order_id is not None:
-                    pending_cache_updates.append((order_id, new_hash))
 
         if docs_needing_embedding:
             vectors = self._embedder.embed(texts_to_embed)
@@ -402,8 +400,6 @@ class OrdersSyncWorker(BaseSubscribeWorker):
 
                 self.events_processed += upsert_count + patch_count + delete_count
                 self.flush_count += 1
-                for order_id, new_hash in pending_cache_updates:
-                    self._hash_cache[order_id] = new_hash
                 return
 
             except Exception as e:
@@ -480,7 +476,7 @@ class OrdersSyncWorker(BaseSubscribeWorker):
             logger.warning("Continuing with SUBSCRIBE streaming despite hydration failure")
 
     def _embed_documents(self, documents: list[dict]) -> None:
-        """Embed a batch of documents in-place, updating hash cache."""
+        """Embed a batch of documents in-place."""
         texts = []
         for doc in documents:
             line_items = doc.get("line_items") or []
@@ -496,9 +492,6 @@ class OrdersSyncWorker(BaseSubscribeWorker):
         for doc, vec in zip(documents, vectors):
             doc["embedding"] = vec
             doc["embedded_at"] = now_iso
-            order_id = doc.get("order_id")
-            if order_id:
-                self._hash_cache[order_id] = compute_hash(doc["embedding_text"])
 
     def _format_datetime(self, value) -> Optional[str]:
         """Format datetime value for OpenSearch ISO 8601."""
