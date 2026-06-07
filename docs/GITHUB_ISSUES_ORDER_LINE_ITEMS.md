@@ -211,22 +211,25 @@ See Implementation Review doc for complete mapping JSON
 
 ---
 
-### Issue #11: Update Materialize SUBSCRIBE for Line Items
+### Issue #11: Pipe Line Items Through the Kafka Sink → OpenSearch Pipeline
 **Labels**: `backend`, `materialize`, `phase-3`
+
 **Story Points**: 5
 
 **Description**:
-Modify OpenSearch sync worker to include denormalized line items in order documents.
+Ensure denormalized line items flow into order documents via the Kafka sink and Kafka Connect OpenSearch sink connector. OpenSearch indexing is handled by the Kafka Connect sink connectors, not a Python sync worker.
 
 **Acceptance Criteria**:
-- [ ] SUBSCRIBE query joins orders with line items
-- [ ] Line items serialized as nested array in order document
-- [ ] Sync worker handles line item updates (INSERT/UPDATE/DELETE)
-- [ ] Batch processing for multiple line items per order
-- [ ] Error handling for malformed line item data
-- [ ] Monitoring for sync lag
+- [ ] The view feeding the orders sink (`orders_with_lines_mv`) emits line items as a nested array in the order document
+- [ ] `CREATE SINK` (Avro, Debezium envelope) publishes the view to the `orders` Kafka topic
+- [ ] OpenSearch sink connector handles line item updates (INSERT/UPDATE/DELETE) via the Debezium envelope
+- [ ] OpenSearch index template mapping updated for nested line items (see Issue #10)
+- [ ] Error handling / DLQ configured for malformed line item data
+- [ ] Monitoring for connector lag and task health
 
-**File**: `opensearch-sync/sync_worker.py`
+**Files**:
+- `kafka-connect/connectors/orders-opensearch-sink.json` (connector config)
+- `kafka-connect/opensearch-templates/orders.json` (index template)
 
 ---
 
@@ -307,7 +310,7 @@ Update all documentation to reflect order line items functionality.
 - [ ] API_REFERENCE.md includes new endpoints
 - [ ] USER_GUIDE.md explains shopping cart workflow
 - [ ] ARCHITECTURE.md updated with materialized views
-- [ ] OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md includes line items
+- [ ] OPENSEARCH_SINK_IMPLEMENTATION.md includes line items
 - [ ] README.md mentions line items feature
 
 ---

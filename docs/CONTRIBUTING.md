@@ -95,19 +95,27 @@ python -m pytest tests/ -v
 docker compose exec -it agents python -m src.main chat
 ```
 
-**Search Sync Worker (Python)**:
+**Embedding Service (Python)**:
+
+The search-indexing path runs through Materialize Kafka sinks → Redpanda → Kafka
+Connect → OpenSearch. The only first-party Python service in this path is the
+embedding service (used by the orders connector's SMT and by query-time kNN).
 
 ```bash
 # Install dependencies
-cd search-sync
+cd embedding-service
 pip install -r requirements.txt
 
 # Run tests
 python -m pytest tests/ -v
 
-# Watch logs
-docker compose logs -f search-sync
+# Watch logs (embedding service + Kafka Connect pipeline)
+docker compose logs -f embedding-service
+docker compose logs -f kafka-connect
 ```
+
+Connector definitions and OpenSearch index templates live under `kafka-connect/` and
+are applied by the one-shot `connect-init` service.
 
 ### Claude Code with Materialize MCP Server
 
@@ -177,12 +185,13 @@ freshmart-digital-twin-agent-starter/
 │       ├── test_freshmart_service_integration.py  # PG/MZ integration tests
 │       └── ...                # Unit and API tests
 │
-├── search-sync/               # OpenSearch sync workers
-│   ├── src/
-│   │   ├── base_subscribe_worker.py  # Abstract base class
-│   │   ├── orders_sync.py     # Orders sync worker
-│   │   ├── inventory_sync.py  # Inventory sync worker
-│   │   └── mz_client_subscribe.py  # Materialize SUBSCRIBE client
+├── kafka-connect/             # Search indexing via Kafka Connect
+│   ├── connectors/            # OpenSearch sink connector configs (orders, inventory)
+│   ├── templates/             # OpenSearch index templates
+│   └── transforms/            # Custom SMTs (EmbeddingDiffTransform, HeaderToValue)
+│
+├── embedding-service/         # OpenAI-compatible embedding facade (fastembed)
+│   ├── src/                   # /v1/embeddings over BAAI/bge-small-en-v1.5 (384-dim)
 │   └── tests/
 │
 ├── zero-server/               # WebSocket server
@@ -230,15 +239,15 @@ python -m pytest tests/test_ontology_service.py -v
 python -m pytest tests/ --cov=src --cov-report=html
 ```
 
-### Search-Sync Tests
+### Embedding Service Tests
 
 ```bash
-cd search-sync
+cd embedding-service
 python -m pytest tests/ -v
-
-# Test SUBSCRIBE consolidation
-python -m pytest tests/test_subscribe_consolidation.py -v
 ```
+
+The custom Kafka Connect SMTs (`EmbeddingDiffTransform`, `HeaderToValue`) live under
+`kafka-connect/transforms/` and have their own build/test tooling there.
 
 ### Web Tests
 
@@ -437,7 +446,7 @@ See [Ontology Guide](ONTOLOGY_GUIDE.md) for complete walkthrough.
 1. Define class in `ontology_classes` table
 2. Define properties in `ontology_properties` table
 3. Create Materialize views (regular → materialized → indexes)
-4. Update sync workers if needed
+4. If the entity is searchable, add a Materialize Kafka sink + Kafka Connect connector (see [Search Integration](SEARCH.md#extending-search))
 5. Update UI components
 6. Add tests
 

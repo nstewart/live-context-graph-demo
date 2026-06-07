@@ -423,74 +423,51 @@ ON orders_with_promotions_mv (order_id);
 
 ### Step 4: Sync Enriched Orders to OpenSearch
 
-Now that the `orders_with_promotions_mv` view exists in Materialize, update the orders sync worker to use it.
+Order documents reach OpenSearch through a Kafka pipeline, not a Python sync worker. Materialize publishes the orders view to a Kafka topic via a Debezium-envelope Avro `CREATE SINK`, and a Kafka Connect OpenSearch sink connector writes those records into the `orders` index. There is no per-change service to restart — you re-register the connector with its updated config.
 
-**4a. Update the Orders Sync Worker**
+To surface the new promotion fields in search, extend the view that feeds the sink, add any new embedded/mapped fields, then re-register the connector.
 
-Modify `search-sync/src/orders_sync.py` to subscribe to the new enriched view:
+**4a. Feed the Sink From the Enriched View**
 
-```python
-class OrdersSyncWorker(BaseSubscribeWorker):
-    """Worker that syncs orders from Materialize to OpenSearch."""
+Make sure the view published to the `orders` Kafka topic includes the promotion fields. In this demo that is `orders_with_lines_mv` — extend it (or the view it selects from) to carry `promo_id`, `promo_code`, `discount_percent`, and `order_total_amount_with_discounts`, mirroring the enrichment you added in Step 3d. Once the view emits the new columns, the `CREATE SINK ... FORMAT AVRO ... ENVELOPE DEBEZIUM` definition picks them up automatically.
 
-    def get_view_name(self) -> str:
-        """Return Materialize view name."""
-        return "orders_with_promotions_mv"  # Changed from orders_search_source_mv
+**4b. Embed New String Columns (Optional)**
+
+The orders connector runs an embedding SMT that re-embeds the `embedding_text` column only when it changes. If you want a new string field (e.g. `promo_code`) to contribute to semantic search, add it to the connector's embedded columns in `kafka-connect/connectors/orders-opensearch-sink.json`:
+
+```json
+"transforms.embed.embedded.columns": "...,promo_code"
 ```
 
-**4b. Add Promotion Fields to the Index Mapping**
+The SMT calls `embedding-service` (`/v1/embeddings`, BAAI/bge-small-en-v1.5, 384-dim) and writes the vector to `embedding_text_embedding`.
 
-Update the ORDERS_INDEX_MAPPING to include promotion fields:
+**4c. Update the OpenSearch Index Template**
 
-```python
-ORDERS_INDEX_MAPPING = {
-    "mappings": {
-        "properties": {
-            # ... existing fields ...
+If a new field needs an explicit mapping, update the composable index template at `kafka-connect/opensearch-templates/orders.json` (applied/pre-created by `connect-init`):
 
-            # Add promotion fields
-            "promo_id": {"type": "keyword"},
-            "promo_code": {
-                "type": "text",
-                "copy_to": "search_text",
-                "fields": {"keyword": {"type": "keyword"}},
-            },
-            "discount_percent": {"type": "float"},
-            "order_total_amount_with_discounts": {"type": "float"},
-
-            # ... rest of fields ...
-        }
-    }
+```json
+"properties": {
+  "promo_id": { "type": "keyword" },
+  "promo_code": {
+    "type": "text",
+    "fields": { "keyword": { "type": "keyword" } }
+  },
+  "discount_percent": { "type": "float" },
+  "order_total_amount_with_discounts": { "type": "float" }
 }
 ```
 
-**4c. Update the Transform Method**
+**4d. Re-register the Connector**
 
-Add promotion fields to the document transformation:
-
-```python
-def transform_event_to_doc(self, data: dict) -> Optional[dict]:
-    """Transform Materialize event to OpenSearch document."""
-    return {
-        # ... existing fields ...
-
-        # Add promotion fields
-        "promo_id": data.get("promo_id"),
-        "promo_code": data.get("promo_code"),
-        "discount_percent": float(data["discount_percent"]) if data.get("discount_percent") else None,
-        "order_total_amount_with_discounts": float(data["order_total_amount_with_discounts"]) if data.get("order_total_amount_with_discounts") else None,
-
-        "effective_updated_at": self._format_datetime(data.get("effective_updated_at")),
-    }
-```
-
-**4d. Restart the Sync Worker**
+Apply the updated connector config by PUTting it to the Kafka Connect REST API — no service restart is needed per change:
 
 ```bash
-docker compose restart search-sync
+curl -X PUT http://localhost:8083/connectors/orders-opensearch-sink/config \
+  -H "Content-Type: application/json" \
+  -d @kafka-connect/connectors/orders-opensearch-sink.json
 
-# Watch the logs to confirm it's syncing the new view
-docker compose logs -f search-sync
+# Watch the connector pick up and index the new fields
+docker compose logs -f kafka-connect
 ```
 
 ### Step 5: Update Agent Tools to Expose Promotion Fields
@@ -576,14 +553,15 @@ docker compose restart agents
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ 4. SUBSCRIBE: Real-time Streaming                               │
-│    OrdersSyncWorker subscribes to orders_with_promotions_mv     │
-│    (differential updates, < 2s latency)                         │
+│ 4. SINK: Materialize → Kafka                                    │
+│    CREATE SINK (Avro, Debezium envelope) publishes the orders   │
+│    view to the "orders" Kafka topic on Redpanda                 │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ 5. INDEX: OpenSearch                                            │
-│    Bulk upsert to "orders" index with promotion fields          │
+│ 5. INDEX: Kafka Connect → OpenSearch                            │
+│    OpenSearch sink connector (embedding SMT) writes to the      │
+│    "orders" index with promotion fields                         │
 │    (promo_code, discount_percent, discounted_total)             │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -760,7 +738,7 @@ This pattern ensures:
 
 - ✅ Data integrity through ontology validation
 - ✅ Query performance through Materialize indexes
-- ✅ Real-time updates through CDC and SUBSCRIBE
+- ✅ Real-time updates through CDC, Zero SUBSCRIBE (UI), and the Kafka sink → Kafka Connect → OpenSearch pipeline (search)
 - ✅ Semantic relationships preserved in the graph
 - ✅ Flexibility to add new entity types without breaking existing code
 

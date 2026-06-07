@@ -1262,7 +1262,7 @@ web/src/pages/OrdersDashboardPage.tsx # Order creation flow
 
 # Infrastructure
 web/src/schema.ts                   # Zero schema with order lines
-search-sync/src/mappings.py         # Update OpenSearch mapping
+kafka-connect/opensearch-templates/orders.json  # OpenSearch mapping (composable index template, applied by connect-init)
 ```
 
 ### SQL Quick Reference

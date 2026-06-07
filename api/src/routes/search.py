@@ -6,7 +6,6 @@ to perform semantic searches across denormalized order documents.
 
 import asyncio
 import logging
-import threading
 from typing import Any, Optional
 
 import httpx
@@ -26,39 +25,28 @@ settings = get_settings()
 DEFAULT_SEARCH_LIMIT = 5
 MAX_SEARCH_LIMIT = 20
 OPENSEARCH_TIMEOUT = 10.0
+EMBEDDING_TIMEOUT = 30.0
+
+# The knn_vector field the embedding SMT writes into the orders index:
+# embedded column `embedding_text` + default `_embedding` suffix.
+EMBEDDING_FIELD = "embedding_text_embedding"
 
 
-# Module-level lazy-init embedder singleton. The fastembed model is heavyweight,
-# so we only construct it on first use and reuse it across requests.
-_query_embedder = None
-_embedder_lock = threading.Lock()
+async def embed_query(text: str) -> list[float]:
+    """Embed a query string via the embedding service (OpenAI-compatible).
 
-
-def get_query_embedder():
-    """Return a lazy-initialized fastembed text embedder.
-
-    Returns an object with an `embed(texts: list[str]) -> list[list[float]]`
-    method producing 384-dim vectors using BAAI/bge-small-en-v1.5.
+    The same service backs the ingest-time SMT, so query and document vectors
+    come from the identical model (BAAI/bge-small-en-v1.5, 384-dim).
     """
-    global _query_embedder
-    with _embedder_lock:
-        if _query_embedder is None:
-            try:
-                from fastembed import TextEmbedding
-
-                class _Embedder:
-                    def __init__(self):
-                        self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-
-                    def embed(self, texts):
-                        return [[float(x) for x in v] for v in self._model.embed(texts)]
-
-                _query_embedder = _Embedder()
-            except ImportError as e:
-                raise RuntimeError(
-                    "fastembed not installed - run: pip install fastembed"
-                ) from e
-    return _query_embedder
+    url = f"{settings.embedding_service_url}/v1/embeddings"
+    async with httpx.AsyncClient(timeout=EMBEDDING_TIMEOUT) as client:
+        response = await client.post(
+            url,
+            json={"input": text, "model": "bge-small"},
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
+        return response.json()["data"][0]["embedding"]
 
 
 @router.get("/orders")
@@ -122,7 +110,7 @@ async def search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the Kafka Connect sink pipeline is running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(f"OpenSearch returned error status {e.response.status_code}: {e.response.text}", exc_info=True)
@@ -150,7 +138,7 @@ async def vector_search_orders(
     Vector (kNN) search across orders, hydrated with live data from Materialize.
 
     Pipeline:
-        1. Embed the query text with fastembed (BAAI/bge-small-en-v1.5, 384-dim).
+        1. Embed the query text via the embedding service (BAAI/bge-small-en-v1.5, 384-dim).
         2. Run an OpenSearch knn search against the `orders` index — this
            answers "which orders are semantically relevant?".
         3. For each hit, look up the *current* order state in Materialize
@@ -161,14 +149,15 @@ async def vector_search_orders(
 
     Orders that no longer exist in Materialize (e.g. deleted) are dropped.
     """
-    # 1. Embed query — run in a thread so the model load/inference doesn't block the event loop.
-    # Single 30s budget covers both model load and inference so the route can't hang for 60s.
+    # 1. Embed query via the embedding service (same model as ingest-time SMT).
     try:
-        async with asyncio.timeout(30):
-            embedder = await asyncio.to_thread(get_query_embedder)
-            vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="Embedding model unavailable — check API logs.")
+        vector = await embed_query(q)
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        logger.error(f"Embedding service unavailable: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Embedding service unavailable — check the embedding-service container.")
+    except Exception as e:
+        logger.error(f"Failed to embed query: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail="Failed to embed query.")
 
     # 2. Build OpenSearch knn body
     filters = []
@@ -181,24 +170,24 @@ async def vector_search_orders(
         search_body = {
             "query": {
                 "bool": {
-                    "must": {"knn": {"embedding": {"vector": list(vector), "k": limit}}},
+                    "must": {"knn": {EMBEDDING_FIELD: {"vector": list(vector), "k": limit}}},
                     "filter": filters,
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", EMBEDDING_FIELD, "embedding_text", "mz_timestamp"],
             "size": limit,
         }
     else:
         search_body = {
             "query": {
                 "knn": {
-                    "embedding": {
+                    EMBEDDING_FIELD: {
                         "vector": list(vector),
                         "k": limit,
                     }
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", EMBEDDING_FIELD, "embedding_text", "mz_timestamp"],
             "size": limit,
         }
 
@@ -223,7 +212,7 @@ async def vector_search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the Kafka Connect sink pipeline is running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -252,7 +241,10 @@ async def vector_search_orders(
         if not order_id:
             return None
         try:
-            order = await service.get_order(order_id)
+            # Hydrate from orders_with_lines_mv so line_items carry live
+            # dynamic pricing (live_price/base_price) straight from Materialize,
+            # rather than from the (potentially staler) search index.
+            order = await service.get_order_with_lines(order_id)
         except Exception as e:
             logger.warning(f"Failed to hydrate order {order_id} from Materialize: {e}", exc_info=True)
             return None
@@ -265,19 +257,14 @@ async def vector_search_orders(
         if live.get("order_total_amount") is not None:
             live["order_total_amount"] = float(live["order_total_amount"])
 
-        # Start from live Materialize fields; then layer in OS-only fields that
-        # must survive (embedding, line_items, score — not present in OrderFlat).
+        # Start from live Materialize fields (including line_items); then layer
+        # in OS-only fields that must survive (embedding vector, score).
         merged: dict[str, Any] = {**live}
         merged.update({
             "order_id": order_id,
             "score": hit.get("_score"),
-            "embedding": source.get("embedding") or [],
+            "embedding": source.get(EMBEDDING_FIELD) or [],
             "embedding_text": source.get("embedding_text"),
-            "embedded_at": source.get("embedded_at"),
-            # Line items come from OpenSearch (indexed from Materialize CDC,
-            # <2s latency). They carry live_price, base_price, etc. because
-            # search-sync joins inventory_items_with_dynamic_pricing_mv.
-            "line_items": source.get("line_items") or [],
         })
         return merged
 

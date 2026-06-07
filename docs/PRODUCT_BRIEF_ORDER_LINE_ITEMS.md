@@ -295,7 +295,7 @@ GROUP BY o.order_id;
 - [ONTOLOGY.md](./ONTOLOGY.md) - Ontology structure and validation
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture overview
 - [DATA_MODEL.md](./DATA_MODEL.md) - Triple-store implementation details
-- [OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md](../OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md) - Streaming architecture
+- [OPENSEARCH_SINK_IMPLEMENTATION.md](../OPENSEARCH_SINK_IMPLEMENTATION.md) - Search ingest architecture
 
 ---
 

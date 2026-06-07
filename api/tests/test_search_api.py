@@ -293,14 +293,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -367,11 +364,8 @@ class TestVectorSearchOrdersAPI:
         async def mock_service():
             return AsyncMock()
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.side_effect = httpx.ConnectError("Connection refused")
 
@@ -395,11 +389,8 @@ class TestVectorSearchOrdersAPI:
         async def mock_service():
             return AsyncMock()
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(status_code=404)
 
@@ -418,7 +409,7 @@ class TestVectorSearchOrdersAPI:
 
     @pytest.mark.asyncio
     async def test_vector_search_response_shape(self, async_client: AsyncClient):
-        """Each result item has order_id, score, embedding_text, embedded_at."""
+        """Each result item has order_id, score, embedding_text."""
         from src.main import app
         from src.routes.freshmart import get_freshmart_service
 
@@ -427,14 +418,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -460,7 +448,6 @@ class TestVectorSearchOrdersAPI:
         assert "order_id" in item
         assert "score" in item
         assert "embedding_text" in item
-        assert "embedded_at" in item
 
     @pytest.mark.asyncio
     async def test_vector_search_merges_live_data(self, async_client: AsyncClient):
@@ -474,14 +461,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -524,14 +508,11 @@ class TestVectorSearchOrdersAPI:
                     return mock_order
                 return None
 
-            svc.get_order = AsyncMock(side_effect=get_order)
+            svc.get_order_with_lines = AsyncMock(side_effect=get_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     os_user: Optional[str] = None
     os_password: Optional[str] = None
 
+    # Embedding service (OpenAI-compatible facade over fastembed bge-small/384).
+    # Query-time embedding calls this so it matches the ingest-time SMT.
+    embedding_service_url: str = "http://embedding-service:8085"
+
     # Application
     log_level: str = "INFO"
     api_port: int = 8080

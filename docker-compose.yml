@@ -81,8 +81,8 @@ services:
       start_period: 30s
 
   # Materialize Initialization Service
-  # This runs the init.sh script to create sources, views, and indexes
-  # It must complete before search-sync starts to ensure views exist for hydration
+  # Runs init.sh to create sources, views, indexes, and the Kafka sinks that
+  # feed the Kafka Connect -> OpenSearch search pipeline.
   materialize-init:
     image: postgres:15-alpine
     depends_on:
@@ -90,12 +90,16 @@ services:
         condition: service_healthy
       mz:
         condition: service_healthy
+      redpanda:
+        condition: service_healthy
     environment:
       - MZ_HOST=mz
       - MZ_PORT=6875
       - MZ_USER=materialize
       - MZ_PASSWORD=materialize
       - MZ_DATABASE=materialize
+      - REDPANDA_BROKER=${REDPANDA_BROKER:-redpanda:9092}
+      - REDPANDA_SR_URL=${REDPANDA_SR_URL:-http://redpanda:8081}
       - ENABLE_DELIVERY_BUNDLING=${ENABLE_DELIVERY_BUNDLING:-false}
     volumes:
       - ./db/materialize/init.sh:/init.sh:ro
@@ -206,6 +210,107 @@ services:
       retries: 30
       start_period: 30s
 
+  # ============== Streaming pipeline (search ingest) ==============
+  # Redpanda: Kafka API (:9092 internal) + Confluent-compatible Schema
+  # Registry (:8081 internal). Materialize sinks Avro/Debezium here.
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=info
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-19092}:19092"
+      - "${REDPANDA_SR_PORT:-18081}:18081"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # Kafka Connect runtime with the Aiven OpenSearch sink + embedding SMT +
+  # Debezium HeaderToValue transform (built in ./kafka-connect/Dockerfile).
+  kafka-connect:
+    build:
+      context: ./kafka-connect
+      dockerfile: Dockerfile
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      embedding-service:
+        condition: service_healthy
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: redpanda:9092
+      CONNECT_GROUP_ID: freshmart-connect
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect_configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect_offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect_status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # Internal converters (config/offset/status topics) are JSON; the
+      # per-connector key/value converters are Avro (set in connector config).
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/usr/local/share/kafka/plugins
+    ports:
+      - "${CONNECT_PORT:-8083}:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # One-shot: applies OpenSearch index templates, then registers the connectors.
+  connect-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    environment:
+      OS_URL: http://opensearch:9200
+      CONNECT_URL: http://kafka-connect:8083
+    volumes:
+      - ./kafka-connect/init.sh:/init.sh:ro
+      - ./kafka-connect/opensearch-templates:/templates:ro
+      - ./kafka-connect/connectors:/connectors:ro
+    entrypoint: ["sh", "/init.sh"]
+    restart: "no"
+
+  # OpenAI-compatible embedding facade over local fastembed (bge-small/384).
+  # Called by the Kafka Connect embedding SMT (ingest) and the api (query).
+  embedding-service:
+    build:
+      context: ./embedding-service
+      dockerfile: Dockerfile
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${EMBEDDING_PORT:-8085}:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   # ============== Application Services ==============
   api:
     build:
@@ -228,6 +333,7 @@ services:
       - OS_PORT=9200
       - OS_USER=${OS_USER:-}
       - OS_PASSWORD=${OS_PASSWORD:-}
+      - EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL:-http://embedding-service:8085}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - USE_MATERIALIZE_FOR_READS=${USE_MATERIALIZE_FOR_READS:-true}
       - ENABLE_DELIVERY_BUNDLING=${ENABLE_DELIVERY_BUNDLING:-false}
@@ -240,6 +346,8 @@ services:
         condition: service_healthy
       opensearch:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -248,37 +356,6 @@ services:
     volumes:
       - ./api:/app:cached
     command: uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
-
-  search-sync:
-    build:
-      context: ./search-sync
-      dockerfile: Dockerfile
-    environment:
-      - MZ_HOST=${MZ_HOST:-mz}
-      - MZ_PORT=6875
-      - MZ_USER=${MZ_USER:-materialize}
-      - MZ_PASSWORD=${MZ_PASSWORD:-materialize}
-      - MZ_DATABASE=${MZ_DATABASE:-materialize}
-      - MZ_EXTERNAL_URL=${MZ_EXTERNAL_URL:-}
-      - OS_HOST=${OS_HOST:-opensearch}
-      - OS_PORT=9200
-      - OS_USER=${OS_USER:-}
-      - OS_PASSWORD=${OS_PASSWORD:-}
-      - POLL_INTERVAL=${SYNC_POLL_INTERVAL:-5}
-      - BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    ports:
-      - "${PROPAGATION_API_PORT:-8083}:8083"
-    depends_on:
-      mz:
-        condition: service_healthy
-      opensearch:
-        condition: service_healthy
-      materialize-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    volumes:
-      - ./search-sync:/app:cached
 
   web:
     build:

@@ -1,0 +1,76 @@
+{
+  "index_patterns": ["inventory"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "analysis": {
+        "analyzer": {
+          "ingredient_analyzer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding", "ingredient_synonyms"]
+          }
+        },
+        "filter": {
+          "ingredient_synonyms": {
+            "type": "synonym",
+            "synonyms": [
+              "milk, whole milk, 2% milk, skim milk, dairy milk",
+              "eggs, egg, dozen eggs, large eggs",
+              "chicken, poultry, chicken breast, chicken thigh",
+              "beef, ground beef, steak, sirloin",
+              "bread, loaf, sourdough, whole wheat bread",
+              "pasta, penne, spaghetti, linguine, noodles",
+              "rice, white rice, brown rice, jasmine rice",
+              "cheese, cheddar, mozzarella, parmesan",
+              "tomato, tomatoes, cherry tomatoes",
+              "onion, onions, yellow onion, white onion",
+              "garlic, garlic cloves, minced garlic",
+              "olive oil, extra virgin olive oil, evoo",
+              "butter, unsalted butter, salted butter",
+              "salt, sea salt, kosher salt, table salt",
+              "pepper, black pepper, ground pepper"
+            ]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "date_detection": false,
+      "properties": {
+        "inventory_id": { "type": "keyword" },
+        "store_id": { "type": "keyword" },
+        "store_name": {
+          "type": "text",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "store_zone": { "type": "keyword" },
+        "product_id": { "type": "keyword" },
+        "product_name": {
+          "type": "text",
+          "analyzer": "ingredient_analyzer",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "category": {
+          "type": "text",
+          "analyzer": "ingredient_analyzer",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "stock_level": { "type": "integer" },
+        "reserved_quantity": { "type": "integer" },
+        "available_quantity": { "type": "integer" },
+        "perishable": { "type": "boolean" },
+        "base_price": { "type": "float" },
+        "live_price": { "type": "float" },
+        "price_change": { "type": "float" },
+        "effective_updated_at": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "mz_timestamp": { "type": "long" },
+        "search_text": { "type": "text", "analyzer": "ingredient_analyzer" }
+      }
+    }
+  }
+}

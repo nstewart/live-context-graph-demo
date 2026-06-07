@@ -43,10 +43,11 @@ The system will automatically:
 - Create persistent Docker network
 - Run database migrations
 - Seed demo data (5 stores, 15 products, 15 customers, 20 orders)
-- Initialize Materialize (sources, views, indexes)
+- Initialize Materialize (sources, views, indexes, Kafka sinks)
+- Provision Redpanda topics, OpenSearch index templates, and Kafka Connect connectors (via `connect-init`)
 - Sync orders and inventory to OpenSearch
 
-**Note:** `zero-server` and `search-sync` start immediately and automatically connect to Materialize when it's ready. You may see retry messages in the logs - this is normal during initialization. Services will be fully operational within 30 seconds.
+**Note:** `zero-server` starts immediately and automatically connects to Materialize when it's ready. The search-indexing path (Materialize Kafka sink → Redpanda → Kafka Connect → OpenSearch) comes online once `connect-init` registers the connectors. You may see retry messages in the logs - this is normal during initialization. Services will be fully operational within 30 seconds.
 
 ### Using Docker Compose Directly
 
@@ -263,24 +264,22 @@ docker compose logs -f api | grep -E "\[Materialize\]"
 
 ### OpenSearch Sync Issues
 
-#### Check SUBSCRIBE Connection Status
+#### Check Kafka Connect Pipeline Status
 
 ```bash
-# View search-sync logs for SUBSCRIBE activity
-docker compose logs -f search-sync | grep "SUBSCRIBE"
+# View Kafka Connect logs (OpenSearch sink + embedding SMT)
+docker compose logs -f kafka-connect
 
-# Expected healthy output:
-# "Starting SUBSCRIBE for view: orders_search_source_mv"
-# "Starting SUBSCRIBE for view: store_inventory_mv"
-# "Broadcasting N changes for orders_search_source_mv"
+# Check connector / task status via the Connect REST API
+curl -s http://localhost:8083/connectors | jq
+curl -s http://localhost:8083/connectors/orders-opensearch-sink/status | jq
+curl -s http://localhost:8083/connectors/inventory-opensearch-sink/status | jq
 
-# View zero-server logs for SUBSCRIBE activity
-docker compose logs -f zero-server | grep -E "Starting SUBSCRIBE|Broadcasting"
+# Each connector and its task should report "state": "RUNNING"
 
-# Expected healthy output:
-# "[orders_flat_mv] Starting SUBSCRIBE (attempt 1)..."
-# "[orders_flat_mv] Connected, setting up SUBSCRIBE stream..."
-# "[orders_flat_mv] Broadcasting N changes"
+# Check the embedding service used by the orders connector's SMT (and query-time kNN)
+docker compose logs -f embedding-service
+curl -s http://localhost:8085/v1/models | jq
 ```
 
 #### Verify Sync Latency
@@ -298,49 +297,48 @@ curl -X PATCH http://localhost:8080/triples/{triple_id} -d '{"object_value": "9.
 # Search for updated inventory (should appear within 2 seconds)
 curl 'http://localhost:9200/inventory/_search?q=product_name:Milk'
 
-# Check timestamp of last sync
-docker compose logs --tail=50 search-sync | grep "Broadcasting"
+# Check that Kafka Connect is processing records
+docker compose logs --tail=50 kafka-connect | grep -Ei "put|flush|record"
 ```
 
 #### Common Issues
 
-**SUBSCRIBE Connection Failures:**
+**Connectors Not Running / Not Registered:**
 
 ```bash
-# Symptom: "Connection refused" or "unknown catalog item 'orders_search_source_mv'"
-# These are automatically retried - services will reconnect when Materialize is ready
-
-# Check if Materialize is running
+# Symptom: orders/inventory indices not updating, no connectors listed
+# Check if Materialize is running and the sinks exist
 docker compose ps mz
-
-# Check if views exist
 PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -d materialize \
-  -c "SET CLUSTER = serving; SHOW MATERIALIZED VIEWS;"
+  -c "SHOW SINKS;"
 
-# Should see both: orders_search_source_mv, store_inventory_mv
+# Should see: orders_sink, inventory_sink
 
-# If views missing, initialize Materialize
-make init-mz
+# Check that the connectors are registered with Kafka Connect
+curl -s http://localhost:8083/connectors | jq
 
-# Watch automatic retry attempts
-docker compose logs -f search-sync | grep "Retrying"
-docker compose logs -f zero-server | grep "Retrying"
+# If missing, re-run the one-shot connect-init (templates, indices, connectors)
+docker compose up connect-init
 
-# Services will auto-connect within 30 seconds - no restart needed!
+# Restart a failed connector
+curl -X POST http://localhost:8083/connectors/orders-opensearch-sink/restart
 ```
 
 **High Sync Latency (> 5 seconds):**
 
 ```bash
-# Check for backpressure warnings
-docker compose logs search-sync | grep "backpressure"
+# Inspect connector task status for errors / lag
+curl -s http://localhost:8083/connectors/orders-opensearch-sink/status | jq
 
-# Check OpenSearch bulk operation performance
-docker compose logs search-sync | grep "bulk_upsert"
+# Check Kafka Connect logs for errors (sink puts, embedding SMT calls)
+docker compose logs kafka-connect | grep -Ei "error|warn"
 
-# Verify Materialize view is updating
+# If the orders connector is slow, the embedding service may be the bottleneck
+docker compose logs embedding-service | grep -Ei "error|warn"
+
+# Verify the Materialize sink source view is updating
 PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
-  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;"
+  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_with_lines_mv;"
 ```
 
 **OpenSearch Index Drift:**
@@ -350,29 +348,19 @@ PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
 
 # Orders index
 MZ_ORDERS=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;")
+  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_with_lines_mv;")
 OS_ORDERS=$(curl -s 'http://localhost:9200/orders/_count' | jq '.count')
 echo "Orders - Materialize: $MZ_ORDERS, OpenSearch: $OS_ORDERS"
 
 # Inventory index
 MZ_INVENTORY=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-  "SET CLUSTER = serving; SELECT COUNT(*) FROM store_inventory_mv;")
+  "SET CLUSTER = serving; SELECT COUNT(*) FROM inventory_items_with_dynamic_pricing_mv;")
 OS_INVENTORY=$(curl -s 'http://localhost:9200/inventory/_count' | jq '.count')
 echo "Inventory - Materialize: $MZ_INVENTORY, OpenSearch: $OS_INVENTORY"
 
-# If drift detected, restart search-sync to re-hydrate
-docker compose restart search-sync
-```
-
-**Memory/Buffer Issues:**
-
-```bash
-# Check buffer size metrics in logs
-docker compose logs search-sync | grep "buffer"
-
-# If buffer exceeds 5000, backpressure should activate
-# Check for memory usage spikes
-docker stats search-sync
+# If drift detected, reset the connector to re-consume from the start of the topic
+curl -X DELETE http://localhost:8083/connectors/orders-opensearch-sink
+docker compose up connect-init
 ```
 
 ### Service Health Checks
@@ -485,14 +473,20 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-### Search Sync Configuration
+### Search Indexing Configuration
+
+Search indexing runs through Materialize Kafka sinks, Redpanda, and Kafka Connect.
+The embedding service (used by the orders connector's SMT and by query-time kNN)
+is configured via:
 
 ```bash
-# Retry configuration for automatic reconnection
-RETRY_INITIAL_DELAY=1       # Initial retry delay (seconds)
-RETRY_MAX_DELAY=30          # Maximum retry delay (seconds)
-RETRY_BACKOFF_MULTIPLIER=2  # Backoff multiplier
+# Embedding service (OpenAI-compatible facade over fastembed BAAI/bge-small-en-v1.5)
+EMBEDDING_SERVICE_URL=http://embedding-service:8085
+EMBEDDING_MODEL=BAAI/bge-small-en-v1.5   # 384-dim
 ```
+
+Connector definitions, OpenSearch index templates, and the embedding SMT config are
+applied by the one-shot `connect-init` service and live under `kafka-connect/`.
 
 ## Load Test Data Generation
 
@@ -539,14 +533,14 @@ Materialize views update automatically via CDC - no rebuild needed.
 - Single PostgreSQL instance with logical replication enabled
 - Materialize Emulator with admin console
 - Single-node OpenSearch
-- In-process sync worker
+- Single-broker Redpanda + single-worker Kafka Connect for search indexing
 
 ### Production Scaling
 
 1. **Database**: Switch to managed PostgreSQL (Neon, RDS, Supabase)
 2. **Materialize**: Use cloud Materialize for true streaming
 3. **OpenSearch**: Use managed OpenSearch with replication
-4. **Sync Worker**: Run as separate deployments with partitioning
+4. **Search indexing**: Use managed Kafka/Redpanda + a Kafka Connect cluster with multiple tasks/partitions
 5. **API**: Horizontal scaling behind load balancer
 
 ### Security Considerations

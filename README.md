@@ -84,8 +84,9 @@ Write path:
                 Materialize (incremental views: orders, inventory, pricing)
                 ↓ SUBSCRIBE
                 Zero Server → WebSocket → UI (live order cards)
-                ↓ SUBSCRIBE
-                search-sync → OpenSearch
+                ↓ CREATE SINK (Avro, ENVELOPE DEBEZIUM)
+                Redpanda → Kafka Connect → OpenSearch
+                  embedding SMT calls the embedding service for the vector
                   orders index: text fields + 384-dim embedding vector
                   inventory index: text fields
 
@@ -93,12 +94,12 @@ Read path (agent context):
   Agent/UI → Materialize (pre-assembled context, millisecond latency)
 
 Read path (semantic search):
-  Query → fastembed (BAAI/bge-small-en-v1.5) → OpenSearch kNN
+  Query → embedding service (BAAI/bge-small-en-v1.5) → OpenSearch kNN
          → Materialize hydration (live price, status, timestamps)
          → merged result card
 ```
 
-**Key property:** The search index's `mz_timestamp` field is stamped at flush time by `search-sync`. After a triple write, the `/api/search/impact` endpoint counts how many documents across both indexes have `mz_timestamp >= write_time`, giving a causal measure of propagation progress.
+**Key property:** Materialize sets an `mz_timestamp` Kafka header on every sink record; the Kafka Connect `HeaderToValue` transform copies it into the indexed document. After a triple write, the `/api/search/impact` endpoint counts how many documents across both indexes have `mz_timestamp >= write_time`, giving a causal measure of propagation progress.
 
 ## How Vector Embeddings Stay in Sync
 
@@ -213,13 +214,15 @@ Both paths use `BAAI/bge-small-en-v1.5` via `fastembed` (local ONNX runtime — 
 
 ## Core Components
 
-### search-sync
+### Search ingest pipeline (Materialize sink → Redpanda → Kafka Connect)
 
-SUBSCRIBE workers that tail Materialize and push to OpenSearch:
+Materialize `CREATE SINK` publishes `orders_with_lines_mv` and
+`inventory_items_with_dynamic_pricing_mv` to Redpanda as Avro/Debezium
+records. Kafka Connect (Aiven OpenSearch sink) upserts them into OpenSearch:
 
-- **`OrdersSyncWorker`** — MD5 dedup on line-item text: re-embeds only when product composition changes, patches price/qty/status updates without touching the vector. Hash cache is updated only after a successful flush to prevent stale-cache bugs on retry.
-- **`InventorySyncWorker`** — text-only index, no embeddings
-- **`BaseSubscribeWorker`** — stamps `mz_timestamp` (wall-clock ms) on every upserted doc; provides the causal anchor for impact measurement
+- **orders connector** — the embedding SMT (`EmbeddingDiffTransform`) diffs the Debezium before/after structs and only calls the embedding service when the `embedding_text` column changes; otherwise unchanged columns are preserved by the UPSERT. The resulting `embedding_text_embedding` is a 384-dim `knn_vector`.
+- **inventory connector** — text-only index, no embedding SMT.
+- **embedding-service** — an OpenAI-compatible (`/v1/embeddings`) facade over local `fastembed` (`BAAI/bge-small-en-v1.5`, 384-dim), shared by the ingest SMT and the query path.
 
 ### API (`/api/search`)
 
@@ -252,7 +255,9 @@ An Operations Assistant with SSE streaming, PostgreSQL-backed conversation memor
 | **zero-cache** | 4848 | Zero WebSocket server for real-time UI sync |
 | **opensearch** | 9200 | Search + kNN vector index |
 | **api** | 8080 | FastAPI backend |
-| **search-sync** | 8083 | SUBSCRIBE workers + propagation API |
+| **redpanda** | 19092 / 18081 | Kafka broker (ext) + Schema Registry (ext) |
+| **kafka-connect** | 8083 | Kafka Connect — OpenSearch sink + embedding SMT |
+| **embedding-service** | 8085 | OpenAI-compatible embedding facade (fastembed) |
 | **web** | 5173 | React demo UI |
 | **agents** | 8081 | LangGraph agent with SSE streaming (optional) |
 
@@ -272,10 +277,10 @@ make down
 
 # View logs
 docker compose logs -f api
-docker compose logs -f search-sync
+docker compose logs -f kafka-connect
 
 # Track write propagation (clean output)
-docker compose logs -f api search-sync | sed 's/.*INFO - //'
+docker compose logs -f api kafka-connect | sed 's/.*INFO - //'
 
 # Restart a single service
 docker compose restart api
@@ -329,12 +334,14 @@ live-context-graph-demo/
 │       ├── ontology/
 │       └── triples/
 │
-├── search-sync/                # OpenSearch sync workers
-│   └── src/
-│       ├── base_subscribe_worker.py
-│       ├── embedder.py         # fastembed BAAI/bge-small-en-v1.5
-│       ├── orders_sync.py      # Embedding + patch dedup logic
-│       └── inventory_sync.py
+├── embedding-service/          # OpenAI-compatible embedding facade
+│   └── src/main.py             # POST /v1/embeddings (fastembed bge-small/384)
+│
+├── kafka-connect/              # Search ingest pipeline (Connect + embedding SMT)
+│   ├── Dockerfile              # Connect + Aiven OpenSearch sink + embedding SMT
+│   ├── connectors/             # orders + inventory sink configs
+│   ├── opensearch-templates/   # index mappings (knn_vector, analyzers)
+│   └── init.sh                 # applies templates + registers connectors
 │
 ├── web/                        # React demo UI
 │   └── src/
