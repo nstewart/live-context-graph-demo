@@ -2,70 +2,83 @@
 
 ## Overview
 
-This runbook provides operational guidance for managing the OpenSearch sync service, which uses Materialize SUBSCRIBE streaming to maintain real-time synchronization between PostgreSQL and OpenSearch.
+This runbook provides operational guidance for the OpenSearch search-ingest pipeline. Search indexing is driven by a Materialize Kafka sink plus a Kafka Connect pipeline that streams CDC changes from Materialize into the `orders` and `inventory` OpenSearch indices.
 
 ### Architecture Summary
 
 **Data Flow**:
 ```
-PostgreSQL → Materialize (CDC) → SUBSCRIBE Stream → Search Sync Worker → OpenSearch
-   (source)     (real-time)        (differential)       (bulk ops)          (index)
+PostgreSQL → Materialize (CDC) → CREATE SINK (Avro/Debezium) → Redpanda topics → Kafka Connect (sink + SMTs) → OpenSearch
+   (source)     (real-time)        (orders / inventory)         (orders/inventory)     (transform + index)        (index)
 ```
 
 **Key Components**:
-- **Materialize View**: `orders_search_source_mv` (computed from triples)
-- **SUBSCRIBE Client**: Python async client using `psycopg` with streaming
-- **Sync Worker**: Accumulates events by timestamp, performs bulk operations
-- **OpenSearch Index**: `orders` index with full-text search capabilities
+- **Materialize sinks**: `orders_sink` (from `orders_with_lines_mv`, key `order_id`) and `inventory_sink` (from `inventory_items_with_dynamic_pricing_mv`, key `inventory_id`). Both `FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY ... ENVELOPE DEBEZIUM`, in cluster `serving`.
+- **Redpanda**: Kafka broker (internal `redpanda:9092`, external host port `19092`) plus Confluent-compatible Schema Registry (internal `redpanda:8081`, external `18081`). Carries the `orders` and `inventory` topics.
+- **Kafka Connect** (`kafka-connect`): Connect runtime, REST API on `:8083`. Custom image (`kafka-connect/Dockerfile`) bundles the Aiven OpenSearch sink connector (`io.aiven.kafka.connect.opensearch.OpensearchSinkConnector`), the embedding SMT, and the Debezium transforms.
+- **embedding-service**: OpenAI-compatible facade (`POST /v1/embeddings`) over a local fastembed `BAAI/bge-small-en-v1.5` model (384-dim) on `:8085`, served by Hypercorn. Used by both ingest (the embedding SMT) and query time (the `api` service).
+- **connect-init**: one-shot bootstrap that applies the OpenSearch index templates (`kafka-connect/opensearch-templates/orders.json`, `inventory.json`), pre-creates the `orders`/`inventory` indices (the Aiven connector's auto-create bypasses composable templates), then registers the two sink connectors (`kafka-connect/connectors/`).
+- **OpenSearch**: `orders` and `inventory` indices. The `orders` index has a `knn_vector` field `embedding_text_embedding` (dim 384) for semantic search.
+
+**Sink connectors and transform chains**:
+- `orders-opensearch-sink` (topic `orders`): `extractKey` (ExtractField$Key `order_id`) → `embed` (EmbeddingDiffTransform: diffs the Debezium before/after, calls embedding-service only when the `embedding_text` column changed, writes vector field `embedding_text_embedding`) → `cast` (Cast$Value: `order_total_amount`/`computed_total`/`total_weight_kg` → float64) → `tsHeader` (Debezium HeaderToValue: copies the Kafka header `materialize-timestamp` into doc field `mz_timestamp`).
+- `inventory-opensearch-sink` (topic `inventory`): `extractKey` (`inventory_id`) → `unwrap` (ExtractField$Value `after`) → `cast` (the decimal pricing fields → float64) → `tsHeader`. No embedding (inventory is text-only).
+- Both connectors: `key.ignore=false`, `schema.ignore=true`, `index.write.method=UPSERT`, `behavior.on.null.values=delete` (CDC deletes become tombstones → doc deleted), `behavior.on.version.conflict=ignore`, Avro converters pointed at `http://redpanda:8081`.
+
+**Re-embedding**: handled entirely by the `embed` SMT, which diffs the Debezium before/after image and only calls the embedding service when `embedding_text` actually changed. There is no separate hash/dedup cache.
 
 **Performance Characteristics**:
-- **Latency**: < 2 seconds end-to-end (PostgreSQL write → OpenSearch searchable)
-- **Throughput**: 10,000+ events/second capacity (single worker)
-- **Memory**: < 500MB steady state under normal load
-- **Recovery**: Automatic reconnection with exponential backoff (1s → 30s max)
+- **Latency**: typically a few seconds end-to-end (PostgreSQL write → searchable in OpenSearch), gated by Materialize compute, Connect poll/flush, and embedding latency for changed orders.
+- **Recovery**: Connect tasks are restartable; consumer offsets are tracked per connector consumer group, so a restarted task resumes where it left off. Upserts are idempotent, so replays are safe.
 
 ---
 
 ## 1. Monitoring
 
-### Health Check Endpoints
+### Health Checks
 
-The search-sync service does not expose HTTP endpoints. Monitor health through logs and system metrics.
+The pipeline has no bespoke HTTP health endpoint for sync; monitor it through Connect's REST API, Materialize sink statuses, and container health.
 
-**Check Service Status**:
+**Check containers are running**:
 ```bash
-# Verify container is running
-docker compose ps search-sync
-
-# Expected output:
-# NAME              STATUS    PORTS
-# search-sync       Up 5 minutes
+docker compose ps redpanda kafka-connect embedding-service opensearch
+# All should show "Up" (kafka-connect and embedding-service report (healthy))
 ```
 
-**Check SUBSCRIBE Connection**:
+**Check connectors are registered and running**:
 ```bash
-# Look for successful connection message
-docker compose logs --tail=100 search-sync | grep "Starting SUBSCRIBE"
+curl -s localhost:8083/connectors
+# Expected: ["orders-opensearch-sink","inventory-opensearch-sink"]
 
-# Expected output:
-# [INFO] Starting SUBSCRIBE for view: orders_search_source_mv
-# [INFO] SUBSCRIBE started for orders_search_source_mv, receiving snapshot...
+curl -s localhost:8083/connectors/orders-opensearch-sink/status   | jq
+curl -s localhost:8083/connectors/inventory-opensearch-sink/status | jq
+# connector.state and every tasks[].state should be "RUNNING"
 ```
 
-### Key Metrics to Monitor
+**Check the Materialize sinks are healthy**:
+```bash
+PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
+  "SELECT name, status, error FROM mz_internal.mz_sink_statuses;"
+# orders_sink / inventory_sink should be status = running, error = NULL
+```
 
-#### 1. Sync Latency
+**Check the embedding service**:
+```bash
+curl -s localhost:8085/health
+# Used by both ingest (the SMT) and query-time (the api).
+```
 
-**Definition**: Time from PostgreSQL write to OpenSearch indexing completion
+### Key Signals to Monitor
 
-**Target**: p95 < 2 seconds, p99 < 5 seconds
+#### 1. End-to-end freshness
+
+**Definition**: Time from a PostgreSQL/Materialize write to the document being searchable in OpenSearch.
 
 **How to Measure**:
 ```bash
-# Create test order and measure search availability
+# Create a test order via the app, then poll OpenSearch for it.
 START=$(date +%s)
-curl -X POST http://localhost:8080/freshmart/orders -d '{"order_number":"TEST-'$START'", ...}'
-sleep 1
+# ... POST an order through the application API ...
 while ! curl -s "http://localhost:9200/orders/_search?q=order_number:TEST-$START" | grep -q "TEST-$START"; do
   sleep 0.5
 done
@@ -73,762 +86,448 @@ END=$(date +%s)
 echo "Latency: $((END - START)) seconds"
 ```
 
-**Alert Threshold**: Latency > 5 seconds for 2 consecutive measurements
+**Alert Threshold**: freshness consistently > 10 seconds while there is write activity.
 
-#### 2. Event Throughput
+#### 2. Connector consumer-group lag
 
-**Definition**: Number of events processed per second
-
-**Target**: Should match database write rate (typically 10-100 events/second)
+**Definition**: How far behind the sink connector is on its source topic. This is the modern equivalent of the old in-process "buffer size" — backpressure now shows up as growing consumer lag, not an in-memory queue.
 
 **How to Measure**:
 ```bash
-# Count "Broadcasting" messages in last minute
-docker compose logs --since 1m search-sync | grep "Broadcasting.*changes" | \
-  awk '{sum+=$2} END {print sum " events in last minute"}'
+# Each connector runs its own consumer group named connect-<connector-name>.
+docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
+docker compose exec redpanda rpk group describe connect-inventory-opensearch-sink
+# Watch the LAG column. Steady, near-zero lag is healthy; persistently growing lag
+# means OpenSearch / the embedding service can't keep up with the topic.
 ```
 
-**Alert Threshold**: No events for > 60 seconds when database activity exists
+**Alert Threshold**: lag continuously increasing for > 5 minutes.
 
-#### 3. Buffer Size
+#### 3. Task failures / errors
 
-**Definition**: Number of pending events waiting to be flushed to OpenSearch
-
-**Target**: < 1000 under normal load, automatic backpressure at 5000
+**Definition**: A Connect task transitioning to `FAILED`, or repeated errors in the Connect log.
 
 **How to Measure**:
 ```bash
-# Look for buffer size in logs (if implemented)
-docker compose logs --tail=50 search-sync | grep "buffer"
-
-# Expected output:
-# [INFO] Buffer size: 245 events (backpressure: inactive)
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq '.tasks[].state'
+docker compose logs --since 1h kafka-connect | grep -iE "error|exception|failed" | wc -l
 ```
 
-**Alert Threshold**:
-- Warning: Buffer > 2500 for > 5 minutes
-- Critical: Buffer > 5000 (backpressure activated)
+**Alert Threshold**: any task in `FAILED` state, or a sustained error rate in the logs.
 
-#### 4. Error Rate
+#### 4. Embedding service health
 
-**Definition**: Percentage of operations that fail
-
-**Target**: < 0.1% error rate
+**Definition**: The SMT calls embedding-service over HTTP/2 on every order whose `embedding_text` changed. If it is down or slow, the orders connector task stalls or fails.
 
 **How to Measure**:
 ```bash
-# Count errors in last hour
-docker compose logs --since 1h search-sync | grep -i "error" | wc -l
-
-# Count total operations
-docker compose logs --since 1h search-sync | grep "Broadcasting" | wc -l
+curl -s localhost:8085/health
+docker compose logs --since 15m embedding-service | grep -iE "error|timeout"
 ```
-
-**Alert Threshold**:
-- Warning: > 1% error rate
-- Critical: > 5% error rate or any unrecoverable errors
 
 ### Log Patterns
 
-#### Healthy State
+Watch the three services that make up the pipeline:
+```bash
+docker compose logs -f kafka-connect      # connector tasks, SMTs, OpenSearch writes
+docker compose logs -f embedding-service   # embedding requests from the SMT and the api
+docker compose logs -f connect-init        # one-shot bootstrap (templates + connector registration)
+```
 
+#### Healthy State
 ```log
-[INFO] Connected to Materialize for SUBSCRIBE
-[INFO] Starting SUBSCRIBE for view: orders_search_source_mv
-[INFO] SUBSCRIBE started for orders_search_source_mv, receiving snapshot...
-[INFO] Snapshot complete for orders_search_source_mv: 1234 rows (discarding snapshot, streaming changes only)
-[INFO] Broadcasting 15 changes for orders_search_source_mv
-[INFO] Synced 15 documents, 0 errors
-[DEBUG] Progress update: orders_search_source_mv at ts=1701234567890
+# connect-init
+Applying OpenSearch index templates...
+  applied template: orders
+  ensured index: orders
+  applied template: inventory
+  ensured index: inventory
+Registering sink connectors...
+  -> orders-opensearch-sink
+  -> inventory-opensearch-sink
+Pipeline bootstrap complete.
+
+# kafka-connect
+INFO ... task RUNNING (orders-opensearch-sink-0)
+INFO ... task RUNNING (inventory-opensearch-sink-0)
 ```
 
 #### Unhealthy State
-
 ```log
-[ERROR] Connection refused to Materialize
-[WARNING] SUBSCRIBE failed, retrying in 2s: connection timeout
-[ERROR] Error processing SUBSCRIBE row for orders_search_source_mv: invalid data format
-[WARNING] OpenSearch bulk operation failed: timeout
-[ERROR] Buffer overflow: 5001 events pending (backpressure activated)
+ERROR WorkerSinkTask{id=orders-opensearch-sink-0} Task threw an uncaught and unrecoverable exception ...
+ERROR ... Connection refused: opensearch:9200
+ERROR ... failed to call embedding endpoint http://embedding-service:8085/v1/embeddings
+WARN  ... Schema registry request failed: redpanda:8081
 ```
 
-### Prometheus Metrics (If Implemented)
-
-If your deployment exposes Prometheus metrics, monitor:
-
-```promql
-# Sync latency (p95)
-histogram_quantile(0.95, rate(opensearch_sync_latency_seconds_bucket[5m]))
-
-# Event throughput
-rate(opensearch_sync_events_total[5m])
-
-# Error rate
-rate(opensearch_sync_errors_total[5m]) / rate(opensearch_sync_events_total[5m])
-
-# Buffer size
-opensearch_sync_buffer_size
-```
+> Observability comes from the Connect REST API, `rpk group describe`, and `mz_internal.mz_sink_statuses` — see the probes below.
 
 ---
 
 ## 2. Common Operations
 
-### Starting the Service
+### Starting the Pipeline
 
 ```bash
-# Start search-sync service
-docker compose up -d search-sync
+# Bring up the infra and ingest pipeline
+docker compose up -d redpanda opensearch embedding-service kafka-connect connect-init
 
-# Verify startup
-docker compose logs -f search-sync
-# Wait for "Starting SUBSCRIBE for view: orders_search_source_mv"
+# Watch bootstrap finish
+docker compose logs -f connect-init
+# Wait for "Pipeline bootstrap complete."
 
-# Check OpenSearch index exists
-curl http://localhost:9200/orders/_count
-# Should return: {"count": <number>, "_shards": {...}}
+# Confirm connectors are running
+curl -s localhost:8083/connectors
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq '.connector.state'
+
+# Confirm documents are flowing
+curl -s localhost:9200/orders/_count
+curl -s localhost:9200/inventory/_count
 ```
 
 **Startup Sequence**:
-1. Connect to Materialize (with retry logic)
-2. Set cluster to `serving`
-3. Execute `SUBSCRIBE (SELECT * FROM orders_search_source_mv) WITH (PROGRESS)`
-4. Receive and discard snapshot (upserts are idempotent)
-5. Stream real-time differential updates
+1. Materialize creates `orders_sink`/`inventory_sink`, publishing CDC to the `orders`/`inventory` Redpanda topics (Avro + Debezium envelope).
+2. `connect-init` applies the OpenSearch index templates and pre-creates both indices.
+3. `connect-init` registers the two sink connectors via the Connect REST API.
+4. Each connector consumes its topic from the beginning, applies its SMT chain, and upserts into OpenSearch.
 
-### Stopping the Service
+### Stopping the Pipeline
 
 ```bash
-# Graceful shutdown (allows pending events to flush)
-docker compose stop search-sync
+# Stopping kafka-connect halts ingest; offsets are committed so it resumes on restart.
+docker compose stop kafka-connect
 
-# Check logs for clean shutdown
-docker compose logs --tail=20 search-sync
-# Should see: "Orders sync worker stopped"
-
-# Force stop (if graceful shutdown hangs)
-docker compose kill search-sync
+# The sinks in Materialize keep producing to the topics regardless; Redpanda buffers them.
 ```
 
-### Restarting the Service
+### Restarting the Pipeline
 
 ```bash
-# Restart after configuration change
-docker compose restart search-sync
+# Restart the Connect runtime (does not lose offsets)
+docker compose restart kafka-connect
 
-# Rebuild and restart after code change
-docker compose up -d --build search-sync
-
-# Watch logs during restart
-docker compose logs -f search-sync
+# Restart a single failed connector/task without restarting the runtime
+curl -X POST localhost:8083/connectors/orders-opensearch-sink/restart?includeTasks=true
+curl -X POST localhost:8083/connectors/inventory-opensearch-sink/restart?includeTasks=true
 ```
 
-### Checking Sync Status
+### Re-registering / Updating a Connector
 
 ```bash
-# Check last sync activity
-docker compose logs --tail=100 search-sync | grep "Broadcasting"
-
-# Verify data consistency between Materialize and OpenSearch
-MZ_COUNT=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-  "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;")
-OS_COUNT=$(curl -s 'http://localhost:9200/orders/_count' | jq '.count')
-echo "Materialize: $MZ_COUNT, OpenSearch: $OS_COUNT"
-# Counts should match (allow for < 1% drift due to in-flight operations)
-```
-
-### Verifying Data Freshness
-
-```bash
-# Get most recent order from Materialize
-LATEST_MZ=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-  "SET CLUSTER = serving; SELECT order_id FROM orders_search_source_mv ORDER BY effective_updated_at DESC LIMIT 1;")
-
-# Search for it in OpenSearch
-curl -s "http://localhost:9200/orders/_search" \
+# Connector configs live in kafka-connect/connectors/. Re-applying is idempotent.
+curl -X PUT localhost:8083/connectors/orders-opensearch-sink/config \
   -H 'Content-Type: application/json' \
-  -d '{"query": {"term": {"order_id": "'$LATEST_MZ'"}}}' | jq '.hits.total.value'
+  --data-binary @kafka-connect/connectors/orders-opensearch-sink.json
 
-# Should return 1 (order is indexed)
+# Or just re-run the one-shot bootstrap (applies templates + re-registers both connectors):
+docker compose up connect-init
+```
+
+### Checking Sync Status / Consistency
+
+```bash
+# Compare Materialize row counts to OpenSearch doc counts.
+PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
+  "SELECT COUNT(*) FROM orders_with_lines_mv;"
+curl -s 'http://localhost:9200/orders/_count' | jq '.count'
+
+PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
+  "SELECT COUNT(*) FROM inventory_items_with_dynamic_pricing_mv;"
+curl -s 'http://localhost:9200/inventory/_count' | jq '.count'
+# Counts should match within in-flight drift (< consumer lag).
+```
+
+### Inspecting the Topics
+
+```bash
+docker compose exec redpanda rpk topic list
+docker compose exec redpanda rpk topic consume orders    -n 1
+docker compose exec redpanda rpk topic consume inventory -n 1
+# Note the Debezium envelope (before/after) and the materialize-timestamp header.
+```
+
+### Inspecting OpenSearch Mappings
+
+```bash
+curl -s localhost:9200/orders/_mapping    | jq
+curl -s localhost:9200/inventory/_mapping | jq
+# orders should show embedding_text_embedding as knn_vector (dimension 384) and mz_timestamp.
 ```
 
 ---
 
 ## 3. Troubleshooting Guide
 
-### Issue: SUBSCRIBE Connection Failures
+### Issue: Connector or task is FAILED
 
 **Symptoms**:
-```log
-[ERROR] Connection refused to Materialize
-[WARNING] SUBSCRIBE failed, retrying in 2s: connection timeout
+```bash
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq
+# .tasks[].state == "FAILED" with a trace in .tasks[].trace
 ```
 
 **Possible Causes**:
-1. Materialize service is down
-2. Network connectivity issues
-3. Incorrect connection configuration
-4. Materialize cluster not ready
+1. OpenSearch unreachable or unhealthy.
+2. embedding-service down/slow (orders connector only).
+3. Schema Registry (`redpanda:8081`) unavailable, so Avro deserialization fails.
+4. A mapping conflict in OpenSearch.
 
 **Resolution Steps**:
-
-1. **Verify Materialize is running**:
+1. Read the failing task's trace:
    ```bash
-   docker compose ps mz
-   # Should show: Up <duration>
-
-   # Check Materialize logs
-   docker compose logs --tail=50 mz
+   curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq -r '.tasks[].trace'
+   ```
+2. Check the dependencies the trace points at:
+   ```bash
+   curl -s localhost:9200/_cluster/health | jq '.status'
+   curl -s localhost:8085/health
+   curl -s localhost:18081/subjects     # Schema Registry (external port)
+   ```
+3. Once the dependency is healthy, restart the task:
+   ```bash
+   curl -X POST localhost:8083/connectors/orders-opensearch-sink/restart?includeTasks=true
    ```
 
-2. **Test connection manually**:
-   ```bash
-   PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c "SELECT 1;"
-   # Should return: 1
-   ```
-
-3. **Verify view exists**:
-   ```bash
-   PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
-     "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;"
-   ```
-
-4. **Check connection configuration**:
-   ```bash
-   docker compose exec search-sync env | grep MZ_
-   # Verify MZ_HOST, MZ_PORT, MZ_USER, MZ_PASSWORD, MZ_DATABASE
-   ```
-
-5. **Restart search-sync** (exponential backoff will retry):
-   ```bash
-   docker compose restart search-sync
-   ```
-
-**Expected Recovery**: Service should reconnect within 30 seconds
+**Expected Recovery**: task returns to `RUNNING` and consumer lag drains.
 
 ---
 
-### Issue: Slow Sync (High Latency)
+### Issue: Slow Sync / Growing Consumer Lag
 
 **Symptoms**:
-- Orders take > 5 seconds to appear in search
-- Backpressure warnings in logs
+- Documents take a long time to appear; `rpk group describe` shows growing `LAG`.
 
 **Possible Causes**:
-1. OpenSearch performance degradation
-2. Network latency between search-sync and OpenSearch
-3. Large batch sizes causing slow bulk operations
-4. Materialize view computation lag
+1. OpenSearch indexing pressure.
+2. embedding-service latency (every changed `embedding_text` triggers a synchronous embedding call).
+3. Materialize compute lag upstream of the sink.
 
 **Resolution Steps**:
-
-1. **Check OpenSearch health**:
+1. Check lag per connector:
    ```bash
-   curl http://localhost:9200/_cluster/health
-   # Should return: "status": "green" or "yellow"
-
-   curl http://localhost:9200/_cat/indices/orders?v
-   # Check: docs.count, store.size
+   docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
    ```
-
-2. **Check bulk operation performance**:
+2. Check OpenSearch health and indexing stats:
    ```bash
-   docker compose logs --tail=100 search-sync | grep "bulk_upsert"
-   # Look for: "Synced N documents, 0 errors"
-   # If N is large (> 1000), bulk operations may be slow
+   curl -s localhost:9200/_cluster/health | jq '.status'
+   curl -s localhost:9200/_nodes/stats/indices/indexing | jq '.nodes[].indices.indexing'
    ```
-
-3. **Monitor Materialize view lag**:
+3. Check embedding latency:
+   ```bash
+   docker compose logs --since 10m embedding-service | tail -50
+   ```
+4. Check the Materialize sink isn't stalled:
    ```bash
    PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -c \
-     "SET CLUSTER = compute; SHOW MATERIALIZED VIEWS;"
-   # Check for "BEHIND" status
+     "SELECT name, status, error FROM mz_internal.mz_sink_statuses;"
    ```
 
-4. **Check network latency**:
-   ```bash
-   docker compose exec search-sync ping -c 5 opensearch
-   # Should show: < 1ms average
-   ```
-
-5. **Reduce batch size** (if configured):
-   ```bash
-   # Edit docker compose.yml or config
-   # Set: MAX_BATCH_SIZE=500 (default: 1000)
-   docker compose up -d --build search-sync
-   ```
-
-**Expected Recovery**: Latency should return to < 2 seconds within 5 minutes
+**Expected Recovery**: lag trends back toward zero once the bottleneck clears.
 
 ---
 
 ### Issue: OpenSearch Index Drift
 
 **Symptoms**:
-- Document count mismatch between Materialize and OpenSearch
-- Missing orders in search results
-- Duplicate orders in search results
+- Document count mismatch between a Materialize view and its OpenSearch index.
+- Missing or stale documents in search results.
 
 **Possible Causes**:
-1. Failed bulk operations not retried
-2. Network partitions during sync
-3. OpenSearch index corruption
-4. SUBSCRIBE connection interrupted during event processing
+1. Connector was stopped/failed and has not caught up (check lag first).
+2. A doc was indexed with an unexpected mapping (e.g. index created without the template).
+3. A Debezium tombstone wasn't applied (delete not propagated).
 
 **Resolution Steps**:
-
-1. **Compare counts**:
+1. Confirm it isn't just lag:
    ```bash
-   MZ_COUNT=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-     "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;")
-   OS_COUNT=$(curl -s 'http://localhost:9200/orders/_count' | jq '.count')
-   DIFF=$((MZ_COUNT - OS_COUNT))
-   echo "Materialize: $MZ_COUNT, OpenSearch: $OS_COUNT, Diff: $DIFF"
+   docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
    ```
-
-2. **Check for failed operations**:
+2. Compare counts (see "Checking Sync Status" above).
+3. Spot-check a specific key:
    ```bash
-   docker compose logs --since 24h search-sync | grep -i "error"
-   # Look for: bulk operation failures, connection drops
+   curl -s "http://localhost:9200/orders/_doc/<order_id>" | jq '.found, ._source.mz_timestamp'
    ```
-
-3. **Identify missing documents** (sample):
-   ```bash
-   # Get 10 order IDs from Materialize
-   PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-     "SET CLUSTER = serving; SELECT order_id FROM orders_search_source_mv LIMIT 10;"
-
-   # Check each in OpenSearch
-   for order_id in <order_ids>; do
-     curl -s "http://localhost:9200/orders/_doc/$order_id" | jq '.found'
-   done
-   ```
-
-4. **Force resync** (see Disaster Recovery section below)
-
-**Expected Resolution Time**: 5-30 minutes depending on data volume
+4. If genuine drift, reseed the index (see Disaster Recovery → Force Resync).
 
 ---
 
-### Issue: Memory/Buffer Overflow
+### Issue: Wrong Mapping (vector field is a plain float array, dates wrong)
 
 **Symptoms**:
-```log
-[WARNING] Buffer size exceeds threshold: 5001 events
-[WARNING] Backpressure activated: pausing SUBSCRIBE stream
-```
+- kNN search fails, or `embedding_text_embedding` is mapped as `float[]` instead of `knn_vector`.
 
-**Possible Causes**:
-1. OpenSearch is too slow to keep up with event rate
-2. Network congestion
-3. Memory leak in sync worker
-4. Sudden spike in database write activity
+**Cause**: The index was auto-created by the Aiven connector instead of from the composable template (the connector's auto-create bypasses templates). `connect-init` pre-creates the indices precisely to avoid this.
 
-**Resolution Steps**:
-
-1. **Check memory usage**:
-   ```bash
-   docker stats search-sync
-   # Note: MEM USAGE and MEM %
-   # Normal: < 500MB
-   # Warning: > 1GB
-   ```
-
-2. **Check event rate**:
-   ```bash
-   # Count broadcasts in last 5 minutes
-   docker compose logs --since 5m search-sync | grep "Broadcasting" | wc -l
-   ```
-
-3. **Check OpenSearch load**:
-   ```bash
-   curl http://localhost:9200/_nodes/stats/indices/indexing
-   # Look for: indexing_throttle_time, rejected requests
-   ```
-
-4. **Restart search-sync** (clears buffer):
-   ```bash
-   docker compose restart search-sync
-   # Buffer will be cleared, snapshot discarded, streaming resumes
-   ```
-
-5. **Scale OpenSearch** (if persistent):
-   ```bash
-   # Increase OpenSearch memory
-   # Edit docker compose.yml:
-   # opensearch:
-   #   environment:
-   #     - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
-   docker compose up -d opensearch
-   ```
-
-**Expected Recovery**: Buffer should clear within 2 minutes after restart
+**Resolution**: delete and recreate the index from the template, then let the connector backfill (see Force Resync).
 
 ---
 
 ## 4. Disaster Recovery
 
-### Procedure: Force Resync
+### Procedure: Force Resync (rebuild an index)
 
-**When to Use**:
-- Significant index drift (> 5% difference)
-- Data corruption suspected
-- After restoring from backup
+**When to Use**: significant drift, wrong mapping, or corruption.
 
-**Steps**:
+**Steps** (example for `orders`; substitute `inventory` as needed):
 
-1. **Stop search-sync**:
+1. **Pause ingest** for that index:
    ```bash
-   docker compose stop search-sync
+   curl -X PUT localhost:8083/connectors/orders-opensearch-sink/pause
    ```
 
-2. **Delete OpenSearch index**:
-   ```bash
-   curl -X DELETE http://localhost:9200/orders
-   # Response: {"acknowledged": true}
-   ```
-
-3. **Recreate index with mapping**:
-   ```bash
-   curl -X PUT http://localhost:9200/orders \
-     -H 'Content-Type: application/json' \
-     -d '{
-       "mappings": {
-         "properties": {
-           "order_id": {"type": "keyword"},
-           "order_number": {"type": "keyword"},
-           "order_status": {"type": "keyword"},
-           "customer_name": {"type": "text"},
-           "customer_email": {"type": "keyword"},
-           "customer_address": {"type": "text"},
-           "store_name": {"type": "text"},
-           "store_zone": {"type": "keyword"},
-           "order_total_amount": {"type": "float"},
-           "delivery_window_start": {"type": "date"},
-           "delivery_window_end": {"type": "date"},
-           "delivery_eta": {"type": "date"},
-           "effective_updated_at": {"type": "date"}
-         }
-       }
-     }'
-   ```
-
-4. **Bulk index from Materialize** (one-time full sync):
-   ```bash
-   # Export all orders to JSON
-   PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -A -F"," -c \
-     "SET CLUSTER = serving; SELECT row_to_json(t) FROM orders_search_source_mv t;" \
-     > /tmp/orders.json
-
-   # Bulk index to OpenSearch
-   curl -X POST http://localhost:9200/orders/_bulk \
-     -H 'Content-Type: application/x-ndjson' \
-     --data-binary @/tmp/orders.json
-   ```
-
-5. **Start search-sync**:
-   ```bash
-   docker compose start search-sync
-   docker compose logs -f search-sync
-   # Wait for "Starting SUBSCRIBE for view: orders_search_source_mv"
-   ```
-
-6. **Verify counts**:
-   ```bash
-   MZ_COUNT=$(PGPASSWORD=materialize psql -h localhost -p 6875 -U materialize -t -c \
-     "SET CLUSTER = serving; SELECT COUNT(*) FROM orders_search_source_mv;")
-   OS_COUNT=$(curl -s 'http://localhost:9200/orders/_count' | jq '.count')
-   echo "Materialize: $MZ_COUNT, OpenSearch: $OS_COUNT"
-   # Should match within 1%
-   ```
-
-**Expected Duration**: 5-30 minutes depending on data volume
-
----
-
-### Procedure: Recreate Index
-
-**When to Use**:
-- Schema changes (new fields, field type changes)
-- Index corruption
-- Performance optimization (reindexing)
-
-**Steps**:
-
-1. **Create new index with updated mapping**:
-   ```bash
-   curl -X PUT http://localhost:9200/orders_v2 \
-     -H 'Content-Type: application/json' \
-     -d '{ "mappings": { ... new schema ... } }'
-   ```
-
-2. **Reindex from old to new** (if preserving data):
-   ```bash
-   curl -X POST http://localhost:9200/_reindex \
-     -H 'Content-Type: application/json' \
-     -d '{
-       "source": {"index": "orders"},
-       "dest": {"index": "orders_v2"}
-     }'
-   ```
-
-3. **Update search-sync configuration** (if index name changed):
-   ```bash
-   # Edit docker compose.yml or config
-   # Set: OS_INDEX_NAME=orders_v2
-   ```
-
-4. **Switch alias** (zero downtime):
-   ```bash
-   curl -X POST http://localhost:9200/_aliases \
-     -H 'Content-Type: application/json' \
-     -d '{
-       "actions": [
-         {"remove": {"index": "orders", "alias": "orders_current"}},
-         {"add": {"index": "orders_v2", "alias": "orders_current"}}
-       ]
-     }'
-   ```
-
-5. **Restart search-sync**:
-   ```bash
-   docker compose restart search-sync
-   ```
-
-6. **Delete old index** (after verification):
+2. **Delete the index**:
    ```bash
    curl -X DELETE http://localhost:9200/orders
    ```
 
+3. **Recreate it from the template** (re-running connect-init applies templates and pre-creates indices):
+   ```bash
+   docker compose up connect-init
+   # or manually:
+   curl -X PUT "http://localhost:9200/_index_template/orders_template" \
+     -H 'Content-Type: application/json' \
+     --data-binary @kafka-connect/opensearch-templates/orders.json
+   curl -X PUT "http://localhost:9200/orders"
+   ```
+
+4. **Replay the topic** by resetting the connector's consumer offsets so it re-reads from the beginning:
+   ```bash
+   # Stop the connector first so the group has no active members.
+   curl -X PUT localhost:8083/connectors/orders-opensearch-sink/stop
+   docker compose exec redpanda rpk group seek connect-orders-opensearch-sink --to start
+   curl -X PUT localhost:8083/connectors/orders-opensearch-sink/resume
+   ```
+   Upserts are idempotent and `embedding_text` diffing still applies, so replays converge to the correct state. (If the topic's retention has dropped older records, restart the Materialize sink to re-emit a fresh snapshot instead.)
+
+5. **Verify counts** (see "Checking Sync Status").
+
 ---
 
-### Procedure: Rollback to Polling (Emergency)
+### Procedure: Rebuild the Whole Search Layer
 
-**When to Use**:
-- SUBSCRIBE streaming has critical bug
-- Materialize upgrade breaks compatibility
-- Need to reduce system complexity temporarily
+**When to Use**: schema changes to a template, or full reset.
 
-**Steps**:
+```bash
+# 1. Remove connectors and indices
+curl -X DELETE localhost:8083/connectors/orders-opensearch-sink
+curl -X DELETE localhost:8083/connectors/inventory-opensearch-sink
+curl -X DELETE http://localhost:9200/orders
+curl -X DELETE http://localhost:9200/inventory
 
-1. **Stop current search-sync**:
-   ```bash
-   docker compose stop search-sync
-   ```
+# 2. (If template changed) edit kafka-connect/opensearch-templates/*.json
 
-2. **Checkout polling implementation**:
-   ```bash
-   cd /Users/natestewart/Projects/live-agent-ontology-demo
-   git log --oneline | grep "polling"
-   # Find commit before SUBSCRIBE migration
-   git checkout <commit_hash> -- search-sync/
-   ```
+# 3. Re-run the one-shot bootstrap: applies templates, pre-creates indices, re-registers connectors
+docker compose up connect-init
 
-3. **Update configuration**:
-   ```bash
-   # Edit .env or docker compose.yml
-   # Set: USE_SUBSCRIBE=false
-   # Set: POLL_INTERVAL=5  # seconds
-   ```
-
-4. **Rebuild and restart**:
-   ```bash
-   docker compose up -d --build search-sync
-   ```
-
-5. **Monitor latency** (will be higher):
-   ```bash
-   docker compose logs -f search-sync
-   # Expect: 5-20 second latency (polling interval + batch processing)
-   ```
-
-6. **File incident report** (for post-mortem):
-   ```bash
-   # Document:
-   # - Reason for rollback
-   # - Error messages
-   # - Steps to reproduce issue
-   # - Timeline of events
-   ```
-
-**Expected Latency**: 5-20 seconds (degraded from < 2 seconds)
+# 4. Verify
+curl -s localhost:8083/connectors
+curl -s localhost:9200/orders/_count
+```
 
 ---
 
 ## 5. Configuration Reference
 
-### Environment Variables
-
-```bash
-# Materialize Connection
-MZ_HOST=mz                              # Materialize hostname
-MZ_PORT=6875                            # Materialize SQL port
-MZ_USER=materialize                     # Materialize user
-MZ_PASSWORD=materialize                 # Materialize password
-MZ_DATABASE=materialize                 # Materialize database
-
-# OpenSearch Connection
-OS_HOST=opensearch                      # OpenSearch hostname
-OS_PORT=9200                            # OpenSearch port
-OS_INDEX_NAME=orders                    # Index name for orders
-
-# SUBSCRIBE Mode (default: true)
-USE_SUBSCRIBE=true                      # Enable SUBSCRIBE streaming
-DISCARD_SNAPSHOT=true                   # Discard initial snapshot (recommended)
-
-# Batching Configuration
-MAX_BATCH_SIZE=1000                     # Max events per batch
-MAX_BATCH_AGE_SECONDS=5                 # Max time before flush
-
-# Backpressure Configuration
-BACKPRESSURE_THRESHOLD=5000             # Pause at this buffer size
-BACKPRESSURE_RESUME=2500                # Resume at this buffer size
-
-# Retry Configuration
-RETRY_INITIAL_BACKOFF=1                 # Initial backoff (seconds)
-RETRY_MAX_BACKOFF=30                    # Max backoff (seconds)
-RETRY_BACKOFF_MULTIPLIER=2              # Backoff multiplier
-
-# Logging
-LOG_LEVEL=INFO                          # DEBUG, INFO, WARNING, ERROR
-LOG_FORMAT=json                         # json or text
-```
-
-### Materialize View Schema
-
-The `orders_search_source_mv` view provides these fields:
+### Materialize sinks (`db/materialize/init.sh`)
 
 ```sql
-CREATE MATERIALIZED VIEW orders_search_source_mv AS
-SELECT
-    order_id,                   -- Primary key (keyword)
-    order_number,               -- Human-readable ID (keyword)
-    order_status,               -- Status enum (keyword)
-    store_id,                   -- Reference to store (keyword)
-    customer_id,                -- Reference to customer (keyword)
-    delivery_window_start,      -- Delivery window (date)
-    delivery_window_end,        -- Delivery window (date)
-    order_total_amount,         -- Total amount (float)
-    customer_name,              -- Customer name (text)
-    customer_email,             -- Customer email (keyword)
-    customer_address,           -- Delivery address (text)
-    store_name,                 -- Store name (text)
-    store_zone,                 -- Store zone (keyword)
-    store_address,              -- Store address (text)
-    assigned_courier_id,        -- Assigned courier (keyword, nullable)
-    delivery_task_status,       -- Task status (keyword, nullable)
-    delivery_eta,               -- Estimated delivery (date, nullable)
-    effective_updated_at        -- Last update timestamp (date)
-FROM ...;  -- (joins triples)
+CREATE SINK IF NOT EXISTS orders_sink
+    IN CLUSTER serving
+    FROM orders_with_lines_mv
+    INTO KAFKA CONNECTION kafka_conn (TOPIC 'orders')
+    KEY (order_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_conn
+    ENVELOPE DEBEZIUM;
+
+CREATE SINK IF NOT EXISTS inventory_sink
+    IN CLUSTER serving
+    FROM inventory_items_with_dynamic_pricing_mv
+    INTO KAFKA CONNECTION kafka_conn (TOPIC 'inventory')
+    KEY (inventory_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_conn
+    ENVELOPE DEBEZIUM;
 ```
+
+### Connector configs (`kafka-connect/connectors/`)
+
+| Setting | orders-opensearch-sink | inventory-opensearch-sink |
+|---|---|---|
+| `topics` | `orders` | `inventory` |
+| `connection.url` | `http://opensearch:9200` | `http://opensearch:9200` |
+| `key.converter` / `value.converter` | Avro (`http://redpanda:8081`) | Avro (`http://redpanda:8081`) |
+| `key.ignore` | `false` | `false` |
+| `schema.ignore` | `true` | `true` |
+| `index.write.method` | `UPSERT` | `UPSERT` |
+| `behavior.on.null.values` | `delete` | `delete` |
+| `behavior.on.version.conflict` | `ignore` | `ignore` |
+| `transforms` | `extractKey,embed,cast,tsHeader` | `extractKey,unwrap,cast,tsHeader` |
+
+The embedding SMT (`orders` only):
+```
+transforms.embed.type              = com.materialize.connect.smt.embedding.EmbeddingDiffTransform
+transforms.embed.embedded.columns  = embedding_text
+transforms.embed.provider          = openai
+transforms.embed.openai.endpoint   = http://embedding-service:8085/v1/embeddings
+transforms.embed.openai.model      = bge-small
+```
+
+The timestamp header SMT (both):
+```
+transforms.tsHeader.type      = io.debezium.transforms.HeaderToValue
+transforms.tsHeader.headers   = materialize-timestamp   # epoch millis Kafka header
+transforms.tsHeader.fields    = mz_timestamp            # destination doc field
+transforms.tsHeader.operation = copy
+```
+
+> `mz_timestamp` (consumed by `GET /api/search/impact`) is derived from the `materialize-timestamp` Kafka header via this HeaderToValue transform — not computed in any sync worker.
+
+### Service endpoints
+
+| Service | Internal | External (host) |
+|---|---|---|
+| Redpanda broker | `redpanda:9092` | `localhost:19092` |
+| Redpanda Schema Registry | `redpanda:8081` | `localhost:18081` |
+| Kafka Connect REST | `kafka-connect:8083` | `localhost:8083` |
+| embedding-service | `embedding-service:8085` | `localhost:8085` |
+| OpenSearch | `opensearch:9200` | `localhost:9200` |
 
 ---
 
-## 6. Performance Tuning
+## 6. Query-Time Path (for context)
 
-### Optimization: Reduce Sync Latency
+Search reads do **not** go through the connectors. The `api` service:
+1. Embeds the user query by calling embedding-service `POST /v1/embeddings` (same model the SMT uses, so vectors are comparable).
+2. Runs an OpenSearch kNN search on `embedding_text_embedding`.
+3. Hydrates live order data — including `line_items` with live pricing — from Materialize `orders_with_lines_mv`.
 
-**Current**: p95 < 2 seconds
-**Target**: p95 < 1 second
-
-**Tuning Options**:
-
-1. **Reduce batch timeout**:
-   ```bash
-   # Edit config: MAX_BATCH_AGE_SECONDS=2 (from 5)
-   # Trade-off: More frequent bulk operations (higher CPU)
-   ```
-
-2. **Enable HTTP keep-alive for OpenSearch**:
-   ```python
-   # In opensearch_client.py:
-   # session = aiohttp.ClientSession(
-   #     connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=30)
-   # )
-   ```
-
-3. **Use OpenSearch bulk API v2** (if available):
-   ```python
-   # Better performance for large batches
-   ```
-
-### Optimization: Increase Throughput
-
-**Current**: 10,000+ events/second capacity
-**Target**: 50,000+ events/second
-
-**Scaling Options**:
-
-1. **Horizontal scaling** (multiple workers):
-   ```yaml
-   # docker compose.yml:
-   search-sync:
-     deploy:
-       replicas: 3
-   # Note: Requires partitioning strategy (e.g., by order_id hash)
-   ```
-
-2. **Increase batch size**:
-   ```bash
-   # Edit config: MAX_BATCH_SIZE=5000 (from 1000)
-   # Trade-off: Higher memory usage
-   ```
-
-3. **Tune OpenSearch**:
-   ```bash
-   # Increase bulk thread pool
-   curl -X PUT http://localhost:9200/_cluster/settings \
-     -H 'Content-Type: application/json' \
-     -d '{"transient": {"thread_pool.write.queue_size": 1000}}'
-   ```
-
-### Optimization: Reduce Memory Usage
-
-**Current**: < 500MB steady state
-**Target**: < 250MB
-
-**Options**:
-
-1. **Reduce batch size**:
-   ```bash
-   # Edit config: MAX_BATCH_SIZE=500 (from 1000)
-   ```
-
-2. **Enable streaming JSON parsing** (if large documents):
-   ```python
-   # Use ijson for incremental parsing
-   ```
-
-3. **Reduce backpressure threshold**:
-   ```bash
-   # Edit config: BACKPRESSURE_THRESHOLD=2500 (from 5000)
-   ```
+This matters operationally: a degraded embedding-service breaks **both** ingest (the SMT) and query-time search.
 
 ---
 
 ## 7. Related Documentation
 
-- **Architecture Spec**: `OPENSEARCH_SUBSCRIBE_IMPLEMENTATION.md`
-- **SUBSCRIBE Client Code**: `search-sync/src/mz_client_subscribe.py`
-- **Materialize SUBSCRIBE Docs**: https://materialize.com/docs/sql/subscribe/
+- **Implementation doc**: `OPENSEARCH_SINK_IMPLEMENTATION.md`
+- **Connector configs**: `kafka-connect/connectors/orders-opensearch-sink.json`, `kafka-connect/connectors/inventory-opensearch-sink.json`
+- **Index templates**: `kafka-connect/opensearch-templates/orders.json`, `inventory.json`
+- **Bootstrap**: `kafka-connect/init.sh`, `kafka-connect/Dockerfile`
+- **Sink DDL**: `db/materialize/init.sh`
+- **Materialize Kafka sink docs**: https://materialize.com/docs/sql/create-sink/kafka/
 
 ---
 
 ## 8. Incident Response Template
 
-**Incident Title**: [e.g., "OpenSearch sync latency spike"]
+**Incident Title**: [e.g., "orders-opensearch-sink task FAILED"]
 
 **Detected**: [timestamp]
 
 **Severity**: [P0-Critical / P1-High / P2-Medium / P3-Low]
 
 **Symptoms**:
-- [e.g., "Latency exceeded 30 seconds for 10 minutes"]
-- [Logs, metrics, user reports]
+- [Connector status, consumer lag, log lines, user reports]
 
 **Impact**:
-- [e.g., "Search results stale by 30+ seconds"]
-- [Number of users affected]
+- [e.g., "Search results stale", "kNN search returning errors"]
 
 **Timeline**:
 - [HH:MM] Incident detected
@@ -841,15 +540,12 @@ FROM ...;  -- (joins triples)
 - [Technical explanation]
 
 **Resolution**:
-- [Steps taken to resolve]
+- [Steps taken]
 
 **Prevention**:
-- [Changes to prevent recurrence]
-- [Monitoring improvements]
-- [Documentation updates]
+- [Changes / monitoring improvements]
 
 **Action Items**:
-- [ ] [Task] (Owner, Due Date)
 - [ ] [Task] (Owner, Due Date)
 
 ---

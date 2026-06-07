@@ -784,14 +784,19 @@ SELECT
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
     ) AS line_items,
-    md5(COALESCE(
+    -- Plain STRING column the Kafka Connect embedding SMT embeds. Formats the
+    -- order's line items as 'name (category) | name (category) | ...'
+    -- (items without a product_name are skipped).
+    -- COALESCE to '' so an order with no line items yields an empty string
+    -- rather than NULL (the SMT requires a non-null string column).
+    COALESCE(
         string_agg(
             ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
             ' | '
             ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.product_name IS NOT NULL AND ol.product_name <> ''),
         ''
-    )) AS embedding_hash,
+    ) AS embedding_text,
     COUNT(ol.line_id) AS line_item_count,
     SUM(ol.line_amount) AS computed_total,
     BOOL_OR(ol.perishable_flag) AS has_perishable_items,
@@ -1704,6 +1709,42 @@ ALTER MATERIALIZED VIEW inventory_risk_mv SET (RETAIN HISTORY FOR '5 minutes');
 ALTER MATERIALIZED VIEW store_capacity_health_mv SET (RETAIN HISTORY FOR '5 minutes');
 ALTER MATERIALIZED VIEW delivery_bundles_mv SET (RETAIN HISTORY FOR '5 minutes');
 ALTER MATERIALIZED VIEW compatible_pairs_mv SET (RETAIN HISTORY FOR '5 minutes');
+SQL
+
+# ============================================================================
+# Kafka sinks -> Redpanda (Avro + Confluent Schema Registry, Debezium envelope)
+#
+# Kafka Connect (with the embedding SMT) consumes these topics and upserts
+# into OpenSearch. The Debezium envelope gives the SMT typed before/after
+# structs so it only re-embeds when the embedded column actually changes.
+# ============================================================================
+REDPANDA_BROKER="${REDPANDA_BROKER:-redpanda:9092}"
+REDPANDA_SR_URL="${REDPANDA_SR_URL:-http://redpanda:8081}"
+echo "Creating Kafka connections + sinks (broker=$REDPANDA_BROKER, sr=$REDPANDA_SR_URL)..."
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize <<SQL
+CREATE CONNECTION IF NOT EXISTS kafka_conn TO KAFKA (
+    BROKER '${REDPANDA_BROKER}',
+    SECURITY PROTOCOL = 'PLAINTEXT'
+);
+CREATE CONNECTION IF NOT EXISTS csr_conn TO CONFLUENT SCHEMA REGISTRY (
+    URL '${REDPANDA_SR_URL}'
+);
+
+CREATE SINK IF NOT EXISTS orders_sink
+    IN CLUSTER serving
+    FROM orders_with_lines_mv
+    INTO KAFKA CONNECTION kafka_conn (TOPIC 'orders')
+    KEY (order_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_conn
+    ENVELOPE DEBEZIUM;
+
+CREATE SINK IF NOT EXISTS inventory_sink
+    IN CLUSTER serving
+    FROM inventory_items_with_dynamic_pricing_mv
+    INTO KAFKA CONNECTION kafka_conn (TOPIC 'inventory')
+    KEY (inventory_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_conn
+    ENVELOPE DEBEZIUM;
 SQL
 
 echo "Verifying three-tier setup..."

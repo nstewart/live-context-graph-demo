@@ -8,6 +8,7 @@ This document explains the FreshMart Digital Twin architecture, covering the CQR
 - [Three-Tier Architecture](#three-tier-architecture)
 - [Real-Time Data Flow](#real-time-data-flow)
 - [SUBSCRIBE Streaming](#subscribe-streaming)
+- [Search Indexing via Kafka Sink](#search-indexing-via-kafka-sink)
 - [System Architecture Diagram](#system-architecture-diagram)
 - [Automatic Reconnection and Resilience](#automatic-reconnection--resilience)
 - [Services](#services)
@@ -136,16 +137,16 @@ FreshMart achieves **sub-second latency** for data propagation across all compon
                            │ (< 500ms)
                            ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  4. SUBSCRIBE: Real-time streaming                                   │
-│     Zero WebSocket Server subscribes to MV                           │
-│     Search Sync Worker subscribes to MV                              │
+│  4. STREAM OUT: Real-time fan-out                                    │
+│     Zero WebSocket Server SUBSCRIBEs to MV                           │
+│     Materialize CREATE SINK (Avro/Debezium) → Redpanda topics        │
 └──────────────────────────┬───────────────────────────────────────────┘
                            │ (< 100ms)
                            ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  5. BROADCAST: Push to clients                                       │
+│  5. DELIVER: Push to clients                                         │
 │     WebSocket → UI clients (differential updates)                    │
-│     Bulk upsert → OpenSearch (for search)                            │
+│     Kafka Connect (embedding SMT) → OpenSearch (for search)          │
 └──────────────────────────────────────────────────────────────────────┘
 
 Total latency: < 1 second (write → UI update)
@@ -163,8 +164,8 @@ Total latency: < 1 second (write → UI update)
 **Search Updates** (Real-time):
 1. Write → PostgreSQL
 2. CDC → Materialize
-3. SUBSCRIBE → Search Sync Worker
-4. Bulk upsert → OpenSearch
+3. CREATE SINK (Avro/Debezium) → Redpanda (`orders` / `inventory` topics)
+4. Kafka Connect (embedding SMT) → OpenSearch
 5. **Latency: < 2 seconds**
 
 **Direct Queries** (Indexed):
@@ -215,75 +216,83 @@ mz_timestamp | mz_diff | order_id | order_number | ...
 
 ### FreshMart's SUBSCRIBE Usage
 
-FreshMart uses SUBSCRIBE in two services:
+FreshMart uses SUBSCRIBE for UI real-time updates:
 
-**1. Zero WebSocket Server** (for UI real-time updates):
+**Zero WebSocket Server** (for UI real-time updates):
 - Subscribes to multiple materialized views: `orders_flat_mv`, `stores_mv`, `courier_schedule_mv`
 - Broadcasts differential updates to connected WebSocket clients
 - Collections map to UI pages: orders, stores, couriers
 
-**2. Search Sync Worker** (for OpenSearch indexing):
-- Subscribes to: `orders_search_source_mv` and `store_inventory_mv`
-- Consolidates DELETE + INSERT at same timestamp → UPDATE operation
-- Bulk upserts to OpenSearch indexes
-- Handles backpressure and automatic reconnection
-
-### SUBSCRIBE Stream Processing
-
-Both services follow a common pattern:
-
-**1. Initial Hydration**:
-```python
-# Query current state and bulk load
-results = await materialize.query("SELECT * FROM view_name")
-await bulk_load_to_destination(results)
-```
-
-**2. Subscribe Connection**:
-```python
-# Establish SUBSCRIBE stream
-async for row in materialize.subscribe(view_name):
-    if is_snapshot(row):
-        continue  # Skip snapshot, already hydrated
-    elif is_progress(row):
-        await flush_batch()  # Timestamp advanced, flush pending changes
-    else:
-        batch.append(row)  # Accumulate changes
-```
-
-**3. Event Consolidation** (for updates):
-```python
-# Track net changes per document ID
-net_changes = defaultdict(lambda: {"diff": 0, "latest_data": None})
-
-for event in batch:
-    doc_id = event["id"]
-    net_changes[doc_id]["diff"] += event["mz_diff"]
-    net_changes[doc_id]["latest_data"] = event
-
-# Process consolidated changes
-for doc_id, change in net_changes.items():
-    if change["diff"] == 1:
-        upsert(doc_id, change["latest_data"])
-    elif change["diff"] == -1:
-        delete(doc_id)
-    # diff == 0 means DELETE + INSERT = UPDATE, use latest data
-```
-
-**4. Bulk Flush**:
-```python
-# Bulk operations to destination
-await destination.bulk_upsert(upserts)
-await destination.bulk_delete(deletes)
-```
+> **Note:** Search indexing uses a separate mechanism — a Materialize Kafka sink
+> + Kafka Connect pipeline. See [Search Indexing via Kafka Sink](#search-indexing-via-kafka-sink) below.
 
 ### Benefits of SUBSCRIBE
 
 - **Real-time**: Changes stream instantly (< 100ms from MV update)
 - **Efficient**: Only differential updates transmitted, not full snapshots
 - **Guaranteed delivery**: PROGRESS messages ensure no missed updates
-- **Scalability**: Single worker handles 10,000+ events/second
-- **Resource-efficient**: 50% reduction vs polling loops
+
+## Search Indexing via Kafka Sink
+
+Search indexing is driven by a Materialize **Kafka sink** rather than an in-process
+SUBSCRIBE worker. Materialize publishes change events to Redpanda, and Kafka Connect
+sinks them into OpenSearch.
+
+### Materialize Sinks
+
+Materialize emits Avro change events (Confluent Schema Registry) using a Debezium
+envelope:
+
+```sql
+CREATE SINK orders_sink
+  FROM orders_with_lines_mv
+  INTO KAFKA CONNECTION redpanda (TOPIC 'orders')
+  KEY (order_id)
+  FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY connection
+  ENVELOPE DEBEZIUM;
+```
+
+- `orders_with_lines_mv` → Kafka topic `orders` (key `order_id`)
+- `inventory_items_with_dynamic_pricing_mv` → Kafka topic `inventory` (key `inventory_id`)
+
+Each Kafka message carries a `materialize-timestamp` header recording the Materialize
+logical timestamp of the change.
+
+### Kafka Connect Sink Connectors
+
+Kafka Connect runs the Aiven OpenSearch sink connector with a transform chain per
+topic. Both connectors are **UPSERT** with `behavior.on.null.values=delete`, so a
+Debezium delete (null value) becomes a tombstone that removes the OpenSearch document.
+
+**orders connector** (transform chain):
+1. `extractKey` — promote the Kafka key to the document `_id`
+2. `embed` (`EmbeddingDiffTransform`) — calls the embedding service to populate the
+   `embedding_text_embedding` vector field (`knn_vector`, 384 dims); re-embeds only
+   when the `embedding_text` column changes (Debezium before/after diff)
+3. `cast` — decimals → `float64`
+4. `tsHeader` (`HeaderToValue`) — copy the `materialize-timestamp` Kafka header into
+   the `mz_timestamp` document field
+
+**inventory connector** (transform chain):
+1. `extractKey`
+2. `unwrap` (`ExtractField` after) — flatten the Debezium envelope
+3. `cast` — decimals → `float64`
+4. `tsHeader` — `materialize-timestamp` header → `mz_timestamp` (no embedding)
+
+### Embedding Service
+
+A standalone `embedding-service` exposes an OpenAI-compatible `/v1/embeddings`
+endpoint backed by fastembed `BAAI/bge-small-en-v1.5` (384-dim), served by Hypercorn
+on port 8085. It is used both at ingest time (by the orders connector's embedding SMT)
+and at query time (by the API for kNN search). Re-embed deduplication is handled by
+the SMT's Debezium before/after diff — there is no separate hash cache.
+
+### Benefits of the Kafka Sink Pipeline
+
+- **Decoupled**: Materialize, Redpanda, and OpenSearch scale independently
+- **Exactly-once-style upserts**: keyed Debezium events make indexing idempotent
+- **Vector search**: embeddings computed inline via the SMT, re-embedding only on text changes
+- **Operationally standard**: managed entirely through the Kafka Connect REST API
 
 ## System Architecture Diagram
 
@@ -313,27 +322,34 @@ await destination.bulk_delete(deletes)
 │  • ontology_properties   │         │  • ingest: pg_source (CDC)           │
 │  • triples               │         │  • compute: MVs (aggregation)        │
 └──────────────────────────┘         │  • serving: indexes (queries)        │
-                                     │  SUBSCRIBE: differential updates     │
+                                     │  CREATE SINK: Avro/Debezium → Kafka  │
                                      └────────────┬────────────────────────┘
-                                                  │ SUBSCRIBE
-                                                  │ (real-time streaming)
+                                                  │ CREATE SINK
+                                                  │ (Avro/Debezium)
                                      ┌────────────▼────────────────────────┐
-                                     │    Search Sync Worker                │
-                                     │  SUBSCRIBE streaming                 │
-                                     │  • OrdersSyncWorker (orders)         │
-                                     │  • InventorySyncWorker (inventory)   │
-                                     │  • BaseSubscribeWorker pattern       │
-                                     │  • Event consolidation               │
+                                     │    Redpanda                          │
+                                     │  Broker: 19092  SchemaReg: 18081     │
+                                     │  • topic: orders                     │
+                                     │  • topic: inventory                  │
+                                     └────────────┬────────────────────────┘
+                                                  │ consume
+                                                  ▼
+                                     ┌────────────────────────────────────┐
+                                     │    Kafka Connect    Port: 8083       │
+                                     │  Aiven OpenSearch sink connector     │
+                                     │  • embedding SMT (orders) ──────────▶│ embedding-service :8085
+                                     │  • Debezium unwrap / cast / tsHeader │
+                                     │  • UPSERT, null → delete             │
                                      │  • < 2s latency                      │
                                      └────────────┬────────────────────────┘
-                                                  │ Bulk index
+                                                  │ Bulk index (UPSERT)
                                                   ▼
                     ┌─────────────────────────────────────┐
                     │      OpenSearch                     │
            ┌───────▶│       Port: 9200                    │
            │        │  • orders index (real-time)         │
            │        │  • inventory index (real-time)      │
-           │        │  • Full-text search                 │
+           │        │  • Full-text + kNN vector search    │
            │        └─────────────────────────────────────┘
            │
 ┌──────────┴───────────────┐
@@ -348,7 +364,9 @@ await destination.bulk_delete(deletes)
 
 ## Automatic Reconnection & Resilience
 
-Both `zero-server` and `search-sync` services include automatic retry and reconnection logic for production reliability.
+The `zero-server` service includes automatic retry and reconnection logic for its
+SUBSCRIBE streams. (The search-indexing path is now handled by Kafka Connect, which
+manages connector retries and offset-based recovery itself.)
 
 ### Connection Retry
 
@@ -386,18 +404,9 @@ If a SUBSCRIBE stream ends or errors, services automatically reconnect:
 
 **zero-server**: Fixed 30-second retry delay per subscription
 
-**search-sync**: Exponential backoff for efficiency
-- Initial delay: 1 second
-- Backoff multiplier: 2x
-- Maximum delay: 30 seconds
-- Sequence: 1s → 2s → 4s → 8s → 16s → 30s (cap)
-
-Environment variables (search-sync):
-```bash
-RETRY_INITIAL_DELAY=1       # Initial retry delay (seconds)
-RETRY_MAX_DELAY=30          # Maximum retry delay (seconds)
-RETRY_BACKOFF_MULTIPLIER=2  # Backoff multiplier
-```
+**Search indexing (Kafka Connect)**: Connector retry and recovery are managed by the
+Kafka Connect runtime via consumer offsets — failed tasks resume from the last
+committed offset, so no application-level backoff configuration is required.
 
 ### Benefits
 
@@ -416,7 +425,9 @@ RETRY_BACKOFF_MULTIPLIER=2  # Backoff multiplier
 | **zero-server** | 8090 | WebSocket server for real-time UI updates |
 | **opensearch** | 9200 | Search engine for orders |
 | **api** | 8080 | FastAPI backend |
-| **search-sync** | - | Dual SUBSCRIBE workers (orders + inventory) for OpenSearch sync (< 2s latency) |
+| **redpanda** | 19092/18081 | Kafka broker + Schema Registry (Materialize sink target) |
+| **kafka-connect** | 8083 | Kafka Connect (OpenSearch sink + embedding SMT) |
+| **embedding-service** | 8085 | OpenAI-compatible embedding facade (BAAI/bge-small-en-v1.5) |
 | **web** | 5173 | React admin UI with real-time updates |
 | **agents** | 8081 | LangGraph agent runner (optional) |
 

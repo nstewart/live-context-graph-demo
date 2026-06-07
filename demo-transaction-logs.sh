@@ -1,6 +1,12 @@
 #!/bin/bash
-# Demo script to show transactional consistency in Materialize SUBSCRIBE updates
-# This demonstrates that all tuples from a single transaction share the same Materialize timestamp
+# Demo script to show transactional consistency through the search pipeline.
+# All tuples from a single transaction share the same Materialize timestamp,
+# which is carried through Redpanda (header `materialize-timestamp`) and lands
+# on each OpenSearch doc as `mz_timestamp`.
+#
+# Pipeline: Materialize CREATE SINK -> Redpanda (orders/inventory)
+#           -> Kafka Connect (kafka-connect, :8083) -> OpenSearch.
+# The orders connector embeds via embedding-service (:8085).
 
 set -e
 
@@ -11,14 +17,14 @@ else
     DOCKER_COMPOSE="docker-compose"
 fi
 
-echo "🎬 Demo: Transactional Consistency with Materialize SUBSCRIBE"
+echo "🎬 Demo: Transactional Consistency through the Search Pipeline"
 echo "=============================================================="
 echo ""
 echo "This demo shows:"
-echo "  1. All tuples from a transaction have the SAME Materialize timestamp"
-echo "  2. System correctly identifies which OpenSearch documents to update"
-echo "  3. Updates are consolidated (DELETE + INSERT = UPDATE)"
-echo "  4. Everything happens atomically - no partial states"
+echo "  1. All tuples from a transaction share the SAME Materialize timestamp"
+echo "  2. The Kafka Connect sink propagates them into OpenSearch"
+echo "  3. Updates are upserts on the same OpenSearch doc (key = order_id)"
+echo "  4. Everything propagates atomically - no partial states"
 echo ""
 
 # Colors for output
@@ -27,29 +33,35 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check if docker-compose is running
-if ! $DOCKER_COMPOSE ps | grep -q "search-sync.*Up"; then
-    echo "❌ search-sync service is not running"
+# Check the pipeline services are running
+if ! $DOCKER_COMPOSE ps | grep -q "kafka-connect.*Up"; then
+    echo "❌ kafka-connect service is not running"
+    echo "   Run: docker compose up -d"
+    exit 1
+fi
+if ! $DOCKER_COMPOSE ps | grep -q "embedding-service.*Up"; then
+    echo "❌ embedding-service is not running"
     echo "   Run: docker compose up -d"
     exit 1
 fi
 
-echo "${BLUE}📋 Step 1: Watch the complete flow (PostgreSQL → Materialize → OpenSearch)${NC}"
+echo "${BLUE}📋 Step 1: Watch the complete flow (PostgreSQL → Materialize → Redpanda → OpenSearch)${NC}"
 echo "   This terminal will show:"
-echo "     - PostgreSQL transaction logs (api service)"
-echo "     - Materialize SUBSCRIBE events (search-sync service)"
-echo "     - OpenSearch flush operations (search-sync service)"
+echo "     - Incoming write requests (api service)"
+echo "     - Sink task / bulk-write activity (kafka-connect service)"
+echo "     - Embedding requests for orders (embedding-service)"
 echo ""
-echo "   Filter: grep for transaction and event symbols"
+echo "   Filter: real pipeline signals (writes, sink tasks, bulk writes, embeddings, errors)"
 echo ""
 echo "Press Enter to start tailing logs..."
 read
 
-# Start log tail in background (both api and search-sync)
-echo "${GREEN}Starting log tail for api and search-sync services...${NC}"
+# Start log tail in background (api + the pipeline services)
+echo "${GREEN}Starting log tail for api, kafka-connect, and embedding-service...${NC}"
 echo ""
 
-$DOCKER_COMPOSE logs -f --tail=0 api search-sync | grep --line-buffered -E "🔵|📝|✅|📦|💾|➕|🔄|❌|mz_ts=" &
+$DOCKER_COMPOSE logs -f --tail=0 api kafka-connect embedding-service \
+  | grep --line-buffered -iE "POST /triples|WorkerSinkTask|BulkProcessor|POST /v1/embeddings|ERROR|FAILED|RUNNING" &
 LOG_PID=$!
 
 # Give logs time to start
@@ -238,21 +250,24 @@ $DOCKER_COMPOSE exec -T api curl -s -X POST http://localhost:8080/triples/batch 
 echo "✅ Order created with 3 line items"
 echo ""
 echo "${YELLOW}👀 Watch the logs above! You should see:${NC}"
-echo "   API SERVICE:"
-echo "   - 🔵 PG_TXN_START showing 28 triples across 4 subjects"
-echo "   - 📝 Each subject (order + 3 line items) with their properties"
-echo "   - ✅ PG_TXN_END confirming all triples written"
-echo ""
-echo "   SEARCH-SYNC SERVICE:"
-echo "   - 📦 BATCH @ mz_ts=XXXXX with the SAME timestamp for all 28 events"
-echo "   - ➕ Inserts showing the order and all 3 line items"
-echo "   - 💾 FLUSH → orders showing them written to OpenSearch together"
+echo "   API SERVICE:    the incoming POST /triples write"
+echo "   KAFKA-CONNECT:  WorkerSinkTask polling and a BulkProcessor write to OpenSearch"
+echo "   EMBEDDING:      a 'POST /v1/embeddings' call as the order's text is embedded"
 echo ""
 sleep 3
 
+echo "${GREEN}Confirming propagation via probes (not log scraping)...${NC}"
+echo "  orders index count:"
+$DOCKER_COMPOSE exec -T opensearch curl -s "http://localhost:9200/orders/_count" || true
+echo ""
+echo "  orders sink consumer lag (LAG should drain to 0):"
+$DOCKER_COMPOSE exec -T redpanda rpk group describe connect-orders-opensearch-sink 2>/dev/null || true
+echo ""
+sleep 2
+
 echo ""
 echo "${BLUE}📋 Step 3: Update the order status${NC}"
-echo "   This triggers an UPDATE (DELETE + INSERT at same timestamp)"
+echo "   Materialize re-emits the order at a new timestamp; the sink upserts it"
 echo ""
 echo "Press Enter to update order status to PICKING..."
 read
@@ -266,10 +281,9 @@ $DOCKER_COMPOSE exec -T db psql -U postgres -d freshmart -c \
 echo "✅ Order status updated"
 echo ""
 echo "${YELLOW}👀 Watch the logs above! You should see:${NC}"
-echo "   SEARCH-SYNC SERVICE:"
-echo "   - 📦 BATCH @ mz_ts=YYYYY (different timestamp from insert)"
-echo "   - 🔄 Updates showing consolidated UPDATE operation (DELETE + INSERT → UPDATE)"
-echo "   - 💾 FLUSH → orders showing the update written to OpenSearch"
+echo "   KAFKA-CONNECT:  another WorkerSinkTask poll + BulkProcessor write"
+echo "                   (an UPSERT on the same doc, key = order_id)"
+echo "   The doc's mz_timestamp advances to the new transaction's timestamp."
 echo ""
 sleep 3
 
@@ -282,30 +296,34 @@ read
 
 echo "${GREEN}Querying OpenSearch...${NC}"
 $DOCKER_COMPOSE exec -T opensearch curl -s "http://localhost:9200/orders/_doc/${ORDER_ID}?pretty" | \
-  grep -E '"order_id"|"order_status"|"line_items"' | head -10
+  grep -E '"order_id"|"order_status"|"mz_timestamp"|"line_items"' | head -10
 
 echo ""
 echo "✅ Demo complete!"
 echo ""
 echo "${YELLOW}Key Takeaways:${NC}"
 echo "  ✓ PostgreSQL transaction writes all tuples atomically (28 triples)"
-echo "  ✓ Materialize groups them by timestamp (all share same mz_ts)"
-echo "  ✓ System identifies affected documents (1 order + 3 line items = 4 docs)"
-echo "  ✓ Updates are consolidated (DELETE + INSERT → UPDATE)"
-echo "  ✓ Sub-2-second latency from PostgreSQL → OpenSearch"
+echo "  ✓ Materialize groups them by timestamp (all share the same mz_timestamp)"
+echo "  ✓ The CREATE SINK emits them to Redpanda with a materialize-timestamp header"
+echo "  ✓ Kafka Connect upserts them into OpenSearch (1 order + 3 lines = 1 orders doc)"
+echo "  ✓ The orders connector embeds the doc text via embedding-service"
+echo "  ✓ Sub-second propagation from PostgreSQL → OpenSearch"
 echo ""
 
 # Cleanup
 kill $LOG_PID 2>/dev/null || true
 rm -f /tmp/demo_order.json
 
-echo "To watch logs manually:"
+echo "To watch / probe the pipeline manually:"
 echo ""
-echo "  # Full flow (PostgreSQL → Materialize → OpenSearch)"
-echo "  $DOCKER_COMPOSE logs -f api search-sync | grep -E '🔵|📝|✅|📦|💾|➕|🔄|❌'"
+echo "  # Write side + sink + embedding calls"
+echo "  $DOCKER_COMPOSE logs -f api kafka-connect embedding-service | grep -iE 'POST /triples|WorkerSinkTask|BulkProcessor|POST /v1/embeddings|ERROR'"
 echo ""
-echo "  # Just PostgreSQL transactions"
-echo "  $DOCKER_COMPOSE logs -f api | grep -E '🔵|📝|✅'"
+echo "  # Connector / task state"
+echo "  curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq"
 echo ""
-echo "  # Just SUBSCRIBE events and OpenSearch flushes"
-echo "  $DOCKER_COMPOSE logs -f search-sync | grep -E '📦|💾|➕|🔄|❌'"
+echo "  # Consumer lag (caught-up check)"
+echo "  $DOCKER_COMPOSE exec redpanda rpk group describe connect-orders-opensearch-sink"
+echo ""
+echo "  # Indexed doc counts"
+echo "  curl -s localhost:9200/orders/_count ; curl -s localhost:9200/inventory/_count"

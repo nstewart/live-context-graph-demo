@@ -1,0 +1,61 @@
+{
+  "index_patterns": ["orders"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index": { "knn": true }
+    },
+    "mappings": {
+      "date_detection": false,
+      "properties": {
+        "order_id": { "type": "keyword" },
+        "order_number": { "type": "keyword", "copy_to": "search_text" },
+        "order_status": { "type": "keyword" },
+        "store_id": { "type": "keyword" },
+        "customer_id": { "type": "keyword" },
+        "delivery_window_start": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "delivery_window_end": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "order_created_at": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "order_total_amount": { "type": "float" },
+        "customer_name": {
+          "type": "text",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "customer_email": { "type": "keyword" },
+        "customer_address": {
+          "type": "text",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "store_name": {
+          "type": "text",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "store_zone": { "type": "keyword" },
+        "store_address": { "type": "text" },
+        "assigned_courier_id": { "type": "keyword" },
+        "delivery_task_status": { "type": "keyword" },
+        "delivery_eta": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "effective_updated_at": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss.SSSSSSx||yyyy-MM-dd HH:mm:ss.SSSSSx||yyyy-MM-dd HH:mm:ss.SSSSx||yyyy-MM-dd HH:mm:ss.SSSx||yyyy-MM-dd HH:mm:ss.SSx||yyyy-MM-dd HH:mm:ss.Sx||yyyy-MM-dd HH:mm:ssx||epoch_millis||strict_date_optional_time" },
+        "line_item_count": { "type": "integer" },
+        "has_perishable_items": { "type": "boolean" },
+        "computed_total": { "type": "float" },
+        "total_weight_kg": { "type": "float" },
+        "search_text": { "type": "text" },
+        "mz_timestamp": { "type": "long" },
+        "embedding_text": {
+          "type": "text",
+          "copy_to": "search_text",
+          "fields": { "keyword": { "type": "keyword" } }
+        },
+        "embedding_text_embedding": {
+          "type": "knn_vector",
+          "dimension": 384
+        }
+      }
+    }
+  }
+}

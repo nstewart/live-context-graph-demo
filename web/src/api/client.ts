@@ -681,6 +681,14 @@ export type VectorSearchResponse = {
   total: number;
 }
 
+export type EmbeddingMetrics = {
+  computed: number;
+  skipped: number;
+  possible: number;
+  skip_ratio: number;
+  available: boolean;
+}
+
 export const searchApi = {
   searchOrders: (query: string, limit?: number) =>
     apiClient.get<OpenSearchResponse>('/api/search/orders', {
@@ -694,4 +702,6 @@ export const searchApi = {
     apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
       params: { since_mz_timestamp },
     }),
+  embeddingMetrics: () =>
+    apiClient.get<EmbeddingMetrics>('/api/search/embedding-metrics'),
 }

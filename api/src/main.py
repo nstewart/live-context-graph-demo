@@ -40,16 +40,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting FreshMart Digital Twin API...")
     start_heartbeat_generator()
 
-    # Pre-warm the fastembed model in the background so the first vector search
-    # is fast. Runs in a thread to avoid blocking the event loop during download.
+    # Pre-warm the embedding service in the background (it loads its model
+    # lazily on first request) so the first vector search is fast.
     async def _prewarm_embedder():
-        from src.routes.search import get_query_embedder
+        from src.routes.search import embed_query
         try:
-            logger.info("Pre-warming fastembed model...")
-            await asyncio.to_thread(get_query_embedder)
-            logger.info("fastembed model ready.")
+            logger.info("Pre-warming embedding service...")
+            await embed_query("warmup")
+            logger.info("Embedding service ready.")
         except Exception:
-            logger.warning("fastembed pre-warm failed — model will load on first search.", exc_info=True)
+            logger.warning("Embedding service pre-warm failed — will warm on first search.", exc_info=True)
 
     _prewarm_task = asyncio.create_task(_prewarm_embedder())  # noqa: F841 — reference prevents GC mid-execution
 

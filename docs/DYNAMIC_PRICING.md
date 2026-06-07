@@ -361,8 +361,12 @@ ORDER BY avg_adjustment_pct DESC;
 ### Price Change Events
 
 ```bash
-# Watch for price changes in real-time
-docker compose logs -f search-sync | grep "inventory"
+# Watch inventory docs flow through the Kafka Connect sink to OpenSearch
+docker compose logs -f kafka-connect | grep -i inventory
+
+# Inventory docs land in the OpenSearch `inventory` index via the inventory sink connector.
+# Check the indexed doc count:
+curl localhost:9200/inventory/_count
 
 # Or monitor Materialize view updates
 docker compose logs -f zero-server | grep "inventory"

@@ -22,4 +22,8 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["python", "-m", "src.main"]
+EXPOSE 8085
+
+# Hypercorn handles both HTTP/1.1 and HTTP/2 cleartext (h2c) upgrades, which the
+# Kafka Connect SMT's java.net.http client negotiates by default.
+CMD ["hypercorn", "src.main:app", "--bind", "0.0.0.0:8085"]

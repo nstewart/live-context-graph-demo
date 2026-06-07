@@ -1,6 +1,22 @@
-# Demo: Log Filtering for Transactional Consistency
+# Demo: Observing the Search Pipeline
 
-This guide shows how to use `docker compose logs` to demonstrate that SUBSCRIBE updates correctly identify which OpenSearch documents to update based on Materialize timestamps.
+This guide shows how to watch the ingest pipeline that keeps OpenSearch in sync
+with Materialize, and how to prove that writes propagate end-to-end.
+
+> **The pipeline:**
+>
+> ```
+> Materialize CREATE SINK (Avro, ENVELOPE DEBEZIUM)
+>     → Redpanda topics `orders` / `inventory`
+>     → Kafka Connect (service `kafka-connect`, REST :8083)
+>         → embedding SMT → embedding-service (:8085, OpenAI-compatible)
+>     → OpenSearch indices `orders` / `inventory`
+> ```
+>
+> Kafka Connect emits standard log4j lines (`WorkerSinkTask`, `BulkProcessor`,
+> `Committing offsets`, ...). For observing propagation and throughput, prefer
+> the REST/CLI probes in the sections below over log grepping — they are exact,
+> not best-effort pattern matches.
 
 ## Quick Start
 
@@ -11,150 +27,127 @@ Run the automated demo:
 
 ## Manual Filtering Examples
 
-### 1. Show All Batches with Timestamps
+### 1. Watch Sink Connector Activity
 ```bash
-docker compose logs -f search-sync | grep "📦 BATCH"
+docker compose logs -f kafka-connect | grep -iE "WorkerSinkTask|BulkProcessor|ERROR|RUNNING|FAILED"
 ```
 
-**Example Output:**
-```
-📦 BATCH @ mz_ts=1701234567890: Processing 28 events from orders_with_lines_mv (total received: 125)
-```
-
-**What it shows:** All events in this batch happened at the same Materialize timestamp (single transaction).
+**What it shows:** The sink tasks consuming from Redpanda and bulk-writing to
+OpenSearch. `WorkerSinkTask` lines mark poll/commit cycles, `BulkProcessor`
+lines mark batched writes, and `RUNNING`/`FAILED`/`ERROR` surface task health.
 
 ---
 
-### 2. Show Document Operations
+### 2. Watch Embedding Requests
 ```bash
-docker compose logs -f search-sync | grep -E "➕|🔄|❌"
+docker compose logs -f embedding-service | grep "POST /v1/embeddings"
 ```
 
-**Example Output:**
-```
-  ➕ Inserts: ['order:FM-12345', 'orderline:FM-12345-001', 'orderline:FM-12345-002', 'orderline:FM-12345-003']
-  🔄 Updates: ['order:FM-67890']
-  ❌ Deletes: ['order:FM-11111']
-```
-
-**What it shows:**
-- **➕ Inserts** - New documents being created
-- **🔄 Updates** - Documents updated via consolidation (DELETE + INSERT at same timestamp)
-- **❌ Deletes** - Documents being removed
+**What it shows:** The orders connector's embedding SMT calling the
+`embedding-service` (fastembed `bge-small`, 384-dim) for each changed document's
+`embedding_text`. One request line per batch the SMT embeds.
 
 ---
 
-### 3. Show Flush Operations
+### 3. Check Connector / Task State (preferred over logs)
 ```bash
-docker compose logs -f search-sync | grep "💾 FLUSH"
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq
+curl -s localhost:8083/connectors/inventory-opensearch-sink/status | jq
 ```
 
-**Example Output:**
-```
-💾 FLUSH → orders: 4 upserts, 0 deletes
-💾 FLUSH → inventory: 12 upserts, 2 deletes
-```
-
-**What it shows:** Bulk operations written to OpenSearch, grouped by index.
+**What it shows:** Connector and per-task `state` (`RUNNING`, `PAUSED`,
+`FAILED`). If a task has failed, the `trace` field carries the stack trace —
+far more useful than scraping logs.
 
 ---
 
-### 4. Full Transaction Flow
+### 4. Watch the Bootstrap (templates + connector registration)
 ```bash
-docker compose logs -f search-sync | grep -E "📦|➕|🔄|❌|💾"
+docker compose logs connect-init
 ```
 
-**Example Output (order creation with 3 line items):**
-```
-📦 BATCH @ mz_ts=1701234567890: Processing 28 events from orders_with_lines_mv (total received: 125)
-  ➕ Inserts: ['order:FM-12345', 'orderline:FM-12345-001', 'orderline:FM-12345-002', 'orderline:FM-12345-003']
-💾 FLUSH → orders: 4 upserts, 0 deletes
-```
-
-**Key Insight:** All 4 documents (1 order + 3 line items) share the **same mz_ts** because they were created in a single transaction.
+**What it shows:** The one-shot `connect-init` container applying the OpenSearch
+index templates and registering/updating the two sink connectors. Look for
+`applied template: orders`, `ensured index: ...`, and `-> orders-opensearch-sink`,
+ending with `Pipeline bootstrap complete.`
 
 ---
 
-### 5. Show UPDATE Consolidation
+### 5. Verify Propagation After a Write
 ```bash
-# Make an update
-docker compose exec db psql -U postgres -d freshmart -c \
-  "UPDATE triples SET object_value='OUT_FOR_DELIVERY' WHERE subject_id='order:FM-12345' AND predicate='order_status';"
+# Doc counts in each index
+curl -s localhost:9200/orders/_count
+curl -s localhost:9200/inventory/_count
 
-# Watch logs
-docker compose logs --tail=20 search-sync | grep -E "📦|🔄|💾"
+# Consumer lag for the orders sink (0 lag == fully caught up)
+docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
 ```
 
-**Example Output:**
-```
-📦 BATCH @ mz_ts=1701234567895: Processing 2 events from orders_with_lines_mv (total received: 127)
-  🔄 Updates: ['order:FM-12345']
-💾 FLUSH → orders: 1 upserts, 0 deletes
-```
-
-**Key Insight:**
-- Materialize sends DELETE + INSERT for the same order at the same timestamp
-- Worker consolidates them into a single UPDATE
-- Only 1 upsert sent to OpenSearch (not 1 delete + 1 insert)
+**What it shows:** Whether the sink has drained the topic. Lag dropping back to
+0 after a write is the clean signal that propagation is complete.
 
 ---
 
-## Log Symbols Reference
+### 6. Prove a Specific Write Landed (impact probe)
+```bash
+# After a PostgreSQL write, ask the API which docs changed at/after that timestamp.
+# <ms> is the Materialize timestamp (epoch ms), surfaced on each doc as mz_timestamp.
+curl -s "localhost:8080/api/search/impact?since_mz_timestamp=<ms>"
+```
 
-| Symbol | Meaning | Service | Color |
-|--------|---------|---------|-------|
-| 🔵 | PostgreSQL transaction start | api | Blue |
-| 📝 | Subject being written in transaction | api | Blue |
-| ✅ | PostgreSQL transaction end | api | Green |
-| 📦 | Batch received from SUBSCRIBE | search-sync | Blue |
-| ➕ | Insert operations | search-sync | Green |
-| 🔄 | Update operations (consolidated) | search-sync | Yellow |
-| ❌ | Delete operations | search-sync | Red |
-| 💾 | Flush to OpenSearch | search-sync | Blue |
+`mz_timestamp` is copied onto every OpenSearch doc from the Kafka header
+`materialize-timestamp` (via the `tsHeader` HeaderToValue SMT). All docs from a
+single Materialize transaction share the same `mz_timestamp`.
 
 ---
 
-## Show PostgreSQL Transactions
-
-### View All Tuples Being Written in a Transaction
+### 7. Tail the Topics Directly
 ```bash
-docker compose logs -f api | grep -E "🔵|📝|✅"
+docker compose exec redpanda rpk topic consume orders -n 1
+docker compose exec redpanda rpk topic consume inventory -n 1
 ```
 
-**Example Output:**
-```
-🔵 PG_TXN_START: Writing 28 triples across 4 subjects
-  📝 order:FM-12345: 5 properties (order_number, order_status, placed_by...)
-  📝 orderline:FM-12345-001: 7 properties (line_of_order, line_product, quantity...)
-  📝 orderline:FM-12345-002: 7 properties (line_of_order, line_product, quantity...)
-  📝 orderline:FM-12345-003: 7 properties (line_of_order, line_product, quantity...)
-✅ PG_TXN_END: Successfully wrote 28 triples
-```
+**What it shows:** The raw Debezium-envelope Avro messages Materialize sinks to
+Redpanda, including the `materialize-timestamp` header. Use this to confirm the
+sink upstream of OpenSearch is producing.
 
-**What it shows:**
-- All tuples written in a single PostgreSQL transaction
-- Which subjects (order, line items) are affected
-- How many properties each subject has
+---
 
-### Show Complete Flow: PostgreSQL → Materialize → OpenSearch
+## Useful Signals Reference
+
+| Signal | Component | How to see it |
+|--------|-----------|---------------|
+| Sink task state (RUNNING/FAILED) | kafka-connect | `curl -s localhost:8083/connectors/orders-opensearch-sink/status` |
+| Bulk writes to OpenSearch | kafka-connect | `docker compose logs -f kafka-connect \| grep -iE "WorkerSinkTask\|BulkProcessor"` |
+| Connector errors | kafka-connect | `docker compose logs -f kafka-connect \| grep -iE "ERROR\|FAILED"` |
+| Embedding requests | embedding-service | `docker compose logs -f embedding-service \| grep "POST /v1/embeddings"` |
+| Consumer lag (caught-up check) | redpanda | `docker compose exec redpanda rpk group describe connect-orders-opensearch-sink` |
+| Topic contents / `materialize-timestamp` | redpanda | `docker compose exec redpanda rpk topic consume orders -n 1` |
+| Indexed doc counts | opensearch | `curl -s localhost:9200/orders/_count` |
+| Impact of a specific write | api | `curl -s "localhost:8080/api/search/impact?since_mz_timestamp=<ms>"` |
+| Bootstrap (templates + connectors) | connect-init | `docker compose logs connect-init` |
+
+---
+
+## End-to-End Flow: PostgreSQL → Materialize → Redpanda → OpenSearch
+
+The pipeline now spans several services. Watch the API (the write side) and the
+sink (the index side) together:
+
 ```bash
-docker compose logs -f api search-sync | grep -E "🔵|📝|✅|📦|➕|🔄|💾|mz_ts="
+docker compose logs -f api kafka-connect embedding-service
 ```
 
-**Example Output:**
-```
-api          | 🔵 PG_TXN_START: Writing 28 triples across 4 subjects
-api          |   📝 order:FM-12345: 5 properties (order_number, order_status, placed_by...)
-api          |   📝 orderline:FM-12345-001: 7 properties (line_of_order, line_product, quantity...)
-api          |   📝 orderline:FM-12345-002: 7 properties (line_of_order, line_product, quantity...)
-api          |   📝 orderline:FM-12345-003: 7 properties (line_of_order, line_product, quantity...)
-api          | ✅ PG_TXN_END: Successfully wrote 28 triples
-search-sync  | 📦 BATCH @ mz_ts=1701234567890: Processing 28 events from orders_with_lines_mv
-search-sync  |   ➕ Inserts: ['order:FM-12345', 'orderline:FM-12345-001', 'orderline:FM-12345-002', 'orderline:FM-12345-003']
-search-sync  | 💾 FLUSH → orders: 4 upserts, 0 deletes
-```
+The API service logs the incoming write requests; `kafka-connect` logs the sink
+tasks committing to OpenSearch; `embedding-service` logs the embedding calls the
+orders connector makes along the way. To confirm the write actually landed,
+follow up with the doc-count / consumer-lag / impact probes above rather than
+relying on log lines.
 
-**Key Insight:** The 28 triples written in PostgreSQL become 28 events in Materialize (all with the same `mz_ts`), which get consolidated into 4 OpenSearch documents.
+**Key Insight:** All triples written in a single PostgreSQL transaction become
+events at the same Materialize timestamp, sink to Redpanda with the same
+`materialize-timestamp` header, and land in OpenSearch carrying the same
+`mz_timestamp`.
 
 ---
 
@@ -168,18 +161,20 @@ search-sync  | 💾 FLUSH → orders: 4 upserts, 0 deletes
 curl -X POST http://localhost:8080/triples/batch -H "Content-Type: application/json" -d '[...]'
 ```
 
-**Expected Logs:**
-```
-📦 BATCH @ mz_ts=XXXXX: Processing 28 events from orders_with_lines_mv
-  ➕ Inserts: ['order:FM-XXXXX', 'orderline:FM-XXXXX-001', 'orderline:FM-XXXXX-002', 'orderline:FM-XXXXX-003']
-💾 FLUSH → orders: 4 upserts, 0 deletes
+**How to verify:**
+```bash
+# Orders index count should increase
+curl -s localhost:9200/orders/_count
+# Orders sink lag should return to 0
+docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
 ```
 
-**Demonstrates:** All tuples (order + line items) share the same `mz_ts`, proving they're part of the same transaction.
+**Demonstrates:** The order and its line items propagate through the sink into a
+single OpenSearch `orders` doc, all carrying the same `mz_timestamp`.
 
 ---
 
-### Scenario 2: Update Order Status (Consolidated UPDATE)
+### Scenario 2: Update Order Status
 
 **Action:**
 ```bash
@@ -187,17 +182,15 @@ docker compose exec db psql -U postgres -d freshmart -c \
   "UPDATE triples SET object_value='DELIVERED' WHERE subject_id='order:FM-XXXXX' AND predicate='order_status';"
 ```
 
-**Expected Logs:**
-```
-📦 BATCH @ mz_ts=YYYYY: Processing 2 events from orders_with_lines_mv
-  🔄 Updates: ['order:FM-XXXXX']
-💾 FLUSH → orders: 1 upserts, 0 deletes
+**How to verify:**
+```bash
+curl -s "localhost:9200/orders/_doc/order:FM-XXXXX?pretty" | grep -E '"order_status"|"mz_timestamp"'
 ```
 
-**Demonstrates:**
-- Different timestamp than the insert (YYYYY ≠ XXXXX)
-- DELETE + INSERT consolidated into UPDATE
-- Only 1 OpenSearch operation instead of 2
+**Demonstrates:** Materialize re-emits the order at a new timestamp; the sink
+upserts the existing OpenSearch doc (key is `order_id`, `index.write.method` is
+`UPSERT`) — a single write, not a delete + insert. `behavior.on.null.values` is
+`delete`, so an actual retraction tombstone would remove the doc.
 
 ---
 
@@ -205,112 +198,132 @@ docker compose exec db psql -U postgres -d freshmart -c \
 
 **Action:**
 ```bash
-# Update a product's base price
 docker compose exec db psql -U postgres -d freshmart -c \
   "UPDATE triples SET object_value='15.99' WHERE subject_id='product:prod0001' AND predicate='base_price';"
 ```
 
-**Expected Logs:**
-```
-📦 BATCH @ mz_ts=ZZZZZ: Processing 45 events from inventory_items_with_dynamic_pricing
-  🔄 Updates: ['inventory:INV-001', 'inventory:INV-002', 'inventory:INV-003', ...]
-💾 FLUSH → inventory: 12 upserts, 0 deletes
+**How to verify:**
+```bash
+# Inventory sink processes the cascade; watch lag drain and counts settle
+docker compose exec redpanda rpk group describe connect-inventory-opensearch-sink
+curl -s localhost:9200/inventory/_count
 ```
 
-**Demonstrates:**
-- Single product update cascades to multiple inventory records
-- All updates at the same timestamp (denormalization)
-- Smart consolidation reduces OpenSearch operations
+**Demonstrates:** A single product update cascades to multiple inventory records
+in Materialize; the inventory sink writes them all at the same timestamp.
 
 ---
 
 ## Advanced Filtering
 
-### Show Only Specific Index
+### Show Only the Orders Connector's Logs
+Both sink tasks run in the same `kafka-connect` worker, so filter by connector
+or topic name in the log line:
 ```bash
-docker compose logs -f search-sync | grep "→ orders"
+docker compose logs -f kafka-connect | grep -i "orders-opensearch-sink"
 ```
 
-### Show Only Timestamps
+### Tail Only Errors
 ```bash
-docker compose logs -f search-sync | grep -oP 'mz_ts=\K[0-9]+'
+docker compose logs -f kafka-connect | grep -iE "ERROR|FAILED|Exception"
 ```
 
-### Count Events by Type
+### Count Embedding Requests
 ```bash
-docker compose logs search-sync | grep -c "➕ Inserts"
-docker compose logs search-sync | grep -c "🔄 Updates"
-docker compose logs search-sync | grep -c "❌ Deletes"
+docker compose logs embedding-service | grep -c "POST /v1/embeddings"
 ```
 
-### Watch Multiple Services
+### Watch the Write Side and Sink Together
 ```bash
-docker compose logs -f search-sync api | grep -E "📦|💾|POST /triples"
+docker compose logs -f api kafka-connect | grep -iE "POST /triples|WorkerSinkTask|BulkProcessor|ERROR"
 ```
 
 ---
 
 ## Troubleshooting
 
-### No Logs Appearing?
+### Nothing Landing in OpenSearch?
 
-1. Check service is running:
+1. Check the connectors are registered and RUNNING:
    ```bash
-   docker compose ps search-sync
+   curl -s localhost:8083/connectors
+   curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq '.tasks'
    ```
 
-2. Check LOG_LEVEL:
+2. Check the bootstrap actually completed:
    ```bash
-   docker compose exec search-sync env | grep LOG_LEVEL
-   # Should be INFO or DEBUG
+   docker compose logs connect-init
+   # expect: "Pipeline bootstrap complete."
    ```
 
-3. Restart with verbose logging:
+3. Check the services are up:
    ```bash
-   docker compose up -d search-sync
-   docker compose logs -f search-sync
+   docker compose ps kafka-connect embedding-service redpanda
    ```
 
-### Logs Too Verbose?
+4. Check there's data on the topic at all:
+   ```bash
+   docker compose exec redpanda rpk topic consume orders -n 1
+   ```
 
-Filter to just transaction boundaries:
+### A Task Is FAILED?
+
+Read the trace directly from the REST API, then restart the task:
 ```bash
-docker compose logs -f search-sync | grep -E "BATCH|FLUSH"
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq '.tasks[].trace'
+curl -s -X POST localhost:8083/connectors/orders-opensearch-sink/restart?includeTasks=true
+```
+
+### Embeddings Not Being Generated?
+
+```bash
+docker compose logs -f embedding-service | grep -iE "POST /v1/embeddings|ERROR"
+curl -s localhost:8083/connectors/orders-opensearch-sink/status | jq '.tasks[].trace'
 ```
 
 ---
 
-## Performance Metrics from Logs
+## Performance / Throughput
 
-### Average Events per Batch
+### Sink Lag (how far behind is the index?)
 ```bash
-docker compose logs search-sync | \
-  grep "BATCH" | \
-  grep -oP 'Processing \K[0-9]+' | \
-  awk '{sum+=$1; n++} END {print "Average:", sum/n}'
+docker compose exec redpanda rpk group describe connect-orders-opensearch-sink
+docker compose exec redpanda rpk group describe connect-inventory-opensearch-sink
+```
+`LAG` per partition is the authoritative throughput/backlog signal.
+
+### Index Growth
+```bash
+watch -n1 'curl -s localhost:9200/orders/_count; echo; curl -s localhost:9200/inventory/_count'
 ```
 
-### Total Events Processed
+### Propagation Latency for a Specific Write
+After a write, take the Materialize timestamp (epoch ms) and poll the impact
+endpoint until the doc shows up:
 ```bash
-docker compose logs search-sync | \
-  grep "total received" | \
-  tail -1 | \
-  grep -oP 'total received: \K[0-9]+'
+curl -s "localhost:8080/api/search/impact?since_mz_timestamp=<ms>"
 ```
 
 ---
 
 ## Tips for Live Demos
 
-1. **Split Terminal** - Show logs in one pane, run commands in another
-2. **Use Colors** - The emojis make it easy to spot different operations
-3. **Filter Aggressively** - Too many logs overwhelm the audience
-4. **Pause Between Actions** - Give logs time to appear (1-2 seconds)
-5. **Highlight Timestamps** - Point out when timestamps are the same vs different
+1. **Split Terminal** - Logs (`kafka-connect` / `embedding-service`) in one pane,
+   commands and probes in another.
+2. **Lead with the probes** - `_count`, consumer lag, and the impact endpoint are
+   crisp, deterministic signals; logs are supporting color.
+3. **Filter Aggressively** - Connect logs are verbose; grep for
+   `WorkerSinkTask|BulkProcessor|ERROR`.
+4. **Pause Between Actions** - Give the sink a second or two to drain the topic.
+5. **Show lag returning to 0** - The cleanest visual proof that a write fully
+   propagated.
 
 **Best Command for Demos:**
 ```bash
-docker compose logs -f --tail=0 search-sync | grep --color=always -E "📦|➕|🔄|❌|💾|mz_ts="
+docker compose logs -f --tail=0 kafka-connect embedding-service \
+  | grep --color=always -iE "WorkerSinkTask|BulkProcessor|POST /v1/embeddings|ERROR|FAILED"
 ```
 
-This shows just the important events with color highlighting.
+Pair it with a `watch` on the doc counts and consumer lag for a complete picture.
+</content>
+</invoke>

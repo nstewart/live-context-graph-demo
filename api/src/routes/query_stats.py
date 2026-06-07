@@ -970,8 +970,9 @@ async def write_triple(data: TripleWrite):
     each data access pattern.
     """
     # Capture wall-clock ms BEFORE the PostgreSQL write as a lower bound for impact detection.
-    # Any OpenSearch doc stamped by the search-sync worker after this point will have
-    # mz_timestamp (also wall-clock ms) >= this value, so the range query is always correct.
+    # Any OpenSearch doc carrying the Materialize mz_timestamp header (copied into the
+    # document by the Kafka Connect HeaderToValue transform) after this point will have
+    # mz_timestamp >= this value, so the range query is always correct.
     # mz_now() in a standalone SELECT returns the uint64 sentinel (2^64-1), not epoch ms.
     mz_lower_bound: int = int(time.time() * 1000)
 

@@ -17,7 +17,7 @@ help:
 	@echo "  make init-mz    - Manually re-initialize Materialize (usually not needed)"
 	@echo "  make logs       - Tail logs from all services"
 	@echo "  make logs-api   - Tail logs from API service"
-	@echo "  make logs-sync  - Tail logs from search-sync service"
+	@echo "  make logs-sync  - Tail logs from the Kafka Connect search pipeline"
 	@echo ""
 	@echo "Database:"
 	@echo "  make migrate         - Run database migrations"
@@ -105,7 +105,7 @@ up:
 	@echo "  - OpenSearch: http://localhost:$${OS_PORT:-9200}"
 	@echo ""
 	@echo "Note: Materialize is automatically initialized via materialize-init service"
-	@echo "      OpenSearch will be populated automatically once search-sync starts"
+	@echo "      OpenSearch will be populated automatically once the Kafka Connect pipeline starts"
 	@echo ""
 	@echo "All services ready! Run 'make logs' to see service output"
 
@@ -136,7 +136,7 @@ up-agent:
 	@$(DOCKER_COMPOSE) exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 	@echo ""
 	@echo "Note: Materialize is automatically initialized via materialize-init service"
-	@echo "      OpenSearch will be populated automatically once search-sync starts"
+	@echo "      OpenSearch will be populated automatically once the Kafka Connect pipeline starts"
 	@echo ""
 	@echo "All services ready (including agents)!"
 
@@ -168,7 +168,7 @@ up-agent-bundling:
 	@echo ""
 	@echo "Note: Materialize is automatically initialized via materialize-init service"
 	@echo "      Delivery bundling is ENABLED - expect higher CPU usage (~460s compute time)"
-	@echo "      OpenSearch will be populated automatically once search-sync starts"
+	@echo "      OpenSearch will be populated automatically once the Kafka Connect pipeline starts"
 	@echo ""
 	@echo "All services ready (including agents with delivery bundling)!"
 
@@ -190,7 +190,13 @@ logs-api:
 	$(DOCKER_COMPOSE) logs -f api
 
 logs-sync:
-	$(DOCKER_COMPOSE) logs -f search-sync
+	$(DOCKER_COMPOSE) logs -f kafka-connect connect-init
+
+logs-connect:
+	$(DOCKER_COMPOSE) logs -f kafka-connect
+
+logs-embedding:
+	$(DOCKER_COMPOSE) logs -f embedding-service
 
 # Database
 migrate:
@@ -231,7 +237,7 @@ lint:
 clean:
 	$(DOCKER_COMPOSE) --profile agent down -v --rmi local
 	rm -rf api/__pycache__ api/.pytest_cache
-	rm -rf search-sync/__pycache__
+	rm -rf embedding-service/__pycache__ embedding-service/src/__pycache__
 	rm -rf agents/__pycache__
 	rm -rf web/node_modules web/dist
 	@echo ""

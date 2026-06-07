@@ -1,0 +1,8 @@
+fastembed>=0.3.6
+fastapi==0.110.0
+# Hypercorn (not uvicorn) so the server speaks HTTP/2 cleartext (h2c) as well
+# as HTTP/1.1. The Kafka Connect embedding SMT uses java.net.http.HttpClient,
+# which defaults to HTTP/2 and attempts an h2c upgrade that uvicorn can't honor.
+hypercorn==0.16.0
+uvicorn==0.29.0
+pydantic==2.6.0

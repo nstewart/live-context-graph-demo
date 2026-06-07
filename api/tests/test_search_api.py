@@ -293,14 +293,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -367,11 +364,8 @@ class TestVectorSearchOrdersAPI:
         async def mock_service():
             return AsyncMock()
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.side_effect = httpx.ConnectError("Connection refused")
 
@@ -395,11 +389,8 @@ class TestVectorSearchOrdersAPI:
         async def mock_service():
             return AsyncMock()
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(status_code=404)
 
@@ -418,7 +409,7 @@ class TestVectorSearchOrdersAPI:
 
     @pytest.mark.asyncio
     async def test_vector_search_response_shape(self, async_client: AsyncClient):
-        """Each result item has order_id, score, embedding_text, embedded_at."""
+        """Each result item has order_id, score, embedding_text."""
         from src.main import app
         from src.routes.freshmart import get_freshmart_service
 
@@ -427,14 +418,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -460,7 +448,6 @@ class TestVectorSearchOrdersAPI:
         assert "order_id" in item
         assert "score" in item
         assert "embedding_text" in item
-        assert "embedded_at" in item
 
     @pytest.mark.asyncio
     async def test_vector_search_merges_live_data(self, async_client: AsyncClient):
@@ -474,14 +461,11 @@ class TestVectorSearchOrdersAPI:
 
         async def mock_service():
             svc = AsyncMock()
-            svc.get_order = AsyncMock(return_value=mock_order)
+            svc.get_order_with_lines = AsyncMock(return_value=mock_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -524,14 +508,11 @@ class TestVectorSearchOrdersAPI:
                     return mock_order
                 return None
 
-            svc.get_order = AsyncMock(side_effect=get_order)
+            svc.get_order_with_lines = AsyncMock(side_effect=get_order)
             return svc
 
-        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+        with patch("src.routes.search.embed_query", AsyncMock(return_value=[0.1] * 384)), \
                 patch("httpx.AsyncClient.post") as mock_post:
-            mock_embedder = MagicMock()
-            mock_embedder.embed.return_value = [[0.1] * 384]
-            mock_get_embedder.return_value = mock_embedder
 
             mock_post.return_value = AsyncMock(
                 status_code=200,
@@ -669,3 +650,74 @@ class TestIndexImpactAPI:
             )
         assert response.status_code == 200
         assert response.json()["pct"] == 0.0
+
+
+class TestEmbeddingMetricsAPI:
+    """Tests for /api/search/embedding-metrics (Jolokia -> SMT MBean)."""
+
+    @pytest.mark.asyncio
+    async def test_embedding_metrics_available(self, async_client: AsyncClient):
+        """Returns mapped counters with available=True on a 200 Jolokia read."""
+        jolokia_payload = {
+            "status": 200,
+            "value": {
+                "EmbeddingsComputed": 120,
+                "EmbeddingsSkipped": 380,
+                "EmbeddingsPossible": 500,
+                "SkipRatio": 0.76,
+            },
+        }
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_post.return_value = AsyncMock(status_code=200, json=lambda: jolokia_payload)
+            mock_post.return_value.raise_for_status = lambda: None
+
+            response = await async_client.get("/api/search/embedding-metrics")
+            assert response.status_code == 200
+            data = response.json()
+            assert data == {
+                "computed": 120,
+                "skipped": 380,
+                "possible": 500,
+                "skip_ratio": 0.76,
+                "available": True,
+            }
+
+    @pytest.mark.asyncio
+    async def test_embedding_metrics_unavailable(self, async_client: AsyncClient):
+        """Returns available=False with zeros when Jolokia is unreachable."""
+        import httpx as _httpx
+        with patch("httpx.AsyncClient.post", side_effect=_httpx.ConnectError("boom")):
+            response = await async_client.get("/api/search/embedding-metrics")
+            assert response.status_code == 200
+            data = response.json()
+            assert data == {
+                "computed": 0,
+                "skipped": 0,
+                "possible": 0,
+                "skip_ratio": 0.0,
+                "available": False,
+            }
+
+    @pytest.mark.asyncio
+    async def test_embedding_metrics_non_200_jolokia_status(self, async_client: AsyncClient):
+        """Returns available=False when Jolokia reports a non-200 status (e.g. MBean missing)."""
+        jolokia_payload = {"status": 404, "error": "InstanceNotFoundException"}
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_post.return_value = AsyncMock(status_code=200, json=lambda: jolokia_payload)
+            mock_post.return_value.raise_for_status = lambda: None
+
+            response = await async_client.get("/api/search/embedding-metrics")
+            assert response.status_code == 200
+            assert response.json()["available"] is False
+
+    @pytest.mark.asyncio
+    async def test_embedding_metrics_malformed_value(self, async_client: AsyncClient):
+        """A 200 with a non-dict `value` degrades gracefully instead of erroring."""
+        jolokia_payload = {"status": 200, "value": "not-a-dict"}
+        with patch("httpx.AsyncClient.post") as mock_post:
+            mock_post.return_value = AsyncMock(status_code=200, json=lambda: jolokia_payload)
+            mock_post.return_value.raise_for_status = lambda: None
+
+            response = await async_client.get("/api/search/embedding-metrics")
+            assert response.status_code == 200
+            assert response.json()["available"] is False

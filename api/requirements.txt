@@ -24,6 +24,3 @@ pytest-cov>=4.1.0
 
 # Development
 ruff==0.2.0
-
-# Vector search / embeddings
-fastembed>=0.3.6

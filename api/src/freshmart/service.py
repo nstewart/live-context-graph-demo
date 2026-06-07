@@ -12,6 +12,7 @@ from src.freshmart.models import (
     OrderAwaitingCourier,
     OrderFilter,
     OrderFlat,
+    OrderWithLinesFlat,
     StoreCourierMetrics,
     StoreInfo,
     StoreInventory,
@@ -50,6 +51,7 @@ class FreshMartService:
             "stores_flat": "stores_mv",
             "customers_flat": "customers_mv",
             "products_flat": "products_mv",
+            "orders_with_lines_full": "orders_with_lines_mv",
         }
         if self.use_materialize:
             return mz_views.get(base_name, base_name)
@@ -163,6 +165,69 @@ class FreshMartService:
             delivery_task_status=row.delivery_task_status,
             delivery_eta=row.delivery_eta,
             effective_updated_at=row.effective_updated_at,
+        )
+
+    async def get_order_with_lines(self, order_id: str) -> Optional[OrderWithLinesFlat]:
+        """Get an order with its live-priced line items.
+
+        Queries ``orders_with_lines_mv`` (Materialize), which aggregates the
+        order's line items as JSONB and joins live dynamic pricing
+        (``live_price``/``base_price``/…). Used by the vector-search route to
+        hydrate line items directly from Materialize instead of from the
+        search index.
+        """
+        view = self._get_view("orders_with_lines_full")
+
+        result = await self.session.execute(
+            text(f"""
+                SELECT order_id, order_number, order_status, store_id, customer_id,
+                       delivery_window_start, delivery_window_end, order_total_amount,
+                       customer_name, customer_email, customer_address,
+                       store_name, store_zone, store_address,
+                       assigned_courier_id, delivery_task_status, delivery_eta,
+                       effective_updated_at,
+                       line_items, line_item_count, computed_total,
+                       has_perishable_items, total_weight_kg
+                FROM {view}
+                WHERE order_id = :order_id
+            """),
+            {"order_id": order_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            return None
+
+        # line_items comes back as a JSONB list (already decoded by the driver)
+        # but tolerate a JSON string just in case.
+        line_items = row.line_items
+        if isinstance(line_items, str):
+            line_items = json.loads(line_items)
+
+        return OrderWithLinesFlat(
+            order_id=row.order_id,
+            order_number=row.order_number,
+            order_status=row.order_status,
+            store_id=row.store_id,
+            customer_id=row.customer_id,
+            delivery_window_start=row.delivery_window_start,
+            delivery_window_end=row.delivery_window_end,
+            order_total_amount=row.order_total_amount,
+            customer_name=row.customer_name,
+            customer_email=row.customer_email,
+            customer_address=row.customer_address,
+            store_name=row.store_name,
+            store_zone=row.store_zone,
+            store_address=row.store_address,
+            assigned_courier_id=row.assigned_courier_id,
+            delivery_task_status=row.delivery_task_status,
+            delivery_eta=row.delivery_eta,
+            effective_updated_at=row.effective_updated_at,
+            line_items=line_items or [],
+            line_item_count=row.line_item_count,
+            computed_total=row.computed_total,
+            has_perishable_items=row.has_perishable_items,
+            total_weight_kg=row.total_weight_kg,
         )
 
     # =========================================================================
