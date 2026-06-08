@@ -76,7 +76,28 @@ def _display_name(index_name: str, row: dict) -> Optional[str]:
     return row.get("product_name") or row.get("inventory_id")
 
 
-def _make_event(topic: str, record_ts_ms: int, value: Optional[dict]) -> Optional[PropagationEvent]:
+def _materialize_timestamp(msg) -> str:
+    """Return Materialize's logical timestamp for the message.
+
+    Materialize adds a `materialize-timestamp` header to every sinked message
+    whose value is the LOGICAL time at which the change occurred (epoch ms, as a
+    decimal string). Every message describing the same logical write — across
+    BOTH the orders and inventory sinks — carries the same value, so using it as
+    mz_ts groups a write's full effect under one timestamp. The Kafka record
+    timestamp (msg.timestamp()) is only the per-sink emission time and differs by
+    tens of ms, so we prefer the header and fall back to the record time.
+    """
+    for key, value in (msg.headers() or []):
+        if key == "materialize-timestamp" and value is not None:
+            try:
+                return str(int(value.decode() if isinstance(value, (bytes, bytearray)) else value))
+            except (ValueError, AttributeError):
+                pass
+    _, record_ts_ms = msg.timestamp()
+    return str(record_ts_ms)
+
+
+def _make_event(topic: str, mz_ts: str, value: Optional[dict]) -> Optional[PropagationEvent]:
     if value is None:
         return None
     before = value.get("before")
@@ -91,12 +112,7 @@ def _make_event(topic: str, record_ts_ms: int, value: Optional[dict]) -> Optiona
         return None
 
     return PropagationEvent(
-        # Materialize sets the Kafka record timestamp to the change's LOGICAL
-        # timestamp (epoch ms), so every doc touched by one transaction shares
-        # it. Using it as mz_ts groups a write's effects under one timestamp
-        # (matching the old SUBSCRIBE-batch behavior), rather than the per-message
-        # Kafka offset which differs for every doc.
-        mz_ts=str(record_ts_ms),
+        mz_ts=mz_ts,
         index_name=index_name,
         doc_id=doc_id,
         operation=_operation(before, after),
@@ -147,10 +163,7 @@ def run_consumer(stop_flag) -> None:
                 logger.warning("Kafka error: %s", msg.error())
                 continue
             try:
-                # msg.timestamp() -> (timestamp_type, epoch_ms); Materialize sets
-                # this to the change's logical timestamp.
-                _, record_ts_ms = msg.timestamp()
-                event = _make_event(msg.topic(), record_ts_ms, msg.value())
+                event = _make_event(msg.topic(), _materialize_timestamp(msg), msg.value())
             except Exception:  # noqa: BLE001 - never let one bad record kill the tap
                 logger.exception("Failed to build propagation event")
                 continue
