@@ -1,0 +1,22 @@
+{
+  "name": "inventory-opensearch-sink",
+  "config": {
+    "connector.class": "io.aiven.kafka.connect.opensearch.OpensearchSinkConnector",
+    "tasks.max": "1",
+    "topics": "inventory",
+    "connection.url": "http://opensearch:9200",
+
+    "key.ignore": "false",
+    "schema.ignore": "true",
+    "behavior.on.null.values": "delete",
+    "index.write.method": "upsert",
+
+    "transforms": "extractKey,extractAfter",
+
+    "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.extractKey.field": "inventory_id",
+
+    "transforms.extractAfter.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.extractAfter.field": "after"
+  }
+}

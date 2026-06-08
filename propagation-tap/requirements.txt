@@ -1,0 +1,7 @@
+# HTTP API (reused propagation_api.py)
+aiohttp==3.9.3
+
+# Kafka consumer + Avro deserialization against Redpanda's schema registry
+confluent-kafka[avro]==2.6.1
+fastavro==1.9.7
+requests==2.32.3

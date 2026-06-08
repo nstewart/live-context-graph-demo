@@ -784,14 +784,20 @@ SELECT
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
     ) AS line_items,
-    md5(COALESCE(
+    -- Canonical text representation of the order's line items. This is the
+    -- exact input the embedding model sees. We expose the raw text (not an
+    -- md5 hash as before) because the perfect-embeddings SMT diffs this column
+    -- between the Debezium before/after image to decide whether to re-embed:
+    -- if embedding_text is unchanged (e.g. a price-only edit) the SMT skips the
+    -- embeddings call and the existing vector is preserved in OpenSearch.
+    COALESCE(
         string_agg(
             ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
             ' | '
             ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.product_name IS NOT NULL AND ol.product_name <> ''),
         ''
-    )) AS embedding_hash,
+    ) AS embedding_text,
     COUNT(ol.line_id) AS line_item_count,
     SUM(ol.line_amount) AS computed_total,
     BOOL_OR(ol.perishable_flag) AS has_perishable_items,
@@ -1727,6 +1733,53 @@ echo ""
 echo "=== Order Count ==="
 COUNT=$(psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SET CLUSTER = serving; SELECT count(*) FROM orders_search_source_mv;")
 echo "Orders in Materialize: $COUNT"
+
+echo ""
+echo "Setting up Kafka sinks for the embedding pipeline (Redpanda)..."
+
+# Connections to Redpanda's Kafka API and its Confluent-compatible Schema
+# Registry. Redpanda exposes both; the broker's in-network listener is
+# redpanda:29092 and the schema registry is on :8081.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE CONNECTION IF NOT EXISTS kafka_connection TO KAFKA (
+    BROKER 'redpanda:29092',
+    SECURITY PROTOCOL = 'PLAINTEXT'
+);"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE CONNECTION IF NOT EXISTS csr_connection TO CONFLUENT SCHEMA REGISTRY (
+    URL 'http://redpanda:8081'
+);"
+
+# Orders sink: ENVELOPE DEBEZIUM so the message carries both the before and
+# after image. The perfect-embeddings SMT in Kafka Connect needs that pair to
+# diff the embedding_text column and skip re-embedding when it is unchanged.
+# Topic name 'orders' == the OpenSearch index name the sink connector writes to.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE SINK IF NOT EXISTS orders_sink
+    IN CLUSTER ingest
+    FROM orders_with_lines_mv
+    INTO KAFKA CONNECTION kafka_connection (TOPIC 'orders')
+    KEY (order_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
+    ENVELOPE DEBEZIUM;"
+
+# Inventory sink: also DEBEZIUM. Inventory is NOT embedded (no SMT), but the
+# propagation-tap consumer reads the before/after image to compute field-level
+# change events for the System Performance card. The OpenSearch sink connector
+# unwraps the 'after' image via a standard ExtractField transform.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE SINK IF NOT EXISTS inventory_sink
+    IN CLUSTER ingest
+    FROM inventory_items_with_dynamic_pricing_mv
+    INTO KAFKA CONNECTION kafka_connection (TOPIC 'inventory')
+    KEY (inventory_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
+    ENVELOPE DEBEZIUM;"
+
+echo ""
+echo "=== Sinks ==="
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, cluster_id FROM (SHOW SINKS);" || true
 
 echo ""
 echo "Materialize three-tier initialization complete!"

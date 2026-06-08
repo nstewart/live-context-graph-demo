@@ -122,7 +122,7 @@ async def search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the opensearch and kafka-connect services are running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(f"OpenSearch returned error status {e.response.status_code}: {e.response.text}", exc_info=True)
@@ -181,24 +181,27 @@ async def vector_search_orders(
         search_body = {
             "query": {
                 "bool": {
-                    "must": {"knn": {"embedding": {"vector": list(vector), "k": limit}}},
+                    # Vector field is produced by the perfect-embeddings SMT,
+                    # which names its output <column>_embedding — here the
+                    # embedding_text column becomes embedding_text_embedding.
+                    "must": {"knn": {"embedding_text_embedding": {"vector": list(vector), "k": limit}}},
                     "filter": filters,
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", "embedding_text_embedding", "embedding_text", "line_items"],
             "size": limit,
         }
     else:
         search_body = {
             "query": {
                 "knn": {
-                    "embedding": {
+                    "embedding_text_embedding": {
                         "vector": list(vector),
                         "k": limit,
                     }
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", "embedding_text_embedding", "embedding_text", "line_items"],
             "size": limit,
         }
 
@@ -223,7 +226,7 @@ async def vector_search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the opensearch and kafka-connect services are running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -271,12 +274,13 @@ async def vector_search_orders(
         merged.update({
             "order_id": order_id,
             "score": hit.get("_score"),
-            "embedding": source.get("embedding") or [],
+            # Response key stays "embedding" for the web; the source field is
+            # the SMT's embedding_text_embedding vector.
+            "embedding": source.get("embedding_text_embedding") or [],
             "embedding_text": source.get("embedding_text"),
-            "embedded_at": source.get("embedded_at"),
-            # Line items come from OpenSearch (indexed from Materialize CDC,
-            # <2s latency). They carry live_price, base_price, etc. because
-            # search-sync joins inventory_items_with_dynamic_pricing_mv.
+            # Line items come from OpenSearch (indexed from Materialize CDC via
+            # the Kafka sink). They carry live_price, base_price, etc. because
+            # orders_with_lines_mv joins inventory_items_with_dynamic_pricing_mv.
             "line_items": source.get("line_items") or [],
         })
         return merged

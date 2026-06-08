@@ -203,7 +203,7 @@ export default function SettingsPage() {
             <div>
               <p className="font-medium">OpenSearch</p>
               <div className="flex items-center gap-1 text-sm text-gray-500">
-                See search-sync logs
+                See kafka-connect logs
               </div>
             </div>
           </div>

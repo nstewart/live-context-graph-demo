@@ -1,0 +1,65 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index": { "knn": true }
+  },
+  "mappings": {
+    "properties": {
+      "order_id": { "type": "keyword" },
+      "order_number": { "type": "keyword", "copy_to": "search_text" },
+      "order_status": { "type": "keyword" },
+      "store_id": { "type": "keyword" },
+      "customer_id": { "type": "keyword" },
+      "delivery_window_start": { "type": "date" },
+      "delivery_window_end": { "type": "date" },
+      "order_total_amount": { "type": "float" },
+      "customer_name": { "type": "text", "copy_to": "search_text", "fields": { "keyword": { "type": "keyword" } } },
+      "customer_email": { "type": "keyword" },
+      "customer_address": { "type": "text", "copy_to": "search_text", "fields": { "keyword": { "type": "keyword" } } },
+      "store_name": { "type": "text", "copy_to": "search_text", "fields": { "keyword": { "type": "keyword" } } },
+      "store_zone": { "type": "keyword" },
+      "store_address": { "type": "text" },
+      "assigned_courier_id": { "type": "keyword" },
+      "delivery_task_status": { "type": "keyword" },
+      "delivery_eta": { "type": "date" },
+      "effective_updated_at": { "type": "date" },
+      "line_items": {
+        "type": "nested",
+        "properties": {
+          "line_id": { "type": "keyword" },
+          "product_id": { "type": "keyword" },
+          "product_name": { "type": "text", "copy_to": "search_text", "fields": { "keyword": { "type": "keyword" } } },
+          "category": { "type": "text", "copy_to": "search_text", "fields": { "keyword": { "type": "keyword" } } },
+          "quantity": { "type": "integer" },
+          "unit_price": { "type": "float" },
+          "line_amount": { "type": "float" },
+          "line_sequence": { "type": "integer" },
+          "perishable_flag": { "type": "boolean" },
+          "unit_weight_grams": { "type": "integer" },
+          "inventory_id": { "type": "keyword" },
+          "base_price": { "type": "float" },
+          "live_price": { "type": "float" },
+          "price_change": { "type": "float" },
+          "zone_adjustment": { "type": "float" },
+          "perishable_adjustment": { "type": "float" },
+          "local_stock_adjustment": { "type": "float" },
+          "popularity_adjustment": { "type": "float" },
+          "scarcity_adjustment": { "type": "float" },
+          "demand_multiplier": { "type": "float" },
+          "demand_premium": { "type": "float" },
+          "product_sale_count": { "type": "integer" },
+          "product_total_stock": { "type": "integer" },
+          "current_stock_level": { "type": "integer" }
+        }
+      },
+      "line_item_count": { "type": "integer" },
+      "has_perishable_items": { "type": "boolean" },
+      "search_text": { "type": "text" },
+      "mz_timestamp": { "type": "long" },
+
+      "embedding_text": { "type": "keyword" },
+      "embedding_text_embedding": { "type": "knn_vector", "dimension": 384 }
+    }
+  }
+}

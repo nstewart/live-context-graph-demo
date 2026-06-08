@@ -81,14 +81,17 @@ services:
       start_period: 30s
 
   # Materialize Initialization Service
-  # This runs the init.sh script to create sources, views, and indexes
-  # It must complete before search-sync starts to ensure views exist for hydration
+  # This runs the init.sh script to create sources, views, indexes, and the
+  # Kafka sinks (orders/inventory) that feed the embedding pipeline. It must
+  # complete before the propagation-tap and connect-bootstrap services start.
   materialize-init:
     image: postgres:15-alpine
     depends_on:
       db:
         condition: service_healthy
       mz:
+        condition: service_healthy
+      redpanda:
         condition: service_healthy
     environment:
       - MZ_HOST=mz
@@ -249,36 +252,150 @@ services:
       - ./api:/app:cached
     command: uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
 
-  search-sync:
-    build:
-      context: ./search-sync
-      dockerfile: Dockerfile
-    environment:
-      - MZ_HOST=${MZ_HOST:-mz}
-      - MZ_PORT=6875
-      - MZ_USER=${MZ_USER:-materialize}
-      - MZ_PASSWORD=${MZ_PASSWORD:-materialize}
-      - MZ_DATABASE=${MZ_DATABASE:-materialize}
-      - MZ_EXTERNAL_URL=${MZ_EXTERNAL_URL:-}
-      - OS_HOST=${OS_HOST:-opensearch}
-      - OS_PORT=9200
-      - OS_USER=${OS_USER:-}
-      - OS_PASSWORD=${OS_PASSWORD:-}
-      - POLL_INTERVAL=${SYNC_POLL_INTERVAL:-5}
-      - BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+  # ============== Embedding Pipeline (Kafka / Connect / SMT) ==============
+  # Replaces the old Python search-sync worker. Data flow:
+  #   Materialize --CREATE SINK--> Redpanda (orders/inventory Debezium topics)
+  #     -> Kafka Connect (OpenSearch sink + perfect-embeddings SMT) -> OpenSearch
+  #     -> propagation-tap (reads the same topics to feed the :8083 events API)
+  # The SMT re-embeds only changed text by calling the local embeddings shim.
+
+  # Redpanda: lightweight Kafka-compatible broker + built-in Schema Registry.
+  # Internal listener redpanda:29092; schema registry on :8081 (both in-network).
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=internal://0.0.0.0:29092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:29092,external://localhost:19092
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=info
     ports:
-      - "${PROPAGATION_API_PORT:-8083}:8083"
+      - "19092:19092"   # external Kafka (host access for debugging)
+      - "18081:18081"   # external Schema Registry (host access for debugging)
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Local OpenAI-compatible embeddings endpoint (BAAI/bge-small-en-v1.5, 384-dim).
+  # The SMT calls this instead of the real OpenAI API — same model the API uses
+  # at query time, so index-time and query-time vectors are compatible.
+  embeddings:
+    build:
+      context: ./embeddings-shim
+      dockerfile: Dockerfile
+    ports:
+      - "8087:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Kafka Connect worker hosting the Aiven OpenSearch sink connector and the
+  # perfect-embeddings SMT (built into the image from the GitHub release).
+  connect:
+    build:
+      context: ./connect
+      dockerfile: Dockerfile
     depends_on:
-      mz:
+      redpanda:
         condition: service_healthy
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: redpanda:29092
+      CONNECT_GROUP_ID: embedding-connect
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://redpanda:8081
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://redpanda:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: "8083"
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/local-connect-plugins
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+    ports:
+      - "8086:8083"   # Connect REST API (host access for debugging)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # One-shot: create the OpenSearch indices with explicit mappings (knn_vector
+  # for orders, synonym analyzer for inventory) before the sink writes.
+  os-bootstrap:
+    image: curlimages/curl:8.11.1
+    depends_on:
       opensearch:
+        condition: service_healthy
+    environment:
+      - OS_URL=http://opensearch:9200
+      - INDEX_DIR=/indices
+    volumes:
+      - ./os-bootstrap/create-indices.sh:/create-indices.sh:ro
+      - ./os-bootstrap:/indices:ro
+    entrypoint: ["/bin/sh", "/create-indices.sh"]
+    restart: "no"
+
+  # One-shot: register the OpenSearch sink connectors via the Connect REST API.
+  connect-bootstrap:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      connect:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+      os-bootstrap:
+        condition: service_completed_successfully
+      materialize-init:
+        condition: service_completed_successfully
+    environment:
+      - CONNECT_URL=http://connect:8083
+      - CONNECTOR_DIR=/connectors
+    volumes:
+      - ./connect/register-connectors.sh:/register-connectors.sh:ro
+      - ./connect/connectors:/connectors:ro
+    entrypoint: ["/bin/sh", "/register-connectors.sh"]
+    restart: "no"
+
+  # Reproduces the write-propagation events the old worker emitted, by tapping
+  # the same Debezium topics. Serves the :8083 API the web PropagationContext
+  # polls — the web UI is unchanged.
+  propagation-tap:
+    build:
+      context: ./propagation-tap
+      dockerfile: Dockerfile
+    depends_on:
+      redpanda:
         condition: service_healthy
       materialize-init:
         condition: service_completed_successfully
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - SCHEMA_REGISTRY_URL=http://redpanda:8081
+      - TAP_TOPICS=orders,inventory
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${PROPAGATION_API_PORT:-8083}:8083"
     restart: unless-stopped
-    volumes:
-      - ./search-sync:/app:cached
 
   web:
     build:

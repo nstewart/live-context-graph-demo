@@ -84,10 +84,16 @@ Write path:
                 Materialize (incremental views: orders, inventory, pricing)
                 ↓ SUBSCRIBE
                 Zero Server → WebSocket → UI (live order cards)
-                ↓ SUBSCRIBE
-                search-sync → OpenSearch
-                  orders index: text fields + 384-dim embedding vector
-                  inventory index: text fields
+                ↓ CREATE SINK (ENVELOPE DEBEZIUM, Avro + Schema Registry)
+                Redpanda (orders / inventory CDC topics)
+                ├─→ Kafka Connect
+                │     • perfect-embeddings SMT → embeddings shim (bge-small)
+                │     • Aiven OpenSearch sink (UPSERT)
+                │         ↓
+                │     OpenSearch
+                │       orders index: text fields + 384-dim embedding vector
+                │       inventory index: text fields
+                └─→ propagation-tap → :8083 (System Performance card)
 
 Read path (agent context):
   Agent/UI → Materialize (pre-assembled context, millisecond latency)
@@ -98,11 +104,13 @@ Read path (semantic search):
          → merged result card
 ```
 
-**Key property:** The search index's `mz_timestamp` field is stamped at flush time by `search-sync`. After a triple write, the `/api/search/impact` endpoint counts how many documents across both indexes have `mz_timestamp >= write_time`, giving a causal measure of propagation progress.
+**Key property:** embeddings stay fresh without re-embedding unchanged content. Materialize sinks each order as an `ENVELOPE DEBEZIUM` change event; the [perfect-embeddings](https://github.com/MaterializeInc/perfect-embedding) Kafka Connect SMT re-embeds an order **only when its `embedding_text` column changes** (a product added/renamed), and otherwise preserves the existing vector via a partial UPSERT. The embedding call goes to a local OpenAI-compatible shim wrapping `bge-small`, so there is no external API cost.
 
 ## How Vector Embeddings Stay in Sync
 
-The key insight: Materialize's `SUBSCRIBE` protocol streams **differential updates** — each row carries a `mz_diff` of `+1` (insert/upsert) or `-1` (delete). The `search-sync` workers consume this stream and maintain the OpenSearch index incrementally, only re-computing embeddings when the underlying text actually changes.
+Embedding is expensive, so the index must re-embed an order **only when the text that gets embedded actually changes** — never on a price, quantity, or status edit. This demo gets that property from [**perfect-embeddings**](https://github.com/MaterializeInc/perfect-embedding), a Kafka Connect SMT (Single Message Transform) that diffs Materialize change events and re-embeds only modified text columns.
+
+> **Migration note:** earlier versions of this demo did the same job in a Python `search-sync` worker that consumed Materialize `SUBSCRIBE` and compared an `md5` hash per order. That worker has been replaced by the Kafka pipeline below. The dedup *idea* is identical — what changed is **where** it runs (a reusable Connect SMT instead of bespoke Python) and **how** the "did the text change?" decision is made (the SMT diffs the `embedding_text` column straight off the Debezium before/after image, so no hash column is needed).
 
 ### Data Flow
 
@@ -110,82 +118,113 @@ The key insight: Materialize's `SUBSCRIBE` protocol streams **differential updat
 PostgreSQL (triple writes)
       ↓ CDC
 Materialize (orders_with_lines_mv)
-  — computes embedding_hash = md5(string_agg(product_name (category), ' | '))
-      ↓ SUBSCRIBE — differential stream of (+1/-1) row deltas
-OrdersSyncWorker (batches up to 1000 events, flushes every 5s)
+  — exposes embedding_text = string_agg(product_name (category), ' | ')
+      ↓ CREATE SINK ... ENVELOPE DEBEZIUM   (Avro + Confluent Schema Registry)
+Redpanda topic "orders"  (each msg carries before + after image)
       ↓
-  consolidate DELETE+INSERT pairs into UPDATE events
-  _should_reembed(): compare embedding_hash from old vs. new row
-      ↙                        ↘
- hash changed?             hash unchanged?
- build text + embed         patch non-vector fields only
+Kafka Connect
+  perfect-embeddings SMT (EmbeddingDiffTransform)
+    before.embedding_text == after.embedding_text ?
+      ↙ unchanged                         ↘ changed (or insert)
+   omit embedding field             POST /v1/embeddings → embeddings shim
+   (vector preserved)               (bge-small) → embedding_text_embedding
+      ↓
+  Aiven OpenSearch sink (index.write.method=UPSERT, partial doc merge)
       ↓
 OpenSearch (knn_vector index, 384 dims)
 ```
 
 ### The Smart Dedup Pattern
 
-Embedding is CPU-bound. Re-embedding every update (price change, status flip, qty tweak) would be wasteful. Rather than maintaining a separate in-process cache, the worker delegates the hash to Materialize itself: `embedding_hash` is a column in `orders_with_lines_mv`, computed incrementally as the view updates. When a SUBSCRIBE `UPDATE` arrives, the differential carries both the old and new row — the worker just compares the two `embedding_hash` values.
+Instead of hashing in application code, we expose the **raw embedding input as a column** in the Materialize view and let the SMT diff it. A price-only change produces a new Debezium event, but `embedding_text` is byte-identical, so the SMT skips the embeddings call and the UPSERT omits the vector field — leaving the prior vector untouched in OpenSearch.
 
 ```sql
--- Materialize view: orders_with_lines_mv
+-- Materialize view: orders_with_lines_mv  (db/materialize/init.sh)
 SELECT
   ...
-  md5(
+  COALESCE(
     string_agg(
-      product_name || ' (' || category || ')',
+      product_name || ' (' || COALESCE(category, '') || ')',
       ' | '
       ORDER BY line_sequence
-    ) FILTER (WHERE product_name IS NOT NULL)
-  ) AS embedding_hash,
+    ) FILTER (WHERE product_name IS NOT NULL AND product_name <> ''),
+    ''
+  ) AS embedding_text,            -- the exact text the model embeds
   ...
+
+-- Sink it as a Debezium change stream so the SMT sees before + after:
+CREATE SINK orders_sink IN CLUSTER ingest
+  FROM orders_with_lines_mv
+  INTO KAFKA CONNECTION kafka_connection (TOPIC 'orders')
+  KEY (order_id) NOT ENFORCED
+  FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
+  ENVELOPE DEBEZIUM;
+```
+
+The SMT's decision, conceptually:
+
+```text
+# perfect-embeddings EmbeddingDiffTransform, per record, per embedded column
+for col in embedded.columns:                 # here: ["embedding_text"]
+    if record.before is None:                # INSERT  -> embed
+        record[col + "_embedding"] = embed(record.after[col])
+    elif record.before[col] != record.after[col]:   # text changed -> embed
+        record[col + "_embedding"] = embed(record.after[col])
+    else:                                     # unchanged -> leave field absent
+        pass                                  # UPSERT preserves the old vector
+```
+
+### Using a cheap local model (no OpenAI key)
+
+The SMT speaks the OpenAI embeddings protocol, but the endpoint is overridable — so we point it at a tiny local service (`embeddings-shim/`) that wraps the **same** `BAAI/bge-small-en-v1.5` model the API uses at query time. No external API, no per-embed cost, and index-time/query-time vectors stay in the same 384-dim space.
+
+```jsonc
+// connect/connectors/orders-opensearch-sink.json  (Kafka Connect connector config)
+{
+  "connector.class": "io.aiven.kafka.connect.opensearch.OpensearchSinkConnector",
+  "topics": "orders",
+  "connection.url": "http://opensearch:9200",
+  "index.write.method": "upsert",          // partial merge -> preserves vector
+  "behavior.on.null.values": "delete",
+  "transforms": "extractKey,embed",
+  "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+  "transforms.extractKey.field": "order_id",
+  "transforms.embed.type": "com.materialize.connect.smt.embedding.EmbeddingDiffTransform",
+  "transforms.embed.embedded.columns": "embedding_text",
+  "transforms.embed.provider": "openai",
+  "transforms.embed.openai.endpoint": "http://embeddings:8080/v1/embeddings", // local shim
+  "transforms.embed.openai.api.key": "local-no-key-needed",
+  "transforms.embed.openai.model": "BAAI/bge-small-en-v1.5",
+  "transforms.embed.openai.dimensions": "384"
+}
 ```
 
 ```python
-# Pseudocode: BaseSubscribeWorker consolidation
+# embeddings-shim/app.py — OpenAI-compatible endpoint backed by local fastembed
+from fastembed import TextEmbedding
+model = TextEmbedding("BAAI/bge-small-en-v1.5")   # 384-dim, local ONNX, ~130MB
 
-for DELETE, INSERT pair at same timestamp:
-    # This is an UPDATE — annotate before it reaches _flush_batch
-    doc["_needs_embedding"] = _should_reembed(old_row, new_row)
-
-# OrdersSyncWorker._should_reembed
-def _should_reembed(old_data, new_data):
-    return old_data["embedding_hash"] != new_data["embedding_hash"]
+@app.post("/v1/embeddings")
+def embeddings(req):                               # {"input": "<text>", "model": ...}
+    texts = [req.input] if isinstance(req.input, str) else req.input
+    vectors = [list(v) for v in model.embed(texts)]
+    return {"object": "list", "model": req.model,
+            "data": [{"object": "embedding", "index": i, "embedding": v}
+                     for i, v in enumerate(vectors)]}
 ```
-
-```python
-# Pseudocode: orders_sync._flush_batch()
-
-for doc in batch:
-    needs_embedding = doc.pop("_needs_embedding", True)  # new inserts always embed
-
-    if needs_embedding:
-        embedding_text = build_embedding_text(doc)       # build text only when needed
-        needs_embed_batch.append((doc, embedding_text))
-    else:
-        needs_patch_batch.append(doc)
-
-# Embed only what actually changed
-vectors = embedder.embed([text for _, text in needs_embed_batch])
-
-# Two bulk ops to OpenSearch:
-bulk_upsert(needs_embed_batch, vectors)   # full doc including new vector
-bulk_patch(needs_patch_batch)             # partial update, vector untouched
-```
-
-No in-memory hash cache — the hash lives in Materialize and rides along in the SUBSCRIBE stream.
 
 ### Query-time Embedding
 
-Search queries use the same model so vector spaces are compatible:
+Search queries use the same model so vector spaces are compatible (the API embeds the query locally; the SMT's output field is `embedding_text_embedding`):
 
 ```python
 # Pseudocode: GET /api/search/vector/orders?q=<query>
 
-query_vector = embedder.embed([query_text])[0]   # 384-dim float list
+query_vector = embedder.embed([query_text])[0]   # 384-dim float list, bge-small
 
 results = opensearch.knn_search(
     index="orders",
+    field="embedding_text_embedding",             # produced by the SMT
     vector=query_vector,
     k=10,
     filter={"order_status": status, "store_zone": zone}  # optional hybrid filters
@@ -198,28 +237,27 @@ for hit in results:
 
 ### Embedding Model
 
-Both paths use `BAAI/bge-small-en-v1.5` via `fastembed` (local ONNX runtime — no external API call):
-
 | Property | Value |
 |----------|-------|
 | Model | `BAAI/bge-small-en-v1.5` |
 | Dimensions | 384 |
-| Runtime | fastembed / ONNX (local CPU) |
-| Index field | `knn_vector` in OpenSearch |
+| Runtime | fastembed / ONNX (local CPU), served over an OpenAI-compatible HTTP shim |
+| Index field | `embedding_text_embedding` (`knn_vector`) in OpenSearch |
 
-**Replicating this pattern:** Swap the Materialize `SUBSCRIBE` for any CDC stream (Kafka, Debezium, Postgres logical replication). Swap `fastembed` for any embedding API. The structural insight — push hash computation into the view, stream deltas with hashes, annotate at consolidation time, embed only on content change — is model and transport agnostic.
+**Replicating this pattern:** the structural insight is transport- and model-agnostic. Materialize emits a Debezium change stream; the perfect-embeddings SMT re-embeds only changed text columns; an UPSERT sink preserves untouched vectors. Swap the local shim for the real OpenAI API by changing `transforms.embed.openai.endpoint`/`api.key`; swap OpenSearch for Elasticsearch by using the Confluent ES sink (`write.method=UPSERT`).
 
 ---
 
 ## Core Components
 
-### search-sync
+### Embedding pipeline (Kafka / Connect / SMT)
 
-SUBSCRIBE workers that tail Materialize and push to OpenSearch:
+Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connect indexes them into OpenSearch:
 
-- **`OrdersSyncWorker`** — MD5 dedup on line-item text: re-embeds only when product composition changes, patches price/qty/status updates without touching the vector. Hash cache is updated only after a successful flush to prevent stale-cache bugs on retry.
-- **`InventorySyncWorker`** — text-only index, no embeddings
-- **`BaseSubscribeWorker`** — stamps `mz_timestamp` (wall-clock ms) on every upserted doc; provides the causal anchor for impact measurement
+- **`connect`** — Kafka Connect worker hosting the Aiven OpenSearch sink connector plus the [perfect-embeddings](https://github.com/MaterializeInc/perfect-embedding) SMT. The orders connector runs the `embed` SMT (re-embeds only when `embedding_text` changes); the inventory connector just unwraps the Debezium `after` image (no embeddings).
+- **`embeddings`** (`embeddings-shim/`) — OpenAI-compatible `/v1/embeddings` endpoint wrapping local `BAAI/bge-small-en-v1.5`. This is the "cheap local model" the SMT calls.
+- **`propagation-tap`** (`propagation-tap/`) — consumes the same Debezium topics and computes field-level change events from the before/after image, serving the `:8083` propagation API that powers the **System Performance** card. (The web UI is unchanged — same endpoints, same port.)
+- **`os-bootstrap` / `connect-bootstrap`** — one-shot init containers that create the OpenSearch index mappings (knn_vector + synonym analyzer) and register the sink connectors.
 
 ### API (`/api/search`)
 
@@ -252,7 +290,10 @@ An Operations Assistant with SSE streaming, PostgreSQL-backed conversation memor
 | **zero-cache** | 4848 | Zero WebSocket server for real-time UI sync |
 | **opensearch** | 9200 | Search + kNN vector index |
 | **api** | 8080 | FastAPI backend |
-| **search-sync** | 8083 | SUBSCRIBE workers + propagation API |
+| **redpanda** | 19092 / 18081 | Kafka broker + Schema Registry (CDC sink target) |
+| **connect** | 8086 | Kafka Connect (OpenSearch sink + perfect-embeddings SMT) |
+| **embeddings** | 8087 | Local OpenAI-compatible bge-small endpoint |
+| **propagation-tap** | 8083 | CDC tap + propagation events API |
 | **web** | 5173 | React demo UI |
 | **agents** | 8081 | LangGraph agent with SSE streaming (optional) |
 
@@ -272,10 +313,10 @@ make down
 
 # View logs
 docker compose logs -f api
-docker compose logs -f search-sync
+docker compose logs -f connect propagation-tap embeddings   # or: make logs-sync
 
 # Track write propagation (clean output)
-docker compose logs -f api search-sync | sed 's/.*INFO - //'
+docker compose logs -f api propagation-tap | sed 's/.*INFO - //'
 
 # Restart a single service
 docker compose restart api
@@ -329,12 +370,21 @@ live-context-graph-demo/
 │       ├── ontology/
 │       └── triples/
 │
-├── search-sync/                # OpenSearch sync workers
+├── embeddings-shim/            # Local OpenAI-compatible /v1/embeddings (bge-small)
+│   └── app.py
+├── connect/                    # Kafka Connect image + connector configs
+│   ├── Dockerfile              # OpenSearch sink + perfect-embeddings SMT
+│   ├── connectors/             # orders (with embed SMT) + inventory sink JSON
+│   └── register-connectors.sh
+├── os-bootstrap/               # OpenSearch index mappings (knn_vector, synonyms)
+│   ├── orders-index.json
+│   ├── inventory-index.json
+│   └── create-indices.sh
+├── propagation-tap/            # CDC tap → propagation events API (:8083)
 │   └── src/
-│       ├── base_subscribe_worker.py
-│       ├── embedder.py         # fastembed BAAI/bge-small-en-v1.5
-│       ├── orders_sync.py      # Embedding + patch dedup logic
-│       └── inventory_sync.py
+│       ├── tap.py              # Avro consumer, before/after field diffs
+│       ├── propagation_events.py
+│       └── propagation_api.py
 │
 ├── web/                        # React demo UI
 │   └── src/
@@ -356,6 +406,17 @@ live-context-graph-demo/
 ```
 
 ## Known Limitations
+
+### Features that depended on worker-stamped fields
+
+Two fields were stamped onto each OpenSearch doc by the old `search-sync` worker and are not reproduced by the Kafka/SMT path:
+
+- **`mz_timestamp`** — `/api/search/impact` counts docs whose `mz_timestamp >= write_time`. The Materialize Debezium sink carries no per-row logical timestamp, so this field is unpopulated and the impact count reads 0 until reworked (e.g. derive propagation from Kafka offsets, or add a timestamp column to the sinked view). The live propagation feed (System Performance card) is unaffected — it's served by `propagation-tap`.
+- **`embedded_at`** — the "Hybrid Vector Search" card (`VectorPipelineCard`) shows an embed time and flashes a result when it is re-embedded, both driven by `embedded_at`. The perfect-embeddings SMT adds the vector but no per-embed timestamp, so this displays blank and the re-embed flash won't fire. A faithful fix is to flash on a change in the embedding vector itself.
+
+### Stale demo helper scripts
+
+`demo-transaction-logs.sh` and `DEMO_LOG_FILTERING.md` still reference the old `search-sync` emoji log markers. They need updating for the Kafka pipeline (`connect` / `propagation-tap` logs).
 
 ### Zero and Materialize UNIQUE Index Constraint
 
