@@ -5,6 +5,7 @@ to perform semantic searches across denormalized order documents.
 """
 
 import asyncio
+import json
 import logging
 import threading
 from typing import Any, Optional
@@ -26,6 +27,24 @@ settings = get_settings()
 DEFAULT_SEARCH_LIMIT = 5
 MAX_SEARCH_LIMIT = 20
 OPENSEARCH_TIMEOUT = 10.0
+
+
+def _parse_line_items(value: Any) -> list:
+    """Normalize the OpenSearch line_items field into a list.
+
+    Materialize sinks the jsonb line_items column to Kafka as a JSON string
+    (Avro string), so the OpenSearch _source carries a string. Older/other
+    paths may carry an actual list. Handle both; never raise.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
 
 
 # Module-level lazy-init embedder singleton. The fastembed model is heavyweight,
@@ -281,7 +300,9 @@ async def vector_search_orders(
             # Line items come from OpenSearch (indexed from Materialize CDC via
             # the Kafka sink). They carry live_price, base_price, etc. because
             # orders_with_lines_mv joins inventory_items_with_dynamic_pricing_mv.
-            "line_items": source.get("line_items") or [],
+            # Materialize sinks the jsonb column as a JSON string, so parse it
+            # back into a list here.
+            "line_items": _parse_line_items(source.get("line_items")),
         })
         return merged
 

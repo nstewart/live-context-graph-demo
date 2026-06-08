@@ -1751,6 +1751,47 @@ CREATE CONNECTION IF NOT EXISTS csr_connection TO CONFLUENT SCHEMA REGISTRY (
     URL 'http://redpanda:8081'
 );"
 
+# Sink-specific views. Materialize encodes numeric/DECIMAL columns as Avro
+# `decimal` (a bytes logical type); the OpenSearch sink then serializes those
+# bytes as base64 strings, which fail to index into float fields. Casting the
+# numeric columns to `double precision` makes Avro emit plain doubles. We keep
+# these as thin views over the app-facing MVs so the API/Zero are untouched.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS orders_sink_v IN CLUSTER compute AS
+SELECT
+    order_id, order_number, order_status, store_id, customer_id,
+    delivery_window_start, delivery_window_end, order_created_at,
+    order_total_amount::double precision AS order_total_amount,
+    customer_name, customer_email, customer_address,
+    store_name, store_zone, store_address,
+    assigned_courier_id, delivery_task_status, delivery_eta,
+    line_items, embedding_text, line_item_count,
+    computed_total::double precision AS computed_total,
+    has_perishable_items,
+    total_weight_kg::double precision AS total_weight_kg,
+    effective_updated_at
+FROM orders_with_lines_mv;"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_sink_v IN CLUSTER compute AS
+SELECT
+    inventory_id, store_id, store_name, store_zone, product_id, product_name, category,
+    stock_level, reserved_quantity, available_quantity, perishable,
+    base_price::double precision AS base_price,
+    zone_adjustment::double precision AS zone_adjustment,
+    perishable_adjustment::double precision AS perishable_adjustment,
+    local_stock_adjustment::double precision AS local_stock_adjustment,
+    popularity_adjustment::double precision AS popularity_adjustment,
+    scarcity_adjustment::double precision AS scarcity_adjustment,
+    demand_multiplier::double precision AS demand_multiplier,
+    demand_premium::double precision AS demand_premium,
+    basket_adjustment::double precision AS basket_adjustment,
+    product_sale_count, product_total_stock,
+    live_price::double precision AS live_price,
+    price_change::double precision AS price_change,
+    effective_updated_at
+FROM inventory_items_with_dynamic_pricing_mv;"
+
 # Orders sink: ENVELOPE DEBEZIUM so the message carries both the before and
 # after image. The perfect-embeddings SMT in Kafka Connect needs that pair to
 # diff the embedding_text column and skip re-embedding when it is unchanged.
@@ -1758,7 +1799,7 @@ CREATE CONNECTION IF NOT EXISTS csr_connection TO CONFLUENT SCHEMA REGISTRY (
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE SINK IF NOT EXISTS orders_sink
     IN CLUSTER ingest
-    FROM orders_with_lines_mv
+    FROM orders_sink_v
     INTO KAFKA CONNECTION kafka_connection (TOPIC 'orders')
     KEY (order_id) NOT ENFORCED
     FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
@@ -1771,7 +1812,7 @@ CREATE SINK IF NOT EXISTS orders_sink
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE SINK IF NOT EXISTS inventory_sink
     IN CLUSTER ingest
-    FROM inventory_items_with_dynamic_pricing_mv
+    FROM inventory_sink_v
     INTO KAFKA CONNECTION kafka_connection (TOPIC 'inventory')
     KEY (inventory_id) NOT ENFORCED
     FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
@@ -1779,7 +1820,7 @@ CREATE SINK IF NOT EXISTS inventory_sink
 
 echo ""
 echo "=== Sinks ==="
-psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, cluster_id FROM (SHOW SINKS);" || true
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, cluster FROM (SHOW SINKS);" || true
 
 echo ""
 echo "Materialize three-tier initialization complete!"

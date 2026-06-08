@@ -17,4 +17,5 @@ RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8080
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+# --bind with HTTP/2 cleartext (h2c) support so the SMT's HTTP/2 client works.
+CMD ["hypercorn", "app:app", "--bind", "0.0.0.0:8080"]

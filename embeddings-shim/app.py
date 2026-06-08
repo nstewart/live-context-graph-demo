@@ -23,13 +23,13 @@ search-sync worker for the Kafka/SMT path without re-indexing.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import List, Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastembed import TextEmbedding
-from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("embeddings-shim")
@@ -52,24 +52,33 @@ def get_model() -> TextEmbedding:
     return _model
 
 
-class EmbeddingsRequest(BaseModel):
-    # OpenAI allows a single string or a list of strings. The SMT sends one
-    # string per call (the changed column value), but we accept both.
-    input: Union[str, List[str]]
-    model: str | None = None
-    # Accepted for OpenAI compatibility; bge-small is fixed at 384 dims so we
-    # only validate, we don't truncate.
-    dimensions: int | None = None
-
-
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "model": MODEL_NAME, "dimensions": EMBEDDING_DIM}
 
 
 @app.post("/v1/embeddings")
-def embeddings(req: EmbeddingsRequest) -> dict:
-    texts = [req.input] if isinstance(req.input, str) else list(req.input)
+async def embeddings(request: Request):
+    # Parse the raw body ourselves rather than relying on FastAPI's
+    # Content-Type-sensitive body binding — keeps us robust to any client
+    # (the SMT's HTTP client, curl, OpenAI SDKs) regardless of headers.
+    raw = await request.body()
+    try:
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        payload = {}
+
+    inp = payload.get("input")
+    if inp is None:
+        logger.warning(
+            "Bad /v1/embeddings request: content-type=%r len=%d body=%.200r",
+            request.headers.get("content-type"),
+            len(raw),
+            raw,
+        )
+        return JSONResponse(status_code=400, content={"error": "missing 'input'"})
+
+    texts = [inp] if isinstance(inp, str) else list(inp)
     vectors = [[float(x) for x in v] for v in get_model().embed(texts)]
     data = [
         {"object": "embedding", "index": i, "embedding": vec}
@@ -77,7 +86,7 @@ def embeddings(req: EmbeddingsRequest) -> dict:
     ]
     return {
         "object": "list",
-        "model": req.model or MODEL_NAME,
+        "model": payload.get("model") or MODEL_NAME,
         "data": data,
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
