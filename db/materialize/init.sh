@@ -1760,16 +1760,24 @@ psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
 CREATE MATERIALIZED VIEW IF NOT EXISTS orders_sink_v IN CLUSTER compute AS
 SELECT
     order_id, order_number, order_status, store_id, customer_id,
-    delivery_window_start, delivery_window_end, order_created_at,
+    -- Normalize all timestamps to ISO-8601 UTC strings. Some of these columns
+    -- are raw text (delivery_window_*/delivery_eta), others are timestamptz;
+    -- left as-is they reach OpenSearch as Postgres text (unparseable by the
+    -- date field) or as epoch-micros longs (misread as millis). to_char gives
+    -- one consistent format OpenSearch's strict_date_optional_time parses.
+    to_char(delivery_window_start::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_window_start,
+    to_char(delivery_window_end::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_window_end,
+    to_char(order_created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS order_created_at,
     order_total_amount::double precision AS order_total_amount,
     customer_name, customer_email, customer_address,
     store_name, store_zone, store_address,
-    assigned_courier_id, delivery_task_status, delivery_eta,
+    assigned_courier_id, delivery_task_status,
+    to_char(delivery_eta::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_eta,
     line_items, embedding_text, line_item_count,
     computed_total::double precision AS computed_total,
     has_perishable_items,
     total_weight_kg::double precision AS total_weight_kg,
-    effective_updated_at
+    to_char(effective_updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS effective_updated_at
 FROM orders_with_lines_mv;"
 
 psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
@@ -1789,7 +1797,7 @@ SELECT
     product_sale_count, product_total_stock,
     live_price::double precision AS live_price,
     price_change::double precision AS price_change,
-    effective_updated_at
+    to_char(effective_updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS effective_updated_at
 FROM inventory_items_with_dynamic_pricing_mv;"
 
 # Orders sink: ENVELOPE DEBEZIUM so the message carries both the before and
