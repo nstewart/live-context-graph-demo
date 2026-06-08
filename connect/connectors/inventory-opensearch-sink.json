@@ -11,12 +11,15 @@
     "behavior.on.null.values": "delete",
     "index.write.method": "upsert",
 
-    "transforms": "extractKey,extractAfter",
+    "transforms": "extractKey,extractAfter,insertTs",
 
     "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.extractKey.field": "inventory_id",
 
     "transforms.extractAfter.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
-    "transforms.extractAfter.field": "after"
+    "transforms.extractAfter.field": "after",
+
+    "transforms.insertTs.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.insertTs.timestamp.field": "mz_timestamp"
   }
 }

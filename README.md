@@ -409,9 +409,9 @@ live-context-graph-demo/
 
 ### Fields formerly stamped by the worker
 
-Two fields were stamped onto each OpenSearch doc by the old `search-sync` worker. The Kafka/SMT path doesn't reproduce them, so the features that used them were re-pointed at fields that *are* present:
+The old `search-sync` worker stamped two fields onto each OpenSearch doc:
 
-- **`mz_timestamp` → `effective_updated_at`** — `/api/search/impact` now ranges over `effective_updated_at` (the row's logical update time) instead of the old per-doc `mz_timestamp`. The write-triple's epoch-ms lower bound is captured just before the write. Caveat: `effective_updated_at` is a `GREATEST(...)` over each view's own component timestamps, so a pure *cascade* update (e.g. a product rename reflected in inventory docs) may not advance it — those docs still re-index and emit propagation events, but can be under-counted by `/impact`. Orders are counted correctly (validated: a product rename impacted exactly the 2 orders containing it).
+- **`mz_timestamp`** — recovered. A Kafka Connect `InsertField` transform stamps the Kafka record timestamp into `mz_timestamp` on every doc. Materialize sets that record timestamp to the change's **logical timestamp**, so (a) every doc touched by one write shares it — the propagation widget groups a transaction's effects under one `mz_ts` instead of per-message offsets — and (b) it advances on *every* re-index, including cascade updates (a product-category change correctly counts all affected inventory + order docs in `/api/search/impact`, validated: 1 order + 10 inventory). Two materialized views committing a write at adjacent logical timestamps can differ by a few ms.
 - **`embedded_at` → embedding-vector change** — the "Hybrid Vector Search" card detects a re-embed by the embedding vector's fingerprint changing (which only happens when the SMT re-embeds), rather than a server `embedded_at` timestamp. The displayed embed time is the client-observed time of the last vector change; on first sighting it shows when the result entered the view rather than a historical server embed time.
 
 ### Avro ↔ OpenSearch type handling (sink views)

@@ -11,10 +11,13 @@
     "behavior.on.null.values": "delete",
     "index.write.method": "upsert",
 
-    "transforms": "extractKey,embed",
+    "transforms": "extractKey,embed,insertTs",
 
     "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.extractKey.field": "order_id",
+
+    "transforms.insertTs.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.insertTs.timestamp.field": "mz_timestamp",
 
     "transforms.embed.type": "com.materialize.connect.smt.embedding.EmbeddingDiffTransform",
     "transforms.embed.embedded.columns": "embedding_text",

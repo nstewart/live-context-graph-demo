@@ -76,7 +76,7 @@ def _display_name(index_name: str, row: dict) -> Optional[str]:
     return row.get("product_name") or row.get("inventory_id")
 
 
-def _make_event(topic: str, offset: int, value: Optional[dict]) -> Optional[PropagationEvent]:
+def _make_event(topic: str, record_ts_ms: int, value: Optional[dict]) -> Optional[PropagationEvent]:
     if value is None:
         return None
     before = value.get("before")
@@ -91,10 +91,12 @@ def _make_event(topic: str, offset: int, value: Optional[dict]) -> Optional[Prop
         return None
 
     return PropagationEvent(
-        # Synthetic, monotonic-per-partition ordering key. Materialize's Debezium
-        # Avro envelope doesn't expose a logical timestamp column, so we use the
-        # zero-padded Kafka offset, which preserves ordering for the UI feed.
-        mz_ts=f"{offset:020d}",
+        # Materialize sets the Kafka record timestamp to the change's LOGICAL
+        # timestamp (epoch ms), so every doc touched by one transaction shares
+        # it. Using it as mz_ts groups a write's effects under one timestamp
+        # (matching the old SUBSCRIBE-batch behavior), rather than the per-message
+        # Kafka offset which differs for every doc.
+        mz_ts=str(record_ts_ms),
         index_name=index_name,
         doc_id=doc_id,
         operation=_operation(before, after),
@@ -145,7 +147,10 @@ def run_consumer(stop_flag) -> None:
                 logger.warning("Kafka error: %s", msg.error())
                 continue
             try:
-                event = _make_event(msg.topic(), msg.offset(), msg.value())
+                # msg.timestamp() -> (timestamp_type, epoch_ms); Materialize sets
+                # this to the change's logical timestamp.
+                _, record_ts_ms = msg.timestamp()
+                event = _make_event(msg.topic(), record_ts_ms, msg.value())
             except Exception:  # noqa: BLE001 - never let one bad record kill the tap
                 logger.exception("Failed to build propagation event")
                 continue
