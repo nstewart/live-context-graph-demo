@@ -22,7 +22,8 @@ import logging
 import os
 from typing import Optional
 
-from confluent_kafka import DeserializingConsumer
+from confluent_kafka import DeserializingConsumer, KafkaException
+from confluent_kafka.error import ConsumeError
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from confluent_kafka.serialization import StringDeserializer
@@ -124,7 +125,20 @@ def run_consumer(stop_flag) -> None:
     store = get_propagation_store()
     try:
         while not stop_flag.is_set():
-            msg = consumer.poll(1.0)
+            # DeserializingConsumer.poll() RAISES (it does not return a msg with
+            # .error()) on Kafka errors and on deserialization failures. Many are
+            # transient — e.g. UNKNOWN_TOPIC_OR_PART while a topic is (re)created,
+            # or a single un-deserializable record — and must NOT kill the tap.
+            # Catch, log, and keep polling; librdkafka refreshes metadata and
+            # recovers on its own.
+            try:
+                msg = consumer.poll(1.0)
+            except ConsumeError as e:
+                logger.warning("Consume error (continuing): %s", e)
+                continue
+            except KafkaException as e:
+                logger.warning("Kafka exception (continuing): %s", e)
+                continue
             if msg is None:
                 continue
             if msg.error():
