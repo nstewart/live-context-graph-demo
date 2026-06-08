@@ -19,7 +19,10 @@ WORKDIR /plugins
 
 # 1. Aiven OpenSearch sink connector (.tar of jars). --strip-components=1 flattens
 #    the versioned top dir into a clean plugin directory of jars.
-ARG AIVEN_OS_CONNECTOR_VERSION=4.1.0
+#    Pinned to 3.1.x: 4.x is compiled for Java 21, but cp-kafka-connect 7.9.7
+#    runs Java 17 (UnsupportedClassVersionError otherwise). 3.1.1 is a Java 11
+#    build and uses the io.aiven...OpensearchSinkConnector class (lowercase s).
+ARG AIVEN_OS_CONNECTOR_VERSION=3.1.1
 RUN curl -fsSL -o os.tar \
       "https://github.com/Aiven-Open/opensearch-connector-for-apache-kafka/releases/download/v${AIVEN_OS_CONNECTOR_VERSION}/opensearch-connector-for-apache-kafka-${AIVEN_OS_CONNECTOR_VERSION}.tar" \
     && mkdir -p opensearch-connector \
