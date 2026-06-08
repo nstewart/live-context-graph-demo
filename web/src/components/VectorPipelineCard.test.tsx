@@ -9,7 +9,20 @@ vi.mock('../api/client', () => ({
   },
 }))
 
+// SearchIndexUpdates (rendered inside the expanded card) calls usePropagation,
+// which requires a PropagationProvider. Stub the context so the card renders in
+// isolation without the provider's :8083 polling.
+vi.mock('../contexts/PropagationContext', () => ({
+  usePropagation: () => ({ events: [] }),
+  PropagationProvider: (props: any) => props.children,
+}))
+
 import { searchApi } from '../api/client'
+
+// A 16-element stand-in for the 384-dim vector; embeddingFingerprint only needs
+// the first 12 values, and re-embed detection keys off this fingerprint.
+const EMBEDDING_A = Array.from({ length: 16 }, (_, i) => (i % 7) / 10 - 0.3)
+const EMBEDDING_B = EMBEDDING_A.map((x) => -x) // different fingerprint => re-embed
 
 const mockResponse = {
   data: {
@@ -17,8 +30,9 @@ const mockResponse = {
       {
         order_id: 'order:FM-1001',
         score: 0.92,
+        embedding: EMBEDDING_A,
         embedding_text: 'Whole Milk (Dairy) | Bananas (Produce)',
-        embedded_at: '2024-01-15T14:30:00Z',
+        embedded_at: null,
         order_number: 'FM-1001',
         order_status: 'OUT_FOR_DELIVERY',
         customer_name: 'Alex Thompson',
@@ -63,15 +77,14 @@ describe('VectorPipelineCard', () => {
       })
     })
 
-    it('shows architecture steps when expanded', async () => {
+    it('shows the search UI sections when expanded', async () => {
       render(<VectorPipelineCard />)
       fireEvent.click(screen.getByRole('button', { name: /Vector Pipeline/i }))
 
       await waitFor(() => {
-        expect(screen.getByText('Embed query')).toBeInTheDocument()
-        expect(screen.getByText('knn_search')).toBeInTheDocument()
-        expect(screen.getByText('Hydrate')).toBeInTheDocument()
-        expect(screen.getByText(/Merge/i)).toBeInTheDocument()
+        expect(screen.getByText('Hybrid Search')).toBeInTheDocument()
+        expect(screen.getByText('Live order results')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'dairy products' })).toBeInTheDocument()
       })
     })
   })
@@ -132,8 +145,9 @@ describe('VectorPipelineCard', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
 
       await waitFor(() => {
-        expect(screen.getByText(/FM-1001/)).toBeInTheDocument()
-        expect(screen.getByText('Alex Thompson')).toBeInTheDocument()
+        expect(screen.getByText('#FM-1001')).toBeInTheDocument()
+        // customer_name is joined with store info in one node ("Alex … · FreshMart …")
+        expect(screen.getByText(/Alex Thompson/)).toBeInTheDocument()
       })
     })
 
@@ -236,6 +250,35 @@ describe('VectorPipelineCard', () => {
       await waitFor(() => {
         expect(screen.getByText(/no results/i)).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Re-embed detection', () => {
+    // Replaces the old embedded_at-driven flash: the Kafka/SMT path stamps no
+    // per-embed timestamp, so the card flashes when the embedding vector changes.
+    it('flashes when the embedding vector changes, not on a stable vector', async () => {
+      const respA = { data: { ...mockResponse.data, results: [{ ...mockResponse.data.results[0], embedding: EMBEDDING_A }] } }
+      const respB = { data: { ...mockResponse.data, results: [{ ...mockResponse.data.results[0], embedding: EMBEDDING_B }] } }
+      vi.mocked(searchApi.vectorSearchOrders)
+        .mockResolvedValueOnce(respA as never)   // first search: baseline, no flash
+        .mockResolvedValue(respB as never)        // subsequent: vector changed
+
+      render(<VectorPipelineCard />)
+      fireEvent.click(screen.getByRole('button', { name: /Vector Pipeline/i }))
+      await waitFor(() => expect(screen.getByPlaceholderText(/search/i)).toBeInTheDocument())
+
+      const input = screen.getByPlaceholderText(/search/i)
+      const searchButton = screen.getByRole('button', { name: /^Search$/i })
+
+      fireEvent.change(input, { target: { value: 'dairy' } })
+      fireEvent.click(searchButton)
+      await waitFor(() => expect(screen.getByText('#FM-1001')).toBeInTheDocument())
+      // Baseline sighting must not flash.
+      expect(screen.queryByText(/re-embedded/i)).not.toBeInTheDocument()
+
+      // Re-run the same query; the vector now differs => re-embed flash.
+      fireEvent.click(searchButton)
+      await waitFor(() => expect(screen.getByText(/re-embedded/i)).toBeInTheDocument())
     })
   })
 })
