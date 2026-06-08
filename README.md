@@ -411,8 +411,18 @@ live-context-graph-demo/
 
 Two fields were stamped onto each OpenSearch doc by the old `search-sync` worker. The Kafka/SMT path doesn't reproduce them, so the features that used them were re-pointed at fields that *are* present:
 
-- **`mz_timestamp` → `effective_updated_at`** — `/api/search/impact` now ranges over `effective_updated_at` (the row's logical update time, epoch-ms comparable) instead of the old per-doc `mz_timestamp`. The write-triple's epoch-ms lower bound is captured just before the write, so any doc touched by the write or its cascade is counted. Same causal "docs re-indexed since the write" semantics.
+- **`mz_timestamp` → `effective_updated_at`** — `/api/search/impact` now ranges over `effective_updated_at` (the row's logical update time) instead of the old per-doc `mz_timestamp`. The write-triple's epoch-ms lower bound is captured just before the write. Caveat: `effective_updated_at` is a `GREATEST(...)` over each view's own component timestamps, so a pure *cascade* update (e.g. a product rename reflected in inventory docs) may not advance it — those docs still re-index and emit propagation events, but can be under-counted by `/impact`. Orders are counted correctly (validated: a product rename impacted exactly the 2 orders containing it).
 - **`embedded_at` → embedding-vector change** — the "Hybrid Vector Search" card detects a re-embed by the embedding vector's fingerprint changing (which only happens when the SMT re-embeds), rather than a server `embedded_at` timestamp. The displayed embed time is the client-observed time of the last vector change; on first sighting it shows when the result entered the view rather than a historical server embed time.
+
+### Avro ↔ OpenSearch type handling (sink views)
+
+Materialize's Avro Debezium output doesn't map 1:1 onto OpenSearch's hand-built mappings, so the sinks read from `orders_sink_v` / `inventory_sink_v` (materialized views over the app-facing MVs) that normalize types:
+
+- **Decimals** — `numeric`/`DECIMAL` encode as Avro `decimal` (bytes), which the sink serializes as base64 and `float` fields reject. The views cast them to `double precision`.
+- **Timestamps** — some date columns are raw text, others are `timestamptz` (epoch-micros). The views `to_char(... AT TIME ZONE 'UTC', ...)` them into one ISO-8601 string the OpenSearch `date` parser accepts.
+- **`line_items`** — the `jsonb` column sinks as a JSON *string*, not a nested object, so it's mapped as non-indexed `text` and parsed back to a list in the API (`_parse_line_items`).
+
+Keeping these in `*_sink_v` views leaves the API/Zero-facing MVs untouched. The Connect image also pins the Aiven OpenSearch connector to 3.1.x (4.x needs Java 21; cp-kafka-connect 7.9.7 is Java 17), and the embeddings shim runs under hypercorn (the SMT's HTTP/2 client needs h2c, which uvicorn drops).
 
 ### Stale demo helper scripts
 
