@@ -407,12 +407,12 @@ live-context-graph-demo/
 
 ## Known Limitations
 
-### Features that depended on worker-stamped fields
+### Fields formerly stamped by the worker
 
-Two fields were stamped onto each OpenSearch doc by the old `search-sync` worker and are not reproduced by the Kafka/SMT path:
+Two fields were stamped onto each OpenSearch doc by the old `search-sync` worker. The Kafka/SMT path doesn't reproduce them, so the features that used them were re-pointed at fields that *are* present:
 
-- **`mz_timestamp`** — `/api/search/impact` counts docs whose `mz_timestamp >= write_time`. The Materialize Debezium sink carries no per-row logical timestamp, so this field is unpopulated and the impact count reads 0 until reworked (e.g. derive propagation from Kafka offsets, or add a timestamp column to the sinked view). The live propagation feed (System Performance card) is unaffected — it's served by `propagation-tap`.
-- **`embedded_at`** — the "Hybrid Vector Search" card (`VectorPipelineCard`) shows an embed time and flashes a result when it is re-embedded, both driven by `embedded_at`. The perfect-embeddings SMT adds the vector but no per-embed timestamp, so this displays blank and the re-embed flash won't fire. A faithful fix is to flash on a change in the embedding vector itself.
+- **`mz_timestamp` → `effective_updated_at`** — `/api/search/impact` now ranges over `effective_updated_at` (the row's logical update time, epoch-ms comparable) instead of the old per-doc `mz_timestamp`. The write-triple's epoch-ms lower bound is captured just before the write, so any doc touched by the write or its cascade is counted. Same causal "docs re-indexed since the write" semantics.
+- **`embedded_at` → embedding-vector change** — the "Hybrid Vector Search" card detects a re-embed by the embedding vector's fingerprint changing (which only happens when the SMT re-embeds), rather than a server `embedded_at` timestamp. The displayed embed time is the client-observed time of the last vector change; on first sighting it shows when the result entered the view rather than a historical server embed time.
 
 ### Stale demo helper scripts
 

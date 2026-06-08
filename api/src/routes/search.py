@@ -315,14 +315,30 @@ IMPACT_INDEXES = ["orders", "inventory"]
 
 @router.get("/impact")
 async def get_index_impact(
-    since_mz_timestamp: int = Query(..., description="mz_timestamp lower bound from write-triple"),
+    since_mz_timestamp: int = Query(..., description="epoch-ms lower bound from write-triple"),
 ) -> dict[str, Any]:
-    """Count documents re-indexed across all indexes at or after a given mz_timestamp.
+    """Count documents re-indexed across all indexes at or after a given timestamp.
 
     Queries both the orders and inventory indexes. Returns combined impacted/total
     counts plus a per-index breakdown.
+
+    The old Python sync worker stamped a per-doc `mz_timestamp` from SUBSCRIBE
+    metadata. The Kafka/SMT pipeline doesn't carry that, so we instead range over
+    `effective_updated_at` — the row's logical update time computed by Materialize,
+    which advances on every change and is epoch-ms comparable. `since_mz_timestamp`
+    is a wall-clock epoch-ms lower bound captured just before the write, so any doc
+    touched by the write (or its cascade) has effective_updated_at >= that bound.
     """
-    range_query = {"query": {"range": {"mz_timestamp": {"gte": since_mz_timestamp}}}}
+    range_query = {
+        "query": {
+            "range": {
+                "effective_updated_at": {
+                    "gte": since_mz_timestamp,
+                    "format": "epoch_millis",
+                }
+            }
+        }
+    }
     try:
         async with httpx.AsyncClient(timeout=OPENSEARCH_TIMEOUT) as client:
             async def fetch_index(index: str) -> tuple[str, dict]:
