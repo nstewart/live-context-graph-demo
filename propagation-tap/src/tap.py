@@ -22,11 +22,22 @@ import logging
 import os
 from typing import Optional
 
-from confluent_kafka import DeserializingConsumer, KafkaException
-from confluent_kafka.error import ConsumeError
-from confluent_kafka.schema_registry import SchemaRegistryClient
-from confluent_kafka.schema_registry.avro import AvroDeserializer
-from confluent_kafka.serialization import StringDeserializer
+# Resilient import so the pure-Python helpers (_materialize_timestamp,
+# _make_event, _field_changes, ...) can be imported and unit-tested without
+# confluent_kafka installed. The consumer (run_consumer) needs the real lib.
+try:
+    from confluent_kafka import DeserializingConsumer, KafkaException
+    from confluent_kafka.error import ConsumeError
+    from confluent_kafka.schema_registry import SchemaRegistryClient
+    from confluent_kafka.schema_registry.avro import AvroDeserializer
+    from confluent_kafka.serialization import StringDeserializer
+except ImportError:  # pragma: no cover - exercised only without confluent_kafka
+    DeserializingConsumer = None
+    SchemaRegistryClient = None
+    AvroDeserializer = None
+    StringDeserializer = None
+    KafkaException = Exception
+    ConsumeError = Exception
 
 from src.propagation_events import PropagationEvent, get_propagation_store
 

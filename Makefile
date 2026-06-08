@@ -214,13 +214,18 @@ reset-db:
 	$(MAKE) seed
 
 # Testing
-test: test-api test-web
+test: test-api test-web test-propagation
 
 test-api:
 	$(DOCKER_COMPOSE) exec api pytest -v
 
 test-web:
 	$(DOCKER_COMPOSE) exec web npm test
+
+# Runs on the host (pure-Python, no stack/confluent_kafka needed).
+# Install deps once with: pip install -r propagation-tap/requirements-dev.txt
+test-propagation:
+	cd propagation-tap && python3 -m pytest tests/ -v
 
 # Linting
 lint:
