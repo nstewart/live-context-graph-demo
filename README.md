@@ -255,7 +255,7 @@ Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connec
 - **`connect`** — Kafka Connect worker hosting the Aiven OpenSearch sink connector plus the [perfect-embeddings](https://github.com/MaterializeInc/perfect-embedding) SMT. The orders connector runs the `embed` SMT (re-embeds only when `embedding_text` changes); the inventory connector just unwraps the Debezium `after` image (no embeddings).
 - **`embeddings`** (`embeddings-shim/`) — OpenAI-compatible `/v1/embeddings` endpoint wrapping local `BAAI/bge-small-en-v1.5`. This is the "cheap local model" the SMT calls.
 - **`propagation-tap`** (`propagation-tap/`) — consumes the Debezium topics and computes field-level change events from the before/after image, serving the `:8083` propagation API that powers the **System Performance** card.
-- **`os-bootstrap` / `connect-bootstrap`** — one-shot init containers that create the OpenSearch index mappings (knn_vector + synonym analyzer) and register the sink connectors.
+- **`os-bootstrap` / `connect-bootstrap`** — one-shot init containers. `os-bootstrap` installs a composable **index template** per index (knn_vector + synonym analyzer) and pre-creates the index so it materializes that mapping — the Aiven connector's auto-create bypasses templates, so the index must exist before the sink writes. `connect-bootstrap` registers the sink connectors.
 - **Embedding savings metrics** — the SMT exposes diff counters (`EmbeddingsComputed` / `EmbeddingsSkipped`) as a JMX MBean; a Jolokia agent on `connect` exposes them over HTTP, the API reads them at `/api/search/embedding-metrics`, and the Vector Pipeline card shows a live "**N% embedding calls avoided**" ticker — the perfect-embeddings dedup payoff, quantified.
 
 ### API (`/api/search`)
@@ -376,7 +376,8 @@ live-context-graph-demo/
 │   ├── Dockerfile              # OpenSearch sink + perfect-embeddings SMT
 │   ├── connectors/             # orders (with embed SMT) + inventory sink JSON
 │   └── register-connectors.sh
-├── os-bootstrap/               # OpenSearch index mappings (knn_vector, synonyms)
+├── os-bootstrap/               # OpenSearch index templates (knn_vector, synonyms)
+│   └── templates/              #   orders.json, inventory.json + create-indices.sh
 │   ├── orders-index.json
 │   ├── inventory-index.json
 │   └── create-indices.sh
