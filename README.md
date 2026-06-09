@@ -422,6 +422,10 @@ Materialize's Avro Debezium output doesn't map 1:1 onto OpenSearch's hand-built 
 
 Keeping these in `*_sink_v` views leaves the API/Zero-facing MVs untouched. The Connect image also pins the Aiven OpenSearch connector to 3.1.x (4.x needs Java 21; cp-kafka-connect 7.9.7 is Java 17), and the embeddings shim runs under hypercorn (the SMT's HTTP/2 client needs h2c, which uvicorn drops).
 
+### kNN index maintenance (deleted-doc bloat)
+
+The sink UPSERTs an order doc on every change — including price-only updates that don't re-embed — and each UPSERT tombstones the prior Lucene version. In a `knn_vector` index, deleted vectors stay in the per-segment HNSW graph until merged, and kNN traversal (`ef_search`-bounded) wastes its budget on tombstones, so recall collapses once the deleted ratio gets high. The index templates set `index.merge.policy.deletes_pct_allowed: 10` so background merges keep the deleted ratio low (and the graph mostly-live) automatically. Under heavy bursts you can still expunge on demand: `POST /orders/_forcemerge?only_expunge_deletes=true`. The structural fix (not done) is to avoid re-UPSERTing the doc when only non-embedded fields changed.
+
 ### Stale demo helper scripts
 
 `demo-transaction-logs.sh` and `DEMO_LOG_FILTERING.md` still reference the old `search-sync` emoji log markers. They need updating for the Kafka pipeline (`connect` / `propagation-tap` logs).

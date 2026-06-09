@@ -4,7 +4,10 @@
     "settings": {
       "number_of_shards": 1,
       "number_of_replicas": 0,
-      "index": { "knn": true }
+      "index": {
+        "knn": true,
+        "merge": { "policy": { "deletes_pct_allowed": 10 } }
+      }
     },
     "mappings": {
       "properties": {
