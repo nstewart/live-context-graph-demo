@@ -225,10 +225,25 @@ async def test_get_timeseries_with_custom_limit(async_client: AsyncClient):
         assert response.status_code == 200
 
 
+def _mock_mz_factory():
+    """Patch target so the get_mz_session dependency resolves without a real DB.
+
+    The dependency opens a session and runs `SET CLUSTER = serving` eagerly; with
+    no database that connect fails (500) before FastAPI ever validates `limit`.
+    A mock factory lets the dependency succeed so param validation is exercised.
+    """
+    session = AsyncMock()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return MagicMock(return_value=cm)
+
+
 @pytest.mark.asyncio
 async def test_get_timeseries_limit_validation_too_low(async_client: AsyncClient):
     """Test that limit below minimum is rejected."""
-    response = await async_client.get("/api/metrics/timeseries?limit=0")
+    with patch("src.routes.metrics.get_mz_session_factory", return_value=_mock_mz_factory()):
+        response = await async_client.get("/api/metrics/timeseries?limit=0")
 
     assert response.status_code == 422
     data = response.json()
@@ -238,7 +253,8 @@ async def test_get_timeseries_limit_validation_too_low(async_client: AsyncClient
 @pytest.mark.asyncio
 async def test_get_timeseries_limit_validation_too_high(async_client: AsyncClient):
     """Test that limit above maximum is rejected."""
-    response = await async_client.get("/api/metrics/timeseries?limit=61")
+    with patch("src.routes.metrics.get_mz_session_factory", return_value=_mock_mz_factory()):
+        response = await async_client.get("/api/metrics/timeseries?limit=61")
 
     assert response.status_code == 422
     data = response.json()

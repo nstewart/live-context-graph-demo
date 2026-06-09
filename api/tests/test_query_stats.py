@@ -293,10 +293,13 @@ class TestWriteTripleMzTimestamp:
         import time
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        pg_result = MagicMock()
-        pg_result.fetchone.return_value = (1,)
+        # The route runs two queries: SELECT old object_value, then UPDATE ... RETURNING id.
+        select_result = MagicMock()
+        select_result.fetchone.return_value = MagicMock(object_value="PLACED")
+        update_result = MagicMock()
+        update_result.fetchone.return_value = (1,)
         pg_session = AsyncMock()
-        pg_session.execute = AsyncMock(return_value=pg_result)
+        pg_session.execute = AsyncMock(side_effect=[select_result, update_result])
         pg_session.commit = AsyncMock()
         pg_session.__aenter__ = AsyncMock(return_value=pg_session)
         pg_session.__aexit__ = AsyncMock(return_value=False)
@@ -323,10 +326,13 @@ class TestWriteTripleMzTimestamp:
         """Lower bound is always a wall-clock int — no Materialize dependency."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        pg_result = MagicMock()
-        pg_result.fetchone.return_value = (1,)
+        # The route runs two queries: SELECT old object_value, then UPDATE ... RETURNING id.
+        select_result = MagicMock()
+        select_result.fetchone.return_value = MagicMock(object_value="PLACED")
+        update_result = MagicMock()
+        update_result.fetchone.return_value = (1,)
         pg_session = AsyncMock()
-        pg_session.execute = AsyncMock(return_value=pg_result)
+        pg_session.execute = AsyncMock(side_effect=[select_result, update_result])
         pg_session.commit = AsyncMock()
         pg_session.__aenter__ = AsyncMock(return_value=pg_session)
         pg_session.__aexit__ = AsyncMock(return_value=False)
