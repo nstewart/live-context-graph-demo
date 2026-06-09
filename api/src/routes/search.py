@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 
 from src.config import get_settings
 from src.freshmart.service import FreshMartService
@@ -385,3 +386,64 @@ async def get_index_impact(
         raise HTTPException(status_code=502, detail=f"OpenSearch error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Embedding SMT metrics (via Jolokia) ───────────────────────────────────────
+
+JOLOKIA_TIMEOUT = 5.0
+
+# Stable ObjectName: the orders connector sets transforms.embed.metrics.id=orders.
+EMBEDDING_MBEAN = 'com.materialize.connect.smt.embedding:type=EmbeddingDiff,id="orders"'
+EMBEDDING_MBEAN_ATTRS = [
+    "EmbeddingsComputed",
+    "EmbeddingsSkipped",
+    "EmbeddingsPossible",
+    "SkipRatio",
+]
+
+_UNAVAILABLE = {"computed": 0, "skipped": 0, "possible": 0, "skip_ratio": 0.0, "available": False}
+
+
+class EmbeddingMetrics(BaseModel):
+    """Diff counters from the embedding SMT. `available` is False when the
+    MBean can't be read (Connect/Jolokia down, or connector not yet running)."""
+    computed: int
+    skipped: int
+    possible: int
+    skip_ratio: float
+    available: bool
+
+
+@router.get("/embedding-metrics", response_model=EmbeddingMetrics)
+async def embedding_metrics() -> EmbeddingMetrics:
+    """Read the embedding SMT's diff counters from the Connect worker via Jolokia.
+
+    Degrades gracefully: returns available=False with zeroed counters rather
+    than erroring, so the UI can render a neutral state.
+    """
+    url = f"{settings.jolokia_url}/jolokia/"
+    body = {"type": "read", "mbean": EMBEDDING_MBEAN, "attribute": EMBEDDING_MBEAN_ATTRS}
+    try:
+        async with httpx.AsyncClient(timeout=JOLOKIA_TIMEOUT) as client:
+            response = await client.post(url, json=body)
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("Jolokia embedding-metrics read failed: %s", e)
+        return EmbeddingMetrics(**_UNAVAILABLE)
+
+    # Guard the shape: a 200 with a non-dict value (or non-dict payload) must
+    # still degrade to available=False, not raise.
+    if not isinstance(payload, dict) or payload.get("status") != 200:
+        return EmbeddingMetrics(**_UNAVAILABLE)
+    value = payload.get("value")
+    if not isinstance(value, dict):
+        return EmbeddingMetrics(**_UNAVAILABLE)
+
+    return EmbeddingMetrics(
+        computed=int(value.get("EmbeddingsComputed", 0)),
+        skipped=int(value.get("EmbeddingsSkipped", 0)),
+        possible=int(value.get("EmbeddingsPossible", 0)),
+        skip_ratio=float(value.get("SkipRatio", 0.0)),
+        available=True,
+    )

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     os_user: Optional[str] = None
     os_password: Optional[str] = None
 
+    # Jolokia agent on the Kafka Connect worker — exposes the embedding SMT's
+    # JMX diff counters over HTTP, read by /api/search/embedding-metrics.
+    jolokia_url: str = "http://connect:8778"
+
     # Application
     log_level: str = "INFO"
     api_port: int = 8080

@@ -330,8 +330,12 @@ services:
       CONNECT_REST_PORT: "8083"
       CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/local-connect-plugins
       CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      # Jolokia JVM agent exposes JMX (the embedding SMT's diff counters) over
+      # HTTP on :8778, read by the API's /api/search/embedding-metrics.
+      KAFKA_OPTS: "-javaagent:/usr/local/share/kafka/jolokia-agent.jar=port=8778,host=0.0.0.0"
     ports:
       - "8086:8083"   # Connect REST API (host access for debugging)
+      - "8778:8778"   # Jolokia (JMX over HTTP)
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors || exit 1"]
       interval: 10s

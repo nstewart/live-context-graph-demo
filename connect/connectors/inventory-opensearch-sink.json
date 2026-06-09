@@ -9,9 +9,10 @@
     "key.ignore": "false",
     "schema.ignore": "true",
     "behavior.on.null.values": "delete",
+    "behavior.on.version.conflict": "ignore",
     "index.write.method": "upsert",
 
-    "transforms": "extractKey,extractAfter,insertTs",
+    "transforms": "extractKey,extractAfter,tsHeader",
 
     "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
     "transforms.extractKey.field": "inventory_id",
@@ -19,7 +20,9 @@
     "transforms.extractAfter.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
     "transforms.extractAfter.field": "after",
 
-    "transforms.insertTs.type": "org.apache.kafka.connect.transforms.InsertField$Value",
-    "transforms.insertTs.timestamp.field": "mz_timestamp"
+    "transforms.tsHeader.type": "io.debezium.transforms.HeaderToValue",
+    "transforms.tsHeader.headers": "materialize-timestamp",
+    "transforms.tsHeader.fields": "mz_timestamp",
+    "transforms.tsHeader.operation": "copy"
   }
 }

@@ -258,6 +258,7 @@ Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connec
 - **`embeddings`** (`embeddings-shim/`) — OpenAI-compatible `/v1/embeddings` endpoint wrapping local `BAAI/bge-small-en-v1.5`. This is the "cheap local model" the SMT calls.
 - **`propagation-tap`** (`propagation-tap/`) — consumes the same Debezium topics and computes field-level change events from the before/after image, serving the `:8083` propagation API that powers the **System Performance** card. (The web UI is unchanged — same endpoints, same port.)
 - **`os-bootstrap` / `connect-bootstrap`** — one-shot init containers that create the OpenSearch index mappings (knn_vector + synonym analyzer) and register the sink connectors.
+- **Embedding savings metrics** — the SMT exposes diff counters (`EmbeddingsComputed` / `EmbeddingsSkipped`) as a JMX MBean; a Jolokia agent on `connect` exposes them over HTTP, the API reads them at `/api/search/embedding-metrics`, and the Vector Pipeline card shows a live "**N% embedding calls avoided**" ticker — the perfect-embeddings dedup payoff, quantified.
 
 ### API (`/api/search`)
 
@@ -266,6 +267,7 @@ Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connec
 | `GET /vector/orders` | Embed query → kNN → hydrate from Materialize. Accepts `store_zone` and `order_status` filters for hybrid search. |
 | `GET /impact?since_mz_timestamp=T` | Count docs re-indexed across orders + inventory since timestamp T. Returns combined impacted/total/pct plus per-index breakdown. All four OpenSearch `_count` calls run concurrently. |
 | `GET /index-stats` | Total doc count from OpenSearch |
+| `GET /embedding-metrics` | Embedding SMT diff counters (computed / skipped / skip ratio) read from the Connect worker via Jolokia. Degrades to `available:false` when Connect/Jolokia is down. |
 
 ### Dynamic Pricing Engine
 
@@ -411,9 +413,9 @@ live-context-graph-demo/
 
 The old `search-sync` worker stamped two fields onto each OpenSearch doc:
 
-- **`mz_timestamp`** — recovered, from two distinct Materialize timestamp sources:
-  - *For `/api/search/impact`:* a Kafka Connect `InsertField` transform stamps each doc's `mz_timestamp` from the **Kafka record timestamp** (the sink's emission time). It advances on every re-index — including cascades — so the range query counts the true set of docs a write touched (validated: a product-category change → 1 order + 10 inventory).
-  - *For the propagation widget's grouping:* the tap reads Materialize's **`materialize-timestamp` header**, which every sink stamps with the **logical time** the change occurred. Unlike the per-sink record timestamp (which differs by tens of ms between the orders and inventory sinks), the logical timestamp is identical across both sinks for one write — so a write's full effect (its orders *and* its inventory items) groups under a single `mz_ts`. (Materialize adds this header to every sinked message; see the CREATE SINK "Headers" docs.)
+- **`mz_timestamp`** — recovered from Materialize's **`materialize-timestamp` Kafka header**, which every sink stamps with the **logical time** the change occurred (identical across the orders and inventory sinks for one write):
+  - *Into the doc:* the Connect `io.debezium.transforms.HeaderToValue` SMT (`tsHeader`) copies the header into each doc's `mz_timestamp` field. `/api/search/impact` ranges over it to count docs re-indexed since a write — including cascades (validated: a product-category change → 1 order + 10 inventory).
+  - *For propagation grouping:* the tap reads the same header, so a write's full effect (its orders *and* its inventory items) groups under one `mz_ts`. Because it's the logical time — not the per-sink emission time, which drifts tens of ms — the doc's `mz_timestamp` and the propagation `mz_ts` are the same value.
 - **`embedded_at` → embedding-vector change** — the "Hybrid Vector Search" card detects a re-embed by the embedding vector's fingerprint changing (which only happens when the SMT re-embeds), rather than a server `embedded_at` timestamp. The displayed embed time is the client-observed time of the last vector change; on first sighting it shows when the result entered the view rather than a historical server embed time.
 
 ### Avro ↔ OpenSearch type handling (sink views)

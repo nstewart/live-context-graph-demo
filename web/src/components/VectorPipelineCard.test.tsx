@@ -6,6 +6,11 @@ import { VectorPipelineCard } from './VectorPipelineCard'
 vi.mock('../api/client', () => ({
   searchApi: {
     vectorSearchOrders: vi.fn(),
+    // The embedding-metrics ticker polls this; return an unavailable payload so
+    // the ticker stays hidden and existing assertions are unaffected.
+    embeddingMetrics: vi.fn().mockResolvedValue({
+      data: { computed: 0, skipped: 0, possible: 0, skip_ratio: 0, available: false },
+    }),
   },
 }))
 
