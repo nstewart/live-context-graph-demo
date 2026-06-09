@@ -56,7 +56,8 @@ case "$emb_type" in
      echo "         A stale/mis-mapped 'orders' index is in the way; kNN search will 502."
      echo "         Delete it so the template applies, then let the sink re-index:"
      echo "           curl -X DELETE ${OS_URL}/orders"
-     echo "           # then reset the sink connector to re-consume (see OPS notes)" ;;
+     echo "           # then reset the sink connector to re-consume (see OPS notes)"
+     exit 1 ;;
 esac
 
 echo "Index bootstrap complete."
