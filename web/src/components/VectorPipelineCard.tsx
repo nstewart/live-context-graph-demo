@@ -8,6 +8,7 @@ import {
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 import { SearchIndexUpdates } from "./SearchIndexUpdates";
+import { RerankComparison } from "./RerankComparison";
 
 // ── Embedding fingerprint ─────────────────────────────────────────────────────
 
@@ -430,6 +431,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
             </div>
           </div>
 
+          {submittedQuery && <RerankComparison query={submittedQuery} />}
 
         </div>
       )}

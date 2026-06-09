@@ -681,6 +681,30 @@ export type VectorSearchResponse = {
   total: number;
 }
 
+// Cross-encoder rerank: each candidate carries its kNN rank/score, the document
+// the model read (assembled fresh from Materialize), and its reranked position.
+export type RerankCandidate = {
+  order_id: string;
+  order_number: string;
+  status: string | null;
+  knn_score: number;
+  original_rank: number;
+  doc: string;           // the document the cross-encoder scored — live from Materialize
+  matched_text: string;  // the indexed text kNN matched on — from the OpenSearch index
+  rerank_score: number;
+  new_rank: number;
+  delta: number; // >0 moved up vs kNN, <0 moved down
+}
+
+export type RerankResponse = {
+  query: string;
+  model: string | null;
+  candidate_count?: number;
+  limit?: number;
+  timings: { embed_ms?: number; recall_ms?: number; feature_fetch_ms?: number; rerank_ms?: number };
+  results: RerankCandidate[];
+}
+
 export const searchApi = {
   searchOrders: (query: string, limit?: number) =>
     apiClient.get<OpenSearchResponse>('/api/search/orders', {
@@ -696,6 +720,10 @@ export const searchApi = {
     }),
   embeddingMetrics: () =>
     apiClient.get<EmbeddingMetrics>('/api/search/embedding-metrics'),
+  rerankedVectorSearch: (query: string, limit = 8, candidates = 25) =>
+    apiClient.get<RerankResponse>('/api/search/vector/orders/reranked', {
+      params: { q: query, limit, candidates },
+    }),
 }
 
 // Diff counters from the perfect-embeddings SMT (re-embeds skipped vs computed).

@@ -7,9 +7,11 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Bake the ONNX weights into the image so the first /v1/embeddings call from
-# the SMT doesn't pay a cold-start download. ~130MB.
+# Bake the ONNX weights into the image so the first request doesn't pay a
+# cold-start download: the embedding model (~130MB) and the cross-encoder
+# reranker (~90MB) used by /rerank.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+RUN python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
 COPY app.py .
 
