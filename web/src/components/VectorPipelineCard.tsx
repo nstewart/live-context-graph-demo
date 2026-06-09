@@ -8,7 +8,6 @@ import {
 import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 import { SearchIndexUpdates } from "./SearchIndexUpdates";
-import { useEmbeddingMetrics } from "../hooks/useEmbeddingMetrics";
 
 // ── Embedding fingerprint ─────────────────────────────────────────────────────
 
@@ -192,9 +191,6 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const [filterZone, setFilterZone]         = useState("");
   const [filterStatus, setFilterStatus]     = useState("");
 
-  // Embedding SMT diff counters (computed vs skipped) — only poll while open.
-  const embeddingMetrics = useEmbeddingMetrics(isExpanded);
-
   // Keyed by order_id so they survive result reordering
   const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
   // The server no longer stamps embedded_at (the perfect-embeddings SMT adds the
@@ -313,23 +309,6 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
               Materialize provides <em>live data</em> for those documents — always fresh, never stale.
             </p>
           </div>
-
-          {/* Embedding SMT savings: how many re-embeds were skipped because the
-              embedded text was unchanged (the perfect-embeddings dedup payoff). */}
-          {embeddingMetrics?.available && embeddingMetrics.possible > 0 && (
-            <div className="mb-4 flex items-center gap-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-2 text-xs">
-              <span className="font-medium text-purple-700">Embedding SMT</span>
-              <span className="text-gray-600">
-                <span className="font-semibold text-gray-900">{embeddingMetrics.computed.toLocaleString()}</span> computed
-              </span>
-              <span className="text-gray-600">
-                <span className="font-semibold text-gray-900">{embeddingMetrics.skipped.toLocaleString()}</span> skipped
-              </span>
-              <span className="ml-auto font-semibold text-purple-700">
-                {(embeddingMetrics.skip_ratio * 100).toFixed(1)}% embedding calls avoided
-              </span>
-            </div>
-          )}
 
           {/* Search box */}
           <div className="border rounded-lg overflow-hidden mb-4">
