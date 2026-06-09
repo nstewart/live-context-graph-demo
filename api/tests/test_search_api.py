@@ -683,10 +683,18 @@ class TestRerankedVectorSearchAPI:
         async def mock_service():
             svc = AsyncMock()
 
-            async def get_order(oid: str):
-                return _make_mock_order(oid) if oid in order_ids else None
+            async def get_features(oid: str):
+                if oid not in order_ids:
+                    return None
+                return {
+                    "order_number": oid.split(":")[-1],
+                    "order_status": "PICKING",
+                    "line_items": [
+                        {"product_name": "Carrots", "category": "Produce", "live_price": 1.8, "current_stock": 5}
+                    ],
+                }
 
-            svc.get_order = AsyncMock(side_effect=get_order)
+            svc.get_order_with_line_items = AsyncMock(side_effect=get_features)
             return svc
 
         return mock_service
@@ -730,7 +738,10 @@ class TestRerankedVectorSearchAPI:
         assert results[0]["delta"] == 1
         assert results[1]["order_id"] == "order:FM-1001"
         assert results[1]["delta"] == -1
-        assert set(data["timings"]) == {"retrieval_ms", "feature_fetch_ms", "rerank_ms"}
+        # the doc the model scored is the live MZ read; matched_text is the index hit
+        assert "Carrots (Produce, $1.80, in stock)" in results[0]["doc"]
+        assert results[0]["matched_text"]  # embedding_text from the kNN _source
+        assert set(data["timings"]) == {"embed_ms", "recall_ms", "feature_fetch_ms", "rerank_ms"}
 
     @pytest.mark.asyncio
     async def test_score_count_mismatch_returns_502(self, async_client: AsyncClient):

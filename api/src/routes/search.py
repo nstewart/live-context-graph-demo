@@ -458,18 +458,15 @@ RERANK_TIMEOUT = 30.0
 DEFAULT_RERANK_CANDIDATES = 25
 
 
-def _build_rerank_doc_parts(live: dict, line_items: list) -> dict:
-    """Assemble the document the cross-encoder reads, split by provenance so the
-    UI can show which parts came from where:
+def _build_rerank_doc(live: dict, line_items: list) -> str:
+    """Assemble the document the cross-encoder reads, entirely from a live
+    Materialize read: the order head (number + status) plus each item's name,
+    category, live price and current stock.
 
-      - ``mz``    — the order head (number + status), read live from Materialize
-                    at query time (the ``feature_fetch_ms`` stage).
-      - ``index`` — the line items (name, category, live price, stock), served
-                    from the OpenSearch ``_source`` retrieved in the kNN stage.
-
-    ``doc`` is the exact concatenation handed to the model (``mz`` + ``index``).
-    The business signals ride along in the input on purpose; a cross-encoder
-    weights query↔text relevance and may not act on them, but they are present.
+    The business signals (price/stock/status) are written into the model input
+    on purpose — they ride along fresh from Materialize, so editing a triple
+    changes what the reranker reads. A cross-encoder weights query↔text
+    relevance and may not act strongly on them, but they are in the input.
     """
     items = []
     for it in line_items:
@@ -495,15 +492,7 @@ def _build_rerank_doc_parts(live: dict, line_items: list) -> dict:
     status = live.get("order_status")
     if status:
         head += f", status {status}"
-
-    index_seg = "Items: " + "; ".join(items) if items else ""
-    doc = f"{head}. {index_seg}" if index_seg else head
-    return {"doc": doc, "mz": head, "index": index_seg}
-
-
-def _build_rerank_doc(live: dict, line_items: list) -> str:
-    """The exact string handed to the cross-encoder (mz head + indexed items)."""
-    return _build_rerank_doc_parts(live, line_items)["doc"]
+    return f"{head}. Items: " + "; ".join(items) if items else head
 
 
 @router.get("/vector/orders/reranked")
@@ -523,17 +512,24 @@ async def reranked_vector_search_orders(
     Returns both orderings + each candidate's rerank input/score + stage timings,
     so the UI can compare kNN vs reranked and show exactly what the model read.
     """
-    t0 = time.perf_counter()
+    # Stage 1a: embed the query. Timed separately from OpenSearch so a cold
+    # model load doesn't masquerade as slow retrieval.
+    t_embed = time.perf_counter()
     try:
         async with asyncio.timeout(EMBED_TIMEOUT):
             embedder = await asyncio.to_thread(get_query_embedder)
             vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
     except asyncio.TimeoutError:
         raise HTTPException(status_code=503, detail="Embedding model unavailable — check API logs.")
+    embed_ms = round((time.perf_counter() - t_embed) * 1000, 1)
 
+    # Stage 1b: kNN recall against OpenSearch. We only need the candidate's id
+    # and the embedding_text it matched on — the document the model scores is
+    # read fresh from Materialize below, not from the index.
+    t_recall = time.perf_counter()
     search_body = {
         "query": {"knn": {"embedding_text_embedding": {"vector": list(vector), "k": candidates}}},
-        "_source": ["order_id", "embedding_text", "line_items"],
+        "_source": ["order_id", "embedding_text"],
         "size": candidates,
     }
     try:
@@ -544,20 +540,22 @@ async def reranked_vector_search_orders(
                 headers={"Content-Type": "application/json"},
             )
             if resp.status_code == 404:
-                return {"query": q, "model": None, "results": [], "timings": {}}
+                return {"query": q, "model": None, "results": [], "timings": {"embed_ms": embed_ms}}
             resp.raise_for_status()
             os_result = resp.json()
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="OpenSearch is not available.")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"OpenSearch error: {e.response.text}")
-    retrieval_ms = round((time.perf_counter() - t0) * 1000, 1)
+    recall_ms = round((time.perf_counter() - t_recall) * 1000, 1)
 
     hits = os_result.get("hits", {}).get("hits", []) or []
     if not hits:
-        return {"query": q, "model": None, "results": [], "timings": {"retrieval_ms": retrieval_ms}}
+        return {"query": q, "model": None, "results": [],
+                "timings": {"embed_ms": embed_ms, "recall_ms": recall_ms}}
 
-    # Stage 2a: hydrate candidates from Materialize — the fresh feature fetch.
+    # Stage 2a: hydrate each candidate's document live from Materialize — order
+    # head + items with current price/stock. This is the fresh feature fetch.
     t1 = time.perf_counter()
 
     async def _hydrate(rank: int, hit: dict) -> dict | None:
@@ -566,24 +564,22 @@ async def reranked_vector_search_orders(
         if not order_id:
             return None
         try:
-            order = await service.get_order(order_id)
+            feat = await service.get_order_with_line_items(order_id)
         except Exception as e:
             logger.warning(f"Failed to hydrate order {order_id} from Materialize: {e}", exc_info=True)
             return None
-        if order is None:
+        if feat is None:
             return None
-        live = order.model_dump(mode="json")
-        line_items = _parse_line_items(source.get("line_items"))
-        parts = _build_rerank_doc_parts(live, line_items)
         return {
             "order_id": order_id,
-            "order_number": live.get("order_number") or order_id,
-            "status": live.get("order_status"),
+            "order_number": feat.get("order_number") or order_id,
+            "status": feat.get("order_status"),
             "knn_score": round(float(hit.get("_score", 0.0)), 4),
             "original_rank": rank,  # 1-based, in kNN order
-            "doc": parts["doc"],          # exact string the model scored
-            "doc_mz": parts["mz"],        # order head — live from Materialize
-            "doc_index": parts["index"],  # line items — from the search index
+            # The document the model scores — read live from Materialize.
+            "doc": _build_rerank_doc(feat, feat.get("line_items") or []),
+            # What kNN matched on — the text embedded at index time (OpenSearch).
+            "matched_text": source.get("embedding_text") or "",
         }
 
     hydrated = await asyncio.gather(*[_hydrate(i + 1, h) for i, h in enumerate(hits)])
@@ -591,7 +587,7 @@ async def reranked_vector_search_orders(
     feature_fetch_ms = round((time.perf_counter() - t1) * 1000, 1)
     if not cand:
         return {"query": q, "model": None, "results": [],
-                "timings": {"retrieval_ms": retrieval_ms, "feature_fetch_ms": feature_fetch_ms}}
+                "timings": {"embed_ms": embed_ms, "recall_ms": recall_ms, "feature_fetch_ms": feature_fetch_ms}}
 
     # Stage 2b: cross-encoder rerank over the fresh docs.
     t2 = time.perf_counter()
@@ -621,6 +617,11 @@ async def reranked_vector_search_orders(
         "model": payload.get("model"),
         "candidate_count": len(cand),
         "limit": limit,
-        "timings": {"retrieval_ms": retrieval_ms, "feature_fetch_ms": feature_fetch_ms, "rerank_ms": rerank_ms},
+        "timings": {
+            "embed_ms": embed_ms,
+            "recall_ms": recall_ms,
+            "feature_fetch_ms": feature_fetch_ms,
+            "rerank_ms": rerank_ms,
+        },
         "results": reranked,  # full candidate set in reranked order; UI shows top `limit`
     }

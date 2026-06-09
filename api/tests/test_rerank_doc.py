@@ -4,7 +4,7 @@ The cross-encoder reads this string per candidate; it must carry the fresh
 business signals (category, live price, stock, status) from Materialize.
 """
 
-from src.routes.search import _build_rerank_doc, _build_rerank_doc_parts
+from src.routes.search import _build_rerank_doc
 
 
 def _item(name=None, cat=None, price=None, stock=None):
@@ -40,25 +40,15 @@ def test_skips_items_without_a_name():
     assert "Mystery" not in doc
 
 
-def test_parts_split_mz_head_from_indexed_items():
-    """The order head is the Materialize segment; items are the index segment.
-    `doc` must be exactly the two concatenated (what the model scores)."""
-    parts = _build_rerank_doc_parts(
-        {"order_number": "FM-1", "order_status": "PICKING"},
-        [_item("Carrots Organic", "Produce", 1.8, 5)],
+def test_uses_live_price_and_stock_from_materialize_items():
+    """The doc reflects the dynamic price and current stock hydrated from MZ."""
+    doc = _build_rerank_doc(
+        {"order_number": "FM-7", "order_status": "PICKING"},
+        [
+            {"product_name": "Strawberries", "category": "Produce", "live_price": 6.50, "current_stock": 0},
+            {"product_name": "Bananas", "category": "Produce", "live_price": 0.59, "current_stock": 40},
+        ],
     )
-    assert parts["mz"] == "Order FM-1, status PICKING"
-    assert parts["index"] == "Items: Carrots Organic (Produce, $1.80, in stock)"
-    assert parts["doc"] == f"{parts['mz']}. {parts['index']}"
-    # The string the model reads is unchanged by the split.
-    assert parts["doc"] == _build_rerank_doc(
-        {"order_number": "FM-1", "order_status": "PICKING"},
-        [_item("Carrots Organic", "Produce", 1.8, 5)],
-    )
-
-
-def test_parts_index_empty_when_no_items():
-    """With no line items there's no index segment, and doc is just the head."""
-    parts = _build_rerank_doc_parts({"order_number": "FM-9", "order_status": "CREATED"}, [])
-    assert parts["index"] == ""
-    assert parts["doc"] == parts["mz"] == "Order FM-9, status CREATED"
+    assert doc.startswith("Order FM-7, status PICKING. Items:")
+    assert "Strawberries (Produce, $6.50, out of stock)" in doc
+    assert "Bananas (Produce, $0.59, in stock)" in doc

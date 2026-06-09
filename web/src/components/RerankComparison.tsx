@@ -18,16 +18,20 @@ function Source({ kind }: { kind: "mz" | "index" }) {
       className={`shrink-0 w-12 text-center rounded px-1 py-0.5 text-[10px] font-semibold border ${
         mz ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-gray-100 text-gray-500 border-gray-200"
       }`}
-      title={mz ? "Read live from Materialize at query time" : "Served from the OpenSearch index (kNN stage)"}
+      title={mz
+        ? "The document the cross-encoder scored — read live from Materialize at query time"
+        : "The text kNN matched on — embedded at index time (recall only, not scored)"}
     >
       {mz ? "MZ" : "index"}
     </span>
   );
 }
 
-// The three pipeline stages, in the order they run, as a proportional stacked bar.
+// The pipeline stages, in the order they run, as a proportional stacked bar.
+// embed + kNN recall are split out so a cold model load doesn't look like slow retrieval.
 const STAGES = [
-  { key: "retrieval_ms", label: "retrieve", bar: "bg-gray-300", dot: "bg-gray-300" },
+  { key: "embed_ms", label: "embed query", bar: "bg-sky-300", dot: "bg-sky-300" },
+  { key: "recall_ms", label: "kNN recall", bar: "bg-gray-300", dot: "bg-gray-300" },
   { key: "feature_fetch_ms", label: "features from MZ", bar: "bg-purple-500", dot: "bg-purple-500" },
   { key: "rerank_ms", label: "cross-encoder", bar: "bg-indigo-400", dot: "bg-indigo-400" },
 ] as const;
@@ -119,14 +123,14 @@ export function RerankComparison({ query }: { query: string }) {
         ) : error ? (
           <div className="py-6 text-center text-sm text-red-600">{error}</div>
         ) : rows.length === 0 ? (
-          <div className="py-6 text-center text-sm text-gray-500">No results.</div>
+          <div className="py-6 text-center text-sm text-gray-500">No candidates to rerank.</div>
         ) : (
           <table className="w-full border-collapse" style={{ fontSize: "12px" }}>
             <thead>
               <tr className="text-left text-gray-400 border-b border-gray-100">
                 <th className="pb-1 pr-3 font-medium whitespace-nowrap">Order</th>
                 <th className="pb-1 pr-3 font-medium whitespace-nowrap">① kNN</th>
-                <th className="pb-1 pr-3 font-medium">② Reranker input — what the model scored</th>
+                <th className="pb-1 pr-3 font-medium">② Reranker input — scored doc (MZ) vs what kNN matched (index)</th>
                 <th className="pb-1 font-medium whitespace-nowrap">③ Reranked</th>
               </tr>
             </thead>
@@ -142,18 +146,21 @@ export function RerankComparison({ query }: { query: string }) {
                     <div className="text-gray-400 font-mono">{c.knn_score.toFixed(3)}</div>
                   </td>
                   <td className="py-2 pr-3">
-                    {/* Same string the model scored, split by provenance:
-                        order head is a live Materialize read, items come from
-                        the search index. Badge colors echo the latency bar. */}
-                    <div className="bg-gray-50 rounded px-2 py-1.5 space-y-1 leading-relaxed">
+                    {/* Two sources, color-matched to the latency bar:
+                        [MZ] the document the cross-encoder actually scores, read
+                        live from Materialize; [index] the text kNN matched on,
+                        embedded at index time (recall only, not scored). */}
+                    <div className="bg-gray-50 rounded px-2 py-1.5 space-y-1.5 leading-relaxed">
                       <div className="flex gap-2">
                         <Source kind="mz" />
-                        <span className="text-gray-700 break-words">{c.doc_mz}</span>
+                        <span className="text-gray-700 break-words">{c.doc}</span>
                       </div>
-                      {c.doc_index && (
+                      {c.matched_text && (
                         <div className="flex gap-2">
                           <Source kind="index" />
-                          <span className="text-gray-700 break-words">{c.doc_index}</span>
+                          <span className="text-gray-400 break-words italic">
+                            matched: {c.matched_text}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -169,9 +176,10 @@ export function RerankComparison({ query }: { query: string }) {
           </table>
         )}
         <p className="mt-2 text-xs text-gray-400">
-          Each input is two reads: the <span className="text-purple-600 font-medium">order head</span> is fetched live
-          from Materialize (<b>{fmtMs(t.feature_fetch_ms)}</b>), the <span className="text-gray-500 font-medium">line
-          items</span> come from the search index alongside the kNN hit. The cross-encoder re-scores the concatenation.
+          OpenSearch picks the candidates by matching <span className="text-gray-500 font-medium">indexed text</span> (kNN
+          recall). The cross-encoder then scores a <span className="text-purple-600 font-medium">document read live from
+          Materialize</span> — status, items, current price and stock, hydrated in <b>{fmtMs(t.feature_fetch_ms)}</b> — so
+          editing a triple changes the ranking immediately, before the index catches up.
         </p>
         </div>
       </div>

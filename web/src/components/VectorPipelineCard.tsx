@@ -191,7 +191,6 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const [writeTrigger, setWriteTrigger]     = useState<{ mzLowerBound: number; wallClock: number } | null>(null);
   const [filterZone, setFilterZone]         = useState("");
   const [filterStatus, setFilterStatus]     = useState("");
-  const [rerankOn, setRerankOn]             = useState(false);
 
   // Keyed by order_id so they survive result reordering
   const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
@@ -362,15 +361,6 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
                   <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
                   <option value="DELIVERED">DELIVERED</option>
                 </select>
-                <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={rerankOn}
-                    onChange={e => setRerankOn(e.target.checked)}
-                    className="accent-purple-600"
-                  />
-                  Rerank (cross-encoder)
-                </label>
               </div>
               <div className="text-xs text-gray-500">
                 Try:{" "}
@@ -441,7 +431,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
             </div>
           </div>
 
-          {rerankOn && submittedQuery && <RerankComparison query={submittedQuery} />}
+          {submittedQuery && <RerankComparison query={submittedQuery} />}
 
         </div>
       )}

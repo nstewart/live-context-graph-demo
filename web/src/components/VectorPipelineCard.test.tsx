@@ -6,6 +6,11 @@ import { VectorPipelineCard } from './VectorPipelineCard'
 vi.mock('../api/client', () => ({
   searchApi: {
     vectorSearchOrders: vi.fn(),
+    // RerankComparison renders whenever a query is submitted and calls this;
+    // return an empty result set so it shows "No results." without erroring.
+    rerankedVectorSearch: vi.fn().mockResolvedValue({
+      data: { query: '', model: null, timings: {}, results: [] },
+    }),
     // The embedding-metrics ticker polls this; return an unavailable payload so
     // the ticker stays hidden and existing assertions are unaffected.
     embeddingMetrics: vi.fn().mockResolvedValue({

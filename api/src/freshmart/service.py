@@ -165,6 +165,60 @@ class FreshMartService:
             effective_updated_at=row.effective_updated_at,
         )
 
+    async def get_order_with_line_items(self, order_id: str) -> Optional[dict]:
+        """Order head + live line items in a single Materialize read.
+
+        Reads ``line_items`` straight from ``orders_with_lines_mv``, which joins
+        ``inventory_items_with_dynamic_pricing_mv`` — so each item's
+        ``live_price`` and ``current_stock`` reflect the *current* state in
+        Materialize, not the value last sunk to the search index. Used to
+        assemble the cross-encoder's document at query time, so editing a triple
+        (a price, a stock level) changes what the reranker reads immediately.
+        """
+        if self.use_materialize:
+            result = await self.session.execute(
+                text(
+                    """
+                    SELECT order_number, order_status, line_items
+                    FROM orders_with_lines_mv
+                    WHERE order_id = :order_id
+                    """
+                ),
+                {"order_id": order_id},
+            )
+            row = result.fetchone()
+            if not row:
+                return None
+            items = row.line_items
+            # jsonb may arrive already decoded (list) or as a JSON string.
+            if isinstance(items, str):
+                items = json.loads(items)
+            return {
+                "order_number": row.order_number,
+                "order_status": row.order_status,
+                "line_items": items if isinstance(items, list) else [],
+            }
+
+        # PostgreSQL fallback: order_lines_flat carries name/category/unit_price
+        # but no dynamic price or stock (those live only in the pricing views).
+        order = await self.get_order(order_id)
+        if order is None:
+            return None
+        lines = await self.list_order_lines(order_id)
+        return {
+            "order_number": order.order_number,
+            "order_status": order.order_status,
+            "line_items": [
+                {
+                    "product_name": ln.product_name,
+                    "category": ln.category,
+                    "unit_price": float(ln.unit_price) if ln.unit_price is not None else None,
+                    "current_stock": None,
+                }
+                for ln in lines
+            ],
+        }
+
     # =========================================================================
     # Inventory
     # =========================================================================
