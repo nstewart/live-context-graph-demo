@@ -694,4 +694,15 @@ export const searchApi = {
     apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
       params: { since_mz_timestamp },
     }),
+  embeddingMetrics: () =>
+    apiClient.get<EmbeddingMetrics>('/api/search/embedding-metrics'),
+}
+
+// Diff counters from the perfect-embeddings SMT (re-embeds skipped vs computed).
+export type EmbeddingMetrics = {
+  computed: number;
+  skipped: number;
+  possible: number;
+  skip_ratio: number;
+  available: boolean;
 }

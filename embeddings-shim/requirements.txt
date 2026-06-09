@@ -1,0 +1,11 @@
+# Web server. hypercorn (not uvicorn) because the perfect-embeddings SMT uses
+# java.net.http.HttpClient, which defaults to HTTP/2 and attempts an h2c
+# (cleartext HTTP/2) upgrade. uvicorn is HTTP/1.1-only and drops the request
+# body on that upgrade; hypercorn speaks HTTP/2 cleartext.
+fastapi==0.115.6
+hypercorn==0.17.3
+
+# Local CPU vector embeddings (BAAI/bge-small-en-v1.5, 384-dim, ONNX).
+# Pin range matches api/ so query-time and index-time vectors come from the
+# exact same model weights.
+fastembed>=0.3.6

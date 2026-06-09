@@ -1,0 +1,34 @@
+{
+  "name": "orders-opensearch-sink",
+  "config": {
+    "connector.class": "io.aiven.kafka.connect.opensearch.OpensearchSinkConnector",
+    "tasks.max": "1",
+    "topics": "orders",
+    "connection.url": "http://opensearch:9200",
+
+    "key.ignore": "false",
+    "schema.ignore": "true",
+    "behavior.on.null.values": "delete",
+    "behavior.on.version.conflict": "ignore",
+    "index.write.method": "upsert",
+
+    "transforms": "extractKey,embed,tsHeader",
+
+    "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.extractKey.field": "order_id",
+
+    "transforms.embed.type": "com.materialize.connect.smt.embedding.EmbeddingDiffTransform",
+    "transforms.embed.embedded.columns": "embedding_text",
+    "transforms.embed.provider": "openai",
+    "transforms.embed.openai.endpoint": "http://embeddings:8080/v1/embeddings",
+    "transforms.embed.openai.api.key": "local-no-key-needed",
+    "transforms.embed.openai.model": "BAAI/bge-small-en-v1.5",
+    "transforms.embed.openai.dimensions": "384",
+    "transforms.embed.metrics.id": "orders",
+
+    "transforms.tsHeader.type": "io.debezium.transforms.HeaderToValue",
+    "transforms.tsHeader.headers": "materialize-timestamp",
+    "transforms.tsHeader.fields": "mz_timestamp",
+    "transforms.tsHeader.operation": "copy"
+  }
+}

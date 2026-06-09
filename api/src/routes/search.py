@@ -5,12 +5,14 @@ to perform semantic searches across denormalized order documents.
 """
 
 import asyncio
+import json
 import logging
 import threading
 from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 
 from src.config import get_settings
 from src.freshmart.service import FreshMartService
@@ -26,6 +28,24 @@ settings = get_settings()
 DEFAULT_SEARCH_LIMIT = 5
 MAX_SEARCH_LIMIT = 20
 OPENSEARCH_TIMEOUT = 10.0
+
+
+def _parse_line_items(value: Any) -> list:
+    """Normalize the OpenSearch line_items field into a list.
+
+    Materialize sinks the jsonb line_items column to Kafka as a JSON string
+    (Avro string), so the OpenSearch _source carries a string. Older/other
+    paths may carry an actual list. Handle both; never raise.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
 
 
 # Module-level lazy-init embedder singleton. The fastembed model is heavyweight,
@@ -122,7 +142,7 @@ async def search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the opensearch and kafka-connect services are running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(f"OpenSearch returned error status {e.response.status_code}: {e.response.text}", exc_info=True)
@@ -181,24 +201,27 @@ async def vector_search_orders(
         search_body = {
             "query": {
                 "bool": {
-                    "must": {"knn": {"embedding": {"vector": list(vector), "k": limit}}},
+                    # Vector field is produced by the perfect-embeddings SMT,
+                    # which names its output <column>_embedding — here the
+                    # embedding_text column becomes embedding_text_embedding.
+                    "must": {"knn": {"embedding_text_embedding": {"vector": list(vector), "k": limit}}},
                     "filter": filters,
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", "embedding_text_embedding", "embedding_text", "line_items"],
             "size": limit,
         }
     else:
         search_body = {
             "query": {
                 "knn": {
-                    "embedding": {
+                    "embedding_text_embedding": {
                         "vector": list(vector),
                         "k": limit,
                     }
                 }
             },
-            "_source": ["order_id", "embedding", "embedding_text", "embedded_at", "line_items"],
+            "_source": ["order_id", "embedding_text_embedding", "embedding_text", "line_items"],
             "size": limit,
         }
 
@@ -223,7 +246,7 @@ async def vector_search_orders(
         logger.error(f"Failed to connect to OpenSearch: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="OpenSearch is not available. Ensure the search-sync service is running.",
+            detail="OpenSearch is not available. Ensure the opensearch and kafka-connect services are running.",
         )
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -271,13 +294,16 @@ async def vector_search_orders(
         merged.update({
             "order_id": order_id,
             "score": hit.get("_score"),
-            "embedding": source.get("embedding") or [],
+            # Response key stays "embedding" for the web; the source field is
+            # the SMT's embedding_text_embedding vector.
+            "embedding": source.get("embedding_text_embedding") or [],
             "embedding_text": source.get("embedding_text"),
-            "embedded_at": source.get("embedded_at"),
-            # Line items come from OpenSearch (indexed from Materialize CDC,
-            # <2s latency). They carry live_price, base_price, etc. because
-            # search-sync joins inventory_items_with_dynamic_pricing_mv.
-            "line_items": source.get("line_items") or [],
+            # Line items come from OpenSearch (indexed from Materialize CDC via
+            # the Kafka sink). They carry live_price, base_price, etc. because
+            # orders_with_lines_mv joins inventory_items_with_dynamic_pricing_mv.
+            # Materialize sinks the jsonb column as a JSON string, so parse it
+            # back into a list here.
+            "line_items": _parse_line_items(source.get("line_items")),
         })
         return merged
 
@@ -311,12 +337,19 @@ IMPACT_INDEXES = ["orders", "inventory"]
 
 @router.get("/impact")
 async def get_index_impact(
-    since_mz_timestamp: int = Query(..., description="mz_timestamp lower bound from write-triple"),
+    since_mz_timestamp: int = Query(..., description="epoch-ms lower bound from write-triple"),
 ) -> dict[str, Any]:
-    """Count documents re-indexed across all indexes at or after a given mz_timestamp.
+    """Count documents re-indexed across all indexes at or after a given timestamp.
 
     Queries both the orders and inventory indexes. Returns combined impacted/total
     counts plus a per-index breakdown.
+
+    `mz_timestamp` is stamped onto every doc by the Kafka Connect InsertField
+    transform from the Kafka record timestamp, which Materialize sets to the
+    change's logical timestamp (epoch ms). It advances on every re-index — including
+    cascade updates where a view's own `effective_updated_at` would not — so it
+    counts the true set of docs touched by a write. `since_mz_timestamp` is a
+    wall-clock epoch-ms lower bound captured just before the write.
     """
     range_query = {"query": {"range": {"mz_timestamp": {"gte": since_mz_timestamp}}}}
     try:
@@ -353,3 +386,64 @@ async def get_index_impact(
         raise HTTPException(status_code=502, detail=f"OpenSearch error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Embedding SMT metrics (via Jolokia) ───────────────────────────────────────
+
+JOLOKIA_TIMEOUT = 5.0
+
+# Stable ObjectName: the orders connector sets transforms.embed.metrics.id=orders.
+EMBEDDING_MBEAN = 'com.materialize.connect.smt.embedding:type=EmbeddingDiff,id="orders"'
+EMBEDDING_MBEAN_ATTRS = [
+    "EmbeddingsComputed",
+    "EmbeddingsSkipped",
+    "EmbeddingsPossible",
+    "SkipRatio",
+]
+
+_UNAVAILABLE = {"computed": 0, "skipped": 0, "possible": 0, "skip_ratio": 0.0, "available": False}
+
+
+class EmbeddingMetrics(BaseModel):
+    """Diff counters from the embedding SMT. `available` is False when the
+    MBean can't be read (Connect/Jolokia down, or connector not yet running)."""
+    computed: int
+    skipped: int
+    possible: int
+    skip_ratio: float
+    available: bool
+
+
+@router.get("/embedding-metrics", response_model=EmbeddingMetrics)
+async def embedding_metrics() -> EmbeddingMetrics:
+    """Read the embedding SMT's diff counters from the Connect worker via Jolokia.
+
+    Degrades gracefully: returns available=False with zeroed counters rather
+    than erroring, so the UI can render a neutral state.
+    """
+    url = f"{settings.jolokia_url}/jolokia/"
+    body = {"type": "read", "mbean": EMBEDDING_MBEAN, "attribute": EMBEDDING_MBEAN_ATTRS}
+    try:
+        async with httpx.AsyncClient(timeout=JOLOKIA_TIMEOUT) as client:
+            response = await client.post(url, json=body)
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("Jolokia embedding-metrics read failed: %s", e)
+        return EmbeddingMetrics(**_UNAVAILABLE)
+
+    # Guard the shape: a 200 with a non-dict value (or non-dict payload) must
+    # still degrade to available=False, not raise.
+    if not isinstance(payload, dict) or payload.get("status") != 200:
+        return EmbeddingMetrics(**_UNAVAILABLE)
+    value = payload.get("value")
+    if not isinstance(value, dict):
+        return EmbeddingMetrics(**_UNAVAILABLE)
+
+    return EmbeddingMetrics(
+        computed=int(value.get("EmbeddingsComputed", 0)),
+        skipped=int(value.get("EmbeddingsSkipped", 0)),
+        possible=int(value.get("EmbeddingsPossible", 0)),
+        skip_ratio=float(value.get("SkipRatio", 0.0)),
+        available=True,
+    )

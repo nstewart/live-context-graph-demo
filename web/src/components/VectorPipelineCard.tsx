@@ -193,7 +193,12 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
 
   // Keyed by order_id so they survive result reordering
   const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
-  const prevEmbeddedAtRef = useRef<Record<string, string | null | undefined>>({});
+  // The server no longer stamps embedded_at (the perfect-embeddings SMT adds the
+  // vector but no timestamp). We detect a re-embed by the embedding vector itself
+  // changing — prevEmbFpRef holds the last fingerprint, embedObservedAtRef the
+  // local time we last saw it change (used as the displayed "embedded at").
+  const prevEmbFpRef      = useRef<Record<string, string>>({});
+  const embedObservedAtRef = useRef<Record<string, string>>({});
   const refreshTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyResults = useCallback((newResults: VectorSearchResult[]) => {
@@ -214,9 +219,19 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
       prevPricesRef.current[id] = prevPrices;
       if (rowFlash.size > 0) newFlashedRows[resultIdx] = rowFlash;
 
-      const prevEmb = prevEmbeddedAtRef.current[id];
-      if (prevEmb !== undefined && prevEmb !== result.embedded_at) newFlashedEmbeddings.add(resultIdx);
-      prevEmbeddedAtRef.current[id] = result.embedded_at;
+      // Re-embed detection: the vector (hence its fingerprint) changes only when
+      // the SMT re-embeds. Flash on change; first sighting just records a baseline.
+      const fp = embeddingFingerprint(result.embedding);
+      const prevFp = prevEmbFpRef.current[id];
+      if (prevFp === undefined) {
+        embedObservedAtRef.current[id] = new Date().toISOString();
+      } else if (prevFp !== fp) {
+        newFlashedEmbeddings.add(resultIdx);
+        embedObservedAtRef.current[id] = new Date().toISOString();
+      }
+      prevEmbFpRef.current[id] = fp;
+      // Surface the observed embed time to the card (replaces server embedded_at).
+      result.embedded_at = embedObservedAtRef.current[id] ?? null;
     });
 
     setResults(newResults);

@@ -784,14 +784,20 @@ SELECT
         ) FILTER (WHERE ol.line_id IS NOT NULL),
         '[]'::jsonb
     ) AS line_items,
-    md5(COALESCE(
+    -- Canonical text representation of the order's line items. This is the
+    -- exact input the embedding model sees. We expose the raw text (not an
+    -- md5 hash as before) because the perfect-embeddings SMT diffs this column
+    -- between the Debezium before/after image to decide whether to re-embed:
+    -- if embedding_text is unchanged (e.g. a price-only edit) the SMT skips the
+    -- embeddings call and the existing vector is preserved in OpenSearch.
+    COALESCE(
         string_agg(
             ol.product_name || ' (' || COALESCE(ol.category, '') || ')',
             ' | '
             ORDER BY ol.line_sequence
         ) FILTER (WHERE ol.product_name IS NOT NULL AND ol.product_name <> ''),
         ''
-    )) AS embedding_hash,
+    ) AS embedding_text,
     COUNT(ol.line_id) AS line_item_count,
     SUM(ol.line_amount) AS computed_total,
     BOOL_OR(ol.perishable_flag) AS has_perishable_items,
@@ -1727,6 +1733,102 @@ echo ""
 echo "=== Order Count ==="
 COUNT=$(psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SET CLUSTER = serving; SELECT count(*) FROM orders_search_source_mv;")
 echo "Orders in Materialize: $COUNT"
+
+echo ""
+echo "Setting up Kafka sinks for the embedding pipeline (Redpanda)..."
+
+# Connections to Redpanda's Kafka API and its Confluent-compatible Schema
+# Registry. Redpanda exposes both; the broker's in-network listener is
+# redpanda:29092 and the schema registry is on :8081.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE CONNECTION IF NOT EXISTS kafka_connection TO KAFKA (
+    BROKER 'redpanda:29092',
+    SECURITY PROTOCOL = 'PLAINTEXT'
+);"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE CONNECTION IF NOT EXISTS csr_connection TO CONFLUENT SCHEMA REGISTRY (
+    URL 'http://redpanda:8081'
+);"
+
+# Sink-specific views. Materialize encodes numeric/DECIMAL columns as Avro
+# `decimal` (a bytes logical type); the OpenSearch sink then serializes those
+# bytes as base64 strings, which fail to index into float fields. Casting the
+# numeric columns to `double precision` makes Avro emit plain doubles. We keep
+# these as thin views over the app-facing MVs so the API/Zero are untouched.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS orders_sink_v IN CLUSTER compute AS
+SELECT
+    order_id, order_number, order_status, store_id, customer_id,
+    -- Normalize all timestamps to ISO-8601 UTC strings. Some of these columns
+    -- are raw text (delivery_window_*/delivery_eta), others are timestamptz;
+    -- left as-is they reach OpenSearch as Postgres text (unparseable by the
+    -- date field) or as epoch-micros longs (misread as millis). to_char gives
+    -- one consistent format OpenSearch's strict_date_optional_time parses.
+    to_char(delivery_window_start::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_window_start,
+    to_char(delivery_window_end::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_window_end,
+    to_char(order_created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS order_created_at,
+    order_total_amount::double precision AS order_total_amount,
+    customer_name, customer_email, customer_address,
+    store_name, store_zone, store_address,
+    assigned_courier_id, delivery_task_status,
+    to_char(delivery_eta::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS delivery_eta,
+    line_items, embedding_text, line_item_count,
+    computed_total::double precision AS computed_total,
+    has_perishable_items,
+    total_weight_kg::double precision AS total_weight_kg,
+    to_char(effective_updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS effective_updated_at
+FROM orders_with_lines_mv;"
+
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE MATERIALIZED VIEW IF NOT EXISTS inventory_sink_v IN CLUSTER compute AS
+SELECT
+    inventory_id, store_id, store_name, store_zone, product_id, product_name, category,
+    stock_level, reserved_quantity, available_quantity, perishable,
+    base_price::double precision AS base_price,
+    zone_adjustment::double precision AS zone_adjustment,
+    perishable_adjustment::double precision AS perishable_adjustment,
+    local_stock_adjustment::double precision AS local_stock_adjustment,
+    popularity_adjustment::double precision AS popularity_adjustment,
+    scarcity_adjustment::double precision AS scarcity_adjustment,
+    demand_multiplier::double precision AS demand_multiplier,
+    demand_premium::double precision AS demand_premium,
+    basket_adjustment::double precision AS basket_adjustment,
+    product_sale_count, product_total_stock,
+    live_price::double precision AS live_price,
+    price_change::double precision AS price_change,
+    to_char(effective_updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS effective_updated_at
+FROM inventory_items_with_dynamic_pricing_mv;"
+
+# Orders sink: ENVELOPE DEBEZIUM so the message carries both the before and
+# after image. The perfect-embeddings SMT in Kafka Connect needs that pair to
+# diff the embedding_text column and skip re-embedding when it is unchanged.
+# Topic name 'orders' == the OpenSearch index name the sink connector writes to.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE SINK IF NOT EXISTS orders_sink
+    IN CLUSTER ingest
+    FROM orders_sink_v
+    INTO KAFKA CONNECTION kafka_connection (TOPIC 'orders')
+    KEY (order_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
+    ENVELOPE DEBEZIUM;"
+
+# Inventory sink: also DEBEZIUM. Inventory is NOT embedded (no SMT), but the
+# propagation-tap consumer reads the before/after image to compute field-level
+# change events for the System Performance card. The OpenSearch sink connector
+# unwraps the 'after' image via a standard ExtractField transform.
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -c "
+CREATE SINK IF NOT EXISTS inventory_sink
+    IN CLUSTER ingest
+    FROM inventory_sink_v
+    INTO KAFKA CONNECTION kafka_connection (TOPIC 'inventory')
+    KEY (inventory_id) NOT ENFORCED
+    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_connection
+    ENVELOPE DEBEZIUM;"
+
+echo ""
+echo "=== Sinks ==="
+psql -h "$MZ_HOST" -p "$MZ_PORT" -U materialize -t -c "SELECT name, cluster FROM (SHOW SINKS);" || true
 
 echo ""
 echo "Materialize three-tier initialization complete!"
