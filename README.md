@@ -246,11 +246,11 @@ for hit in results:
 
 ## Cross-encoder reranking
 
-Vector kNN is a fast first stage (a bi-encoder embeds query and docs separately). The `/vector/orders/reranked` endpoint adds a second, more precise stage: a **cross-encoder** (`Xenova/ms-marco-MiniLM-L-6-v2`, served by the embeddings shim's `/rerank`) that jointly scores `(query, document)` pairs and reorders the candidate set.
+Vector search is fast but approximate — it embeds the query and each order independently and matches by nearest vector. Reranking adds a second, sharper pass. The `/vector/orders/reranked` endpoint takes the top candidates from vector search and re-scores them with a **cross-encoder** (`Xenova/ms-marco-MiniLM-L-6-v2`), a model that reads the query and an order *together* and judges relevance far more precisely than separately-embedded vectors can.
 
-The point — and the Materialize angle — is that the reranker reads a **document assembled fresh from Materialize per candidate**: each order's items, category, live price, stock, and status, hydrated in a single millisecond read (surfaced as the `features from MZ` timing). The business signals (price/stock/status) are written into the model input *on purpose* — they ride along current; a cross-encoder weights query↔text relevance so it may not act strongly on them, but they're in the input, fresh. Editing a triple changes what the reranker reads, so the reranked order updates live.
+What makes this practical in production is that the cross-encoder scores each order against its **current** state — line items, category, live price, stock, and status. Materialize keeps that context continuously up to date from the change stream, so there's no nightly rebuild and no staleness: edit an order and the next search reranks against the new reality. The latency breakdown surfaces the cost of each stage — retrieval, fetching the order context from Materialize, and the rerank itself — so you can see where the time goes.
 
-The Vector Pipeline card's **Rerank (cross-encoder)** toggle shows a row-per-candidate comparison: ① where kNN ranked it · ② the live-from-MZ document the model read + its cross-encoder score · ③ the reranked position and delta.
+Toggle **Rerank (cross-encoder)** on the Vector Pipeline card to compare the two side by side, row per candidate: ① where vector search ranked it · ② the document the model scored and its cross-encoder score · ③ the reranked position and how far it moved.
 
 ---
 
