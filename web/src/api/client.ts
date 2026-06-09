@@ -681,27 +681,6 @@ export type VectorSearchResponse = {
   total: number;
 }
 
-export const searchApi = {
-  searchOrders: (query: string, limit?: number) =>
-    apiClient.get<OpenSearchResponse>('/api/search/orders', {
-      params: { q: query, limit: limit || 5 },
-    }),
-  vectorSearchOrders: (query: string, limit?: number, filters?: { store_zone?: string; order_status?: string }) =>
-    apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
-      params: { q: query, limit: limit || 3, ...filters },
-    }),
-  indexImpact: (since_mz_timestamp: number) =>
-    apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
-      params: { since_mz_timestamp },
-    }),
-  embeddingMetrics: () =>
-    apiClient.get<EmbeddingMetrics>('/api/search/embedding-metrics'),
-  rerankedVectorSearch: (query: string, limit = 8, candidates = 25) =>
-    apiClient.get<RerankResponse>('/api/search/vector/orders/reranked', {
-      params: { q: query, limit, candidates },
-    }),
-}
-
 // Cross-encoder rerank: each candidate carries its kNN rank/score, the document
 // the model read (assembled fresh from Materialize), and its reranked position.
 export type RerankCandidate = {
@@ -723,6 +702,27 @@ export type RerankResponse = {
   limit?: number;
   timings: { retrieval_ms?: number; feature_fetch_ms?: number; rerank_ms?: number };
   results: RerankCandidate[];
+}
+
+export const searchApi = {
+  searchOrders: (query: string, limit?: number) =>
+    apiClient.get<OpenSearchResponse>('/api/search/orders', {
+      params: { q: query, limit: limit || 5 },
+    }),
+  vectorSearchOrders: (query: string, limit?: number, filters?: { store_zone?: string; order_status?: string }) =>
+    apiClient.get<VectorSearchResponse>('/api/search/vector/orders', {
+      params: { q: query, limit: limit || 3, ...filters },
+    }),
+  indexImpact: (since_mz_timestamp: number) =>
+    apiClient.get<{ impacted: number; total: number; pct: number }>('/api/search/impact', {
+      params: { since_mz_timestamp },
+    }),
+  embeddingMetrics: () =>
+    apiClient.get<EmbeddingMetrics>('/api/search/embedding-metrics'),
+  rerankedVectorSearch: (query: string, limit = 8, candidates = 25) =>
+    apiClient.get<RerankResponse>('/api/search/vector/orders/reranked', {
+      params: { q: query, limit, candidates },
+    }),
 }
 
 // Diff counters from the perfect-embeddings SMT (re-embeds skipped vs computed).

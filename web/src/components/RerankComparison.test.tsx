@@ -25,7 +25,7 @@ const response = {
 }
 
 describe('RerankComparison', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('renders nothing without a query', () => {
     const { container } = render(<RerankComparison query="" />)
@@ -34,7 +34,7 @@ describe('RerankComparison', () => {
   })
 
   it('shows candidates in reranked order with rank deltas, timings, and the doc', async () => {
-    vi.mocked(searchApi.rerankedVectorSearch).mockResolvedValue(response as never)
+    vi.mocked(searchApi.rerankedVectorSearch).mockResolvedValue(response as any)
     render(<RerankComparison query="veggies" />)
 
     await waitFor(() => expect(screen.getByText('#FM-000221')).toBeInTheDocument())

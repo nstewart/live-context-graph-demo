@@ -669,3 +669,125 @@ class TestIndexImpactAPI:
             )
         assert response.status_code == 200
         assert response.json()["pct"] == 0.0
+
+
+class TestRerankedVectorSearchAPI:
+    """Tests for GET /api/search/vector/orders/reranked.
+
+    The route makes two sequential posts: first the OpenSearch kNN recall, then
+    the shim's /rerank. We drive both via `mock_post.side_effect` (a 2-item list).
+    """
+
+    @staticmethod
+    def _service_for(order_ids):
+        async def mock_service():
+            svc = AsyncMock()
+
+            async def get_order(oid: str):
+                return _make_mock_order(oid) if oid in order_ids else None
+
+            svc.get_order = AsyncMock(side_effect=get_order)
+            return svc
+
+        return mock_service
+
+    @pytest.mark.asyncio
+    async def test_reranks_candidates_by_cross_encoder_score(self, async_client: AsyncClient):
+        """Candidates are reordered by the shim's scores; deltas reflect the move."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        order_ids = ["order:FM-1001", "order:FM-1002"]
+        os_resp = AsyncMock(status_code=200, json=lambda: _make_knn_response(order_ids))
+        os_resp.raise_for_status = lambda: None
+        # kNN order is [FM-1001, FM-1002]; the reranker prefers the second one.
+        rr_resp = AsyncMock(status_code=200, json=lambda: {"model": "x-enc", "scores": [0.10, 0.90]})
+        rr_resp.raise_for_status = lambda: None
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+            mock_post.side_effect = [os_resp, rr_resp]
+
+            app.dependency_overrides[get_freshmart_service] = self._service_for(order_ids)
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders/reranked", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model"] == "x-enc"
+        assert data["candidate_count"] == 2
+        results = data["results"]
+        # FM-1002 had the higher rerank score, so it must now be #1 (moved up 1).
+        assert results[0]["order_id"] == "order:FM-1002"
+        assert results[0]["new_rank"] == 1
+        assert results[0]["delta"] == 1
+        assert results[1]["order_id"] == "order:FM-1001"
+        assert results[1]["delta"] == -1
+        assert set(data["timings"]) == {"retrieval_ms", "feature_fetch_ms", "rerank_ms"}
+
+    @pytest.mark.asyncio
+    async def test_score_count_mismatch_returns_502(self, async_client: AsyncClient):
+        """A reranker returning the wrong number of scores is a 502, not a silent crash."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        order_ids = ["order:FM-1001", "order:FM-1002"]
+        os_resp = AsyncMock(status_code=200, json=lambda: _make_knn_response(order_ids))
+        os_resp.raise_for_status = lambda: None
+        # Two candidates, but the shim returns a single score.
+        rr_resp = AsyncMock(status_code=200, json=lambda: {"model": "x-enc", "scores": [0.5]})
+        rr_resp.raise_for_status = lambda: None
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+            mock_post.side_effect = [os_resp, rr_resp]
+
+            app.dependency_overrides[get_freshmart_service] = self._service_for(order_ids)
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders/reranked", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 502
+        assert "mismatched number of scores" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_empty_knn_returns_empty_results(self, async_client: AsyncClient):
+        """No kNN hits → empty results without ever calling the reranker."""
+        from src.main import app
+        from src.routes.freshmart import get_freshmart_service
+
+        os_resp = AsyncMock(status_code=200, json=lambda: _make_knn_response([]))
+        os_resp.raise_for_status = lambda: None
+
+        with patch("src.routes.search.get_query_embedder") as mock_get_embedder, \
+                patch("httpx.AsyncClient.post") as mock_post:
+            mock_embedder = MagicMock()
+            mock_embedder.embed.return_value = [[0.1] * 384]
+            mock_get_embedder.return_value = mock_embedder
+            mock_post.side_effect = [os_resp]
+
+            app.dependency_overrides[get_freshmart_service] = self._service_for([])
+            try:
+                response = await async_client.get(
+                    "/api/search/vector/orders/reranked", params={"q": "produce"}
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        assert response.json()["results"] == []
+        # Only the OpenSearch post happened — the reranker was never called.
+        assert mock_post.call_count == 1

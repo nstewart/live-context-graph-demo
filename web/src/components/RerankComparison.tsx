@@ -89,7 +89,15 @@ export function RerankComparison({ query }: { query: string }) {
         <StageLatency timings={t} />
       </div>
 
-      <div className="p-3 overflow-x-auto">
+      <div className="p-3 overflow-x-auto relative">
+        {/* A re-query keeps the previous results visible (data is still set);
+            dim them and show a spinner so it's clear a fresh fetch is in flight. */}
+        {loading && data && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
+            <span className="text-sm text-gray-500">Reranking…</span>
+          </div>
+        )}
+        <div className={loading && data ? "opacity-40 transition-opacity" : undefined}>
         {loading && !data ? (
           <div className="py-6 text-center text-sm text-gray-500">Reranking…</div>
         ) : error ? (
@@ -136,6 +144,7 @@ export function RerankComparison({ query }: { query: string }) {
           kNN gives the candidate set; the cross-encoder re-scores each on the document above — assembled fresh from
           Materialize (items · category · live price · stock · status) in <b>{fmtMs(t.feature_fetch_ms)}</b>.
         </p>
+        </div>
       </div>
     </div>
   );

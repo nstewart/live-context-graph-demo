@@ -29,6 +29,9 @@ settings = get_settings()
 DEFAULT_SEARCH_LIMIT = 5
 MAX_SEARCH_LIMIT = 20
 OPENSEARCH_TIMEOUT = 10.0
+# Single budget covering both the embedding model's lazy load and inference,
+# so a query-time embed can't hang the route for two back-to-back timeouts.
+EMBED_TIMEOUT = 30.0
 
 
 def _parse_line_items(value: Any) -> list:
@@ -183,9 +186,8 @@ async def vector_search_orders(
     Orders that no longer exist in Materialize (e.g. deleted) are dropped.
     """
     # 1. Embed query — run in a thread so the model load/inference doesn't block the event loop.
-    # Single 30s budget covers both model load and inference so the route can't hang for 60s.
     try:
-        async with asyncio.timeout(30):
+        async with asyncio.timeout(EMBED_TIMEOUT):
             embedder = await asyncio.to_thread(get_query_embedder)
             vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
     except asyncio.TimeoutError:
@@ -510,7 +512,7 @@ async def reranked_vector_search_orders(
     """
     t0 = time.perf_counter()
     try:
-        async with asyncio.timeout(30):
+        async with asyncio.timeout(EMBED_TIMEOUT):
             embedder = await asyncio.to_thread(get_query_embedder)
             vector = (await asyncio.to_thread(embedder.embed, [q]))[0]
     except asyncio.TimeoutError:
@@ -552,7 +554,8 @@ async def reranked_vector_search_orders(
             return None
         try:
             order = await service.get_order(order_id)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to hydrate order {order_id} from Materialize: {e}", exc_info=True)
             return None
         if order is None:
             return None

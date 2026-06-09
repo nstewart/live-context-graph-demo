@@ -23,6 +23,7 @@ search-sync worker for the Kafka/SMT path without re-indexing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -129,5 +130,8 @@ async def rerank(request: Request):
     if not documents:
         return {"model": RERANK_MODEL, "scores": []}
 
-    scores = [float(s) for s in get_reranker().rerank(query, documents)]
+    # rerank() is synchronous and CPU-bound — run it off the event loop so a
+    # single inference can't block other requests (mirrors the embed path).
+    raw_scores = await asyncio.to_thread(get_reranker().rerank, query, documents)
+    scores = [float(s) for s in raw_scores]
     return {"model": RERANK_MODEL, "scores": scores}
