@@ -89,7 +89,7 @@ up:
 	$(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) up -d --remove-orphans
 	@echo ""
 	@echo "Waiting for databases to be ready..."
 	@sleep 5
@@ -319,13 +319,13 @@ aws-debug:
 	@bash aws/debug.sh
 
 up-aws:
-	@bash aws/deploy.sh "docker compose up -d"
+	@bash aws/deploy.sh "docker compose up -d --remove-orphans"
 
 up-agent-aws:
-	@bash aws/deploy.sh "docker compose --profile agent up -d"
+	@bash aws/deploy.sh "docker compose --profile agent up -d --remove-orphans"
 
 up-agent-bundling-aws:
-	@ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d"
+	@ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d --remove-orphans"
 
 down-aws:
 	@bash aws/teardown.sh
