@@ -110,8 +110,6 @@ Read path (semantic search):
 
 Embedding is expensive, so the index must re-embed an order **only when the text that gets embedded actually changes** — never on a price, quantity, or status edit. This demo gets that property from [**perfect-embeddings**](https://github.com/MaterializeInc/perfect-embedding), a Kafka Connect SMT (Single Message Transform) that diffs Materialize change events and re-embeds only modified text columns.
 
-> **Migration note:** earlier versions of this demo did the same job in a Python `search-sync` worker that consumed Materialize `SUBSCRIBE` and compared an `md5` hash per order. That worker has been replaced by the Kafka pipeline below. The dedup *idea* is identical — what changed is **where** it runs (a reusable Connect SMT instead of bespoke Python) and **how** the "did the text change?" decision is made (the SMT diffs the `embedding_text` column straight off the Debezium before/after image, so no hash column is needed).
-
 ### Data Flow
 
 ```
@@ -256,7 +254,7 @@ Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connec
 
 - **`connect`** — Kafka Connect worker hosting the Aiven OpenSearch sink connector plus the [perfect-embeddings](https://github.com/MaterializeInc/perfect-embedding) SMT. The orders connector runs the `embed` SMT (re-embeds only when `embedding_text` changes); the inventory connector just unwraps the Debezium `after` image (no embeddings).
 - **`embeddings`** (`embeddings-shim/`) — OpenAI-compatible `/v1/embeddings` endpoint wrapping local `BAAI/bge-small-en-v1.5`. This is the "cheap local model" the SMT calls.
-- **`propagation-tap`** (`propagation-tap/`) — consumes the same Debezium topics and computes field-level change events from the before/after image, serving the `:8083` propagation API that powers the **System Performance** card. (The web UI is unchanged — same endpoints, same port.)
+- **`propagation-tap`** (`propagation-tap/`) — consumes the Debezium topics and computes field-level change events from the before/after image, serving the `:8083` propagation API that powers the **System Performance** card.
 - **`os-bootstrap` / `connect-bootstrap`** — one-shot init containers that create the OpenSearch index mappings (knn_vector + synonym analyzer) and register the sink connectors.
 - **Embedding savings metrics** — the SMT exposes diff counters (`EmbeddingsComputed` / `EmbeddingsSkipped`) as a JMX MBean; a Jolokia agent on `connect` exposes them over HTTP, the API reads them at `/api/search/embedding-metrics`, and the Vector Pipeline card shows a live "**N% embedding calls avoided**" ticker — the perfect-embeddings dedup payoff, quantified.
 
@@ -409,14 +407,9 @@ live-context-graph-demo/
 
 ## Known Limitations
 
-### Fields formerly stamped by the worker
+### Approximate embed time in the search card
 
-The old `search-sync` worker stamped two fields onto each OpenSearch doc:
-
-- **`mz_timestamp`** — recovered from Materialize's **`materialize-timestamp` Kafka header**, which every sink stamps with the **logical time** the change occurred (identical across the orders and inventory sinks for one write):
-  - *Into the doc:* the Connect `io.debezium.transforms.HeaderToValue` SMT (`tsHeader`) copies the header into each doc's `mz_timestamp` field. `/api/search/impact` ranges over it to count docs re-indexed since a write — including cascades (validated: a product-category change → 1 order + 10 inventory).
-  - *For propagation grouping:* the tap reads the same header, so a write's full effect (its orders *and* its inventory items) groups under one `mz_ts`. Because it's the logical time — not the per-sink emission time, which drifts tens of ms — the doc's `mz_timestamp` and the propagation `mz_ts` are the same value.
-- **`embedded_at` → embedding-vector change** — the "Hybrid Vector Search" card detects a re-embed by the embedding vector's fingerprint changing (which only happens when the SMT re-embeds), rather than a server `embedded_at` timestamp. The displayed embed time is the client-observed time of the last vector change; on first sighting it shows when the result entered the view rather than a historical server embed time.
+The "Hybrid Vector Search" card flashes a result when it is re-embedded (detected by the embedding vector changing) and shows the client-observed time of that change. There is no server-side per-embed timestamp, so on first sighting it shows when the result entered the view rather than a historical embed time.
 
 ### Avro ↔ OpenSearch type handling (sink views)
 
