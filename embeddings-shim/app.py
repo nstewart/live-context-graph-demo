@@ -30,18 +30,23 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastembed import TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("embeddings-shim")
 
 MODEL_NAME = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 EMBEDDING_DIM = int(os.environ.get("EMBED_DIM", "384"))
+# Cross-encoder reranker: jointly scores (query, document) pairs. Used by the
+# API's reranked vector search as a precision second stage over the kNN recall.
+RERANK_MODEL = os.environ.get("RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 
-app = FastAPI(title="Local OpenAI-compatible embeddings", version="1.0.0")
+app = FastAPI(title="Local OpenAI-compatible embeddings + reranker", version="1.0.0")
 
-# Lazy module-level singleton: constructing TextEmbedding downloads/loads the
-# ONNX model (~130MB, ~1s warm-up), so do it once and reuse across requests.
+# Lazy module-level singletons: constructing these downloads/loads ONNX models
+# (~130MB embed, ~90MB rerank), so do it once and reuse across requests.
 _model: TextEmbedding | None = None
+_reranker: TextCrossEncoder | None = None
 
 
 def get_model() -> TextEmbedding:
@@ -52,9 +57,17 @@ def get_model() -> TextEmbedding:
     return _model
 
 
+def get_reranker() -> TextCrossEncoder:
+    global _reranker
+    if _reranker is None:
+        logger.info("Loading cross-encoder reranker: %s", RERANK_MODEL)
+        _reranker = TextCrossEncoder(model_name=RERANK_MODEL)
+    return _reranker
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "model": MODEL_NAME, "dimensions": EMBEDDING_DIM}
+    return {"status": "ok", "model": MODEL_NAME, "dimensions": EMBEDDING_DIM, "rerank_model": RERANK_MODEL}
 
 
 @app.post("/v1/embeddings")
@@ -90,3 +103,31 @@ async def embeddings(request: Request):
         "data": data,
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
+
+
+@app.post("/rerank")
+async def rerank(request: Request):
+    """Cross-encoder rerank. Returns one relevance score per document, aligned
+    to input order, so the caller can reorder its candidate set.
+
+        request:  {"query": "<text>", "documents": ["<doc>", ...]}
+        response: {"model": "...", "scores": [<float>, ...]}
+    """
+    raw = await request.body()
+    try:
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        payload = {}
+
+    query = payload.get("query")
+    documents = payload.get("documents")
+    if not isinstance(query, str) or not isinstance(documents, list):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "expected {'query': str, 'documents': [str, ...]}"},
+        )
+    if not documents:
+        return {"model": RERANK_MODEL, "scores": []}
+
+    scores = [float(s) for s in get_reranker().rerank(query, documents)]
+    return {"model": RERANK_MODEL, "scores": scores}

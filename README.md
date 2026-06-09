@@ -244,6 +244,14 @@ for hit in results:
 
 **Replicating this pattern:** the structural insight is transport- and model-agnostic. Materialize emits a Debezium change stream; the perfect-embeddings SMT re-embeds only changed text columns; an UPSERT sink preserves untouched vectors. Swap the local shim for the real OpenAI API by changing `transforms.embed.openai.endpoint`/`api.key`; swap OpenSearch for Elasticsearch by using the Confluent ES sink (`write.method=UPSERT`).
 
+## Cross-encoder reranking
+
+Vector kNN is a fast first stage (a bi-encoder embeds query and docs separately). The `/vector/orders/reranked` endpoint adds a second, more precise stage: a **cross-encoder** (`Xenova/ms-marco-MiniLM-L-6-v2`, served by the embeddings shim's `/rerank`) that jointly scores `(query, document)` pairs and reorders the candidate set.
+
+The point — and the Materialize angle — is that the reranker reads a **document assembled fresh from Materialize per candidate**: each order's items, category, live price, stock, and status, hydrated in a single millisecond read (surfaced as the `features from MZ` timing). The business signals (price/stock/status) are written into the model input *on purpose* — they ride along current; a cross-encoder weights query↔text relevance so it may not act strongly on them, but they're in the input, fresh. Editing a triple changes what the reranker reads, so the reranked order updates live.
+
+The Vector Pipeline card's **Rerank (cross-encoder)** toggle shows a row-per-candidate comparison: ① where kNN ranked it · ② the live-from-MZ document the model read + its cross-encoder score · ③ the reranked position and delta.
+
 ---
 
 ## Core Components
@@ -263,6 +271,7 @@ Materialize sinks the `orders` and `inventory` views into Redpanda; Kafka Connec
 | Endpoint | Description |
 |----------|-------------|
 | `GET /vector/orders` | Embed query → kNN → hydrate from Materialize. Accepts `store_zone` and `order_status` filters for hybrid search. |
+| `GET /vector/orders/reranked` | Two-stage: kNN recall (`candidates`, default 25) → cross-encoder rerank. Returns both orderings + each candidate's rerank input/score + stage timings. |
 | `GET /impact?since_mz_timestamp=T` | Count docs re-indexed across orders + inventory since timestamp T. Returns combined impacted/total/pct plus per-index breakdown. All four OpenSearch `_count` calls run concurrently. |
 | `GET /index-stats` | Total doc count from OpenSearch |
 | `GET /embedding-metrics` | Embedding SMT diff counters (computed / skipped / skip ratio) read from the Connect worker via Jolokia. Degrades to `available:false` when Connect/Jolokia is down. |

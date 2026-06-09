@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # JMX diff counters over HTTP, read by /api/search/embedding-metrics.
     jolokia_url: str = "http://connect:8778"
 
+    # Local embeddings shim — its /rerank endpoint runs the cross-encoder used
+    # by the reranked vector search (second-stage precision over kNN recall).
+    rerank_url: str = "http://embeddings:8080/rerank"
+
     # Application
     log_level: str = "INFO"
     api_port: int = 8080
