@@ -47,9 +47,12 @@ describe('RerankComparison', () => {
     // the document the model read (fresh from MZ) is shown
     expect(screen.getByText(/Carrots Organic Bunch \(Produce, \$1.80, in stock\)/)).toBeInTheDocument()
 
-    // timing badges, incl. the MZ feature-fetch headline (shown in header + footer)
-    expect(screen.getAllByText('4 ms').length).toBeGreaterThan(0)
-    expect(screen.getByText('88 ms')).toBeInTheDocument()
+    // stacked latency bar: total + the three stage labels in the legend
+    expect(screen.getByText('response latency')).toBeInTheDocument()
+    expect(screen.getByText('104 ms')).toBeInTheDocument() // 12 + 4 + 88
+    expect(screen.getByText('retrieve')).toBeInTheDocument()
+    expect(screen.getByText('features from MZ')).toBeInTheDocument()
+    expect(screen.getByText('cross-encoder')).toBeInTheDocument()
     expect(searchApi.rerankedVectorSearch).toHaveBeenCalledWith('veggies')
   })
 

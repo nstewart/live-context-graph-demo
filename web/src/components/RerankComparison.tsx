@@ -9,6 +9,51 @@ function Delta({ delta }: { delta: number }) {
   return <span className="text-gray-400">—</span>;
 }
 
+// The three pipeline stages, in the order they run, as a proportional stacked bar.
+const STAGES = [
+  { key: "retrieval_ms", label: "retrieve", bar: "bg-gray-300", dot: "bg-gray-300" },
+  { key: "feature_fetch_ms", label: "features from MZ", bar: "bg-purple-500", dot: "bg-purple-500" },
+  { key: "rerank_ms", label: "cross-encoder", bar: "bg-indigo-400", dot: "bg-indigo-400" },
+] as const;
+
+function StageLatency({ timings }: { timings: Record<string, number | undefined> }) {
+  const segs = STAGES.map((s) => ({ ...s, ms: timings[s.key] ?? 0 })).filter((s) => s.ms > 0);
+  const total = segs.reduce((a, s) => a + s.ms, 0);
+  if (!total) return null;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] text-gray-500">response latency</span>
+        <span className="text-[11px] font-semibold text-gray-700">{fmtMs(Math.round(total))}</span>
+      </div>
+      <div className="flex h-5 w-full rounded overflow-hidden bg-gray-100">
+        {segs.map((s) => {
+          const pct = (s.ms / total) * 100;
+          return (
+            <div
+              key={s.key}
+              className={`${s.bar} flex items-center justify-center overflow-hidden`}
+              style={{ width: `${pct}%` }}
+              title={`${s.label}: ${Math.round(s.ms)} ms (${pct.toFixed(0)}%)`}
+            >
+              {pct >= 16 && <span className="px-1 text-[10px] font-medium text-white truncate">{Math.round(s.ms)}ms</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+        {segs.map((s) => (
+          <span key={s.key} className="flex items-center gap-1 text-[10px] text-gray-500">
+            <span className={`inline-block w-2 h-2 rounded-sm ${s.dot}`} />
+            <span>{s.label}</span>
+            <span className="font-mono text-gray-400">{Math.round(s.ms)}ms</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Two-stage retrieval comparison: kNN recall vs cross-encoder rerank.
  *  Row-per-candidate: ① where kNN ranked it · ② the document the reranker read
  *  (assembled live from Materialize) + the cross-encoder score · ③ new rank. */
@@ -36,14 +81,12 @@ export function RerankComparison({ query }: { query: string }) {
 
   return (
     <div className="border rounded-lg overflow-hidden mt-4">
-      <div className="bg-gray-50 px-4 py-2 border-b flex items-center gap-3 flex-wrap">
-        <span className="text-sm font-medium text-gray-700">Cross-Encoder Rerank</span>
-        {data?.model && <span className="font-mono text-xs text-gray-400">{data.model}</span>}
-        <span className="ml-auto flex items-center gap-3 text-xs text-gray-500">
-          <span>retrieve <b className="text-gray-700">{fmtMs(t.retrieval_ms)}</b></span>
-          <span className="text-purple-700">features from MZ <b>{fmtMs(t.feature_fetch_ms)}</b></span>
-          <span>cross-encoder <b className="text-gray-700">{fmtMs(t.rerank_ms)}</b></span>
-        </span>
+      <div className="bg-gray-50 px-4 py-2 border-b">
+        <div className="flex items-center gap-3 flex-wrap mb-2">
+          <span className="text-sm font-medium text-gray-700">Cross-Encoder Rerank</span>
+          {data?.model && <span className="font-mono text-xs text-gray-400">{data.model}</span>}
+        </div>
+        <StageLatency timings={t} />
       </div>
 
       <div className="p-3 overflow-x-auto">
