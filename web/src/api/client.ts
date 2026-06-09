@@ -689,7 +689,9 @@ export type RerankCandidate = {
   status: string | null;
   knn_score: number;
   original_rank: number;
-  doc: string;
+  doc: string;        // exact string the model scored (doc_mz + doc_index)
+  doc_mz: string;     // order head (number + status) — live from Materialize
+  doc_index: string;  // line items — from the OpenSearch index ("" if none)
   rerank_score: number;
   new_rank: number;
   delta: number; // >0 moved up vs kNN, <0 moved down

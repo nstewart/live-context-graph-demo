@@ -458,13 +458,18 @@ RERANK_TIMEOUT = 30.0
 DEFAULT_RERANK_CANDIDATES = 25
 
 
-def _build_rerank_doc(live: dict, line_items: list) -> str:
-    """Assemble the document the cross-encoder reads, from fresh Materialize
-    fields: each item's name, category, live price and stock, plus order status.
+def _build_rerank_doc_parts(live: dict, line_items: list) -> dict:
+    """Assemble the document the cross-encoder reads, split by provenance so the
+    UI can show which parts came from where:
 
-    The business signals (price/stock/status) are written into the model input
-    on purpose — they ride along fresh from Materialize. A cross-encoder weights
-    query↔text relevance and may not act on them, but they are in the input.
+      - ``mz``    — the order head (number + status), read live from Materialize
+                    at query time (the ``feature_fetch_ms`` stage).
+      - ``index`` — the line items (name, category, live price, stock), served
+                    from the OpenSearch ``_source`` retrieved in the kNN stage.
+
+    ``doc`` is the exact concatenation handed to the model (``mz`` + ``index``).
+    The business signals ride along in the input on purpose; a cross-encoder
+    weights query↔text relevance and may not act on them, but they are present.
     """
     items = []
     for it in line_items:
@@ -490,7 +495,15 @@ def _build_rerank_doc(live: dict, line_items: list) -> str:
     status = live.get("order_status")
     if status:
         head += f", status {status}"
-    return f"{head}. Items: " + "; ".join(items) if items else head
+
+    index_seg = "Items: " + "; ".join(items) if items else ""
+    doc = f"{head}. {index_seg}" if index_seg else head
+    return {"doc": doc, "mz": head, "index": index_seg}
+
+
+def _build_rerank_doc(live: dict, line_items: list) -> str:
+    """The exact string handed to the cross-encoder (mz head + indexed items)."""
+    return _build_rerank_doc_parts(live, line_items)["doc"]
 
 
 @router.get("/vector/orders/reranked")
@@ -561,13 +574,16 @@ async def reranked_vector_search_orders(
             return None
         live = order.model_dump(mode="json")
         line_items = _parse_line_items(source.get("line_items"))
+        parts = _build_rerank_doc_parts(live, line_items)
         return {
             "order_id": order_id,
             "order_number": live.get("order_number") or order_id,
             "status": live.get("order_status"),
             "knn_score": round(float(hit.get("_score", 0.0)), 4),
             "original_rank": rank,  # 1-based, in kNN order
-            "doc": _build_rerank_doc(live, line_items),
+            "doc": parts["doc"],          # exact string the model scored
+            "doc_mz": parts["mz"],        # order head — live from Materialize
+            "doc_index": parts["index"],  # line items — from the search index
         }
 
     hydrated = await asyncio.gather(*[_hydrate(i + 1, h) for i, h in enumerate(hits)])

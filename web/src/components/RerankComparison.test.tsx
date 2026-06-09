@@ -15,10 +15,16 @@ const response = {
     results: [
       // already in reranked (new_rank) order
       { order_id: 'order:FM-000221', order_number: 'FM-000221', status: 'CREATED',
-        knn_score: 0.663, original_rank: 5, doc: 'Order FM-000221. Items: Carrots Organic Bunch (Produce, $1.80, in stock)',
+        knn_score: 0.663, original_rank: 5,
+        doc: 'Order FM-000221, status CREATED. Items: Carrots Organic Bunch (Produce, $1.80, in stock)',
+        doc_mz: 'Order FM-000221, status CREATED',
+        doc_index: 'Items: Carrots Organic Bunch (Produce, $1.80, in stock)',
         rerank_score: 3.83, new_rank: 1, delta: 4 },
       { order_id: 'order:FM-000472', order_number: 'FM-000472', status: 'PICKING',
-        knn_score: 0.670, original_rank: 1, doc: 'Order FM-000472. Items: Veggie Straws 7oz (Snacks, $4.29, in stock)',
+        knn_score: 0.670, original_rank: 1,
+        doc: 'Order FM-000472, status PICKING. Items: Veggie Straws 7oz (Snacks, $4.29, in stock)',
+        doc_mz: 'Order FM-000472, status PICKING',
+        doc_index: 'Items: Veggie Straws 7oz (Snacks, $4.29, in stock)',
         rerank_score: 0.11, new_rank: 5, delta: -4 },
     ],
   },
@@ -44,8 +50,11 @@ describe('RerankComparison', () => {
     expect(screen.getByText('▲4')).toBeInTheDocument()   // FM-000221 moved up 4
     expect(screen.getByText('▼4')).toBeInTheDocument()   // FM-000472 moved down 4
 
-    // the document the model read (fresh from MZ) is shown
-    expect(screen.getByText(/Carrots Organic Bunch \(Produce, \$1.80, in stock\)/)).toBeInTheDocument()
+    // the input is split by provenance: MZ-sourced order head + index-sourced items
+    expect(screen.getByText('Order FM-000221, status CREATED')).toBeInTheDocument()
+    expect(screen.getByText(/Items: Carrots Organic Bunch \(Produce, \$1.80, in stock\)/)).toBeInTheDocument()
+    expect(screen.getAllByText('MZ')).toHaveLength(2)      // one per candidate
+    expect(screen.getAllByText('index')).toHaveLength(2)
 
     // stacked latency bar: total + the three stage labels in the legend
     expect(screen.getByText('response latency')).toBeInTheDocument()
