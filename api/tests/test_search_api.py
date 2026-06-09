@@ -418,7 +418,12 @@ class TestVectorSearchOrdersAPI:
 
     @pytest.mark.asyncio
     async def test_vector_search_response_shape(self, async_client: AsyncClient):
-        """Each result item has order_id, score, embedding_text, embedded_at."""
+        """Each result item has order_id, score, embedding_text, line_items.
+
+        (The server no longer stamps embedded_at — since the perfect-embeddings
+        SMT migration the embed time is observed client-side, so the route's
+        contract is the OS scoring fields + the live Materialize fields.)
+        """
         from src.main import app
         from src.routes.freshmart import get_freshmart_service
 
@@ -460,7 +465,9 @@ class TestVectorSearchOrdersAPI:
         assert "order_id" in item
         assert "score" in item
         assert "embedding_text" in item
-        assert "embedded_at" in item
+        assert "line_items" in item
+        # live Materialize fields are merged in
+        assert "order_status" in item
 
     @pytest.mark.asyncio
     async def test_vector_search_merges_live_data(self, async_client: AsyncClient):
