@@ -39,6 +39,7 @@ import {
   OrderLineItem,
   ViewDefinitionResponse,
 } from "../api/client";
+import { singleFlight } from "../api/singleFlight";
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
@@ -791,6 +792,11 @@ export default function QueryStatisticsPage() {
     }
   }, []);
 
+  // Guard the 1s poller so at most one batch of metric requests is ever in flight.
+  // Without this, a slow backend/tunnel lets ticks pile up faster than they drain
+  // and exhaust the browser's per-origin connection pool, stalling writes.
+  const fetchMetricsGuarded = useMemo(() => singleFlight(fetchMetrics), [fetchMetrics]);
+
   // Start polling
   const handleStartPolling = async () => {
     if (!selectedOrderId) return;
@@ -806,9 +812,9 @@ export default function QueryStatisticsPage() {
       setOrderData(null);
 
       // Start fetching metrics every second
-      metricsIntervalRef.current = window.setInterval(fetchMetrics, 1000);
+      metricsIntervalRef.current = window.setInterval(fetchMetricsGuarded, 1000);
       // Fetch immediately
-      fetchMetrics();
+      fetchMetricsGuarded();
     } catch (err) {
       console.error("Failed to start polling:", err);
       setError("Failed to start polling");

@@ -1,6 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
+import axios from "axios";
 import { Edit3 } from "lucide-react";
 import { queryStatsApi } from "../api/client";
+
+// Turn a thrown write error into a human-readable message. Previously every
+// failure surfaced a generic "Write failed", and a stalled request produced no
+// feedback at all — making a hung write look like a no-op.
+const describeWriteError = (err: unknown): string => {
+  if (axios.isAxiosError(err)) {
+    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
+      return "Timed out — backend may be slow or unreachable";
+    }
+    const detail = (err.response?.data as { detail?: string } | undefined)?.detail;
+    return detail ?? err.message;
+  }
+  return "Write failed";
+};
 
 const predicatesBySubjectType: Record<string, string[]> = {
   order: ['order_status', 'order_number', 'delivery_window_start', 'delivery_window_end'],
@@ -73,8 +88,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten, onWriteComplet
       if (res.data.mz_timestamp_lower_bound != null) {
         onWriteComplete?.(res.data.mz_timestamp_lower_bound, Date.now() / 1000);
       }
-    } catch {
-      flash("Write failed");
+    } catch (err) {
+      flash(`Error: ${describeWriteError(err)}`);
     }
   };
 
