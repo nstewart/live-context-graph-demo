@@ -12,8 +12,15 @@ const getApiUrl = (): string => {
 
 const API_URL = getApiUrl();
 
+// Default request timeout (ms). Without this, a stalled request (e.g. a slow or
+// half-open SSH tunnel to a remote backend) hangs forever instead of rejecting,
+// holding its socket open. Fixed-interval pollers can then exhaust the browser's
+// per-origin connection pool and silently stall unrelated requests like writes.
+export const API_TIMEOUT_MS = 15000;
+
 export const apiClient = axios.create({
   baseURL: API_URL,
+  timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
   },
