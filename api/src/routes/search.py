@@ -335,6 +335,56 @@ async def get_index_stats() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Force-merge (kNN recall maintenance) ──────────────────────────────────────
+# This demo deliberately keeps the frequently-changing price/stock fields in the
+# search doc so a single triple edit visibly updates a complex document — it's a
+# narrative choice, not a perf one. The cost: every order change UPSERTs the doc
+# and tombstones the prior Lucene version, and in a knn_vector index those dead
+# vectors linger in the per-segment HNSW graph. Once the deleted ratio is high,
+# approximate kNN traversal gets swamped by tombstones and recall collapses to a
+# handful of hits. Expunging deletes rebuilds the graph over only-live vectors.
+# The vector-search page triggers this on load so recall stays healthy live.
+FORCEMERGE_INDEX = "orders"
+FORCEMERGE_TIMEOUT = 60.0
+# Skip if we merged this recently — rapid reloads / StrictMode double-invokes
+# shouldn't stack merges (OpenSearch serializes them per shard anyway).
+FORCEMERGE_MIN_INTERVAL_S = 15.0
+
+_forcemerge_lock = asyncio.Lock()
+_forcemerge_last_run = 0.0
+
+
+@router.post("/force-merge")
+async def force_merge_search_index() -> dict[str, Any]:
+    """Expunge deleted docs from the orders index to keep kNN recall healthy.
+
+    Called when the vector-search page loads. Single-flight + debounced so rapid
+    reloads don't pile up merges. Degrades gracefully (never raises) so a merge
+    hiccup can't block the page from rendering.
+    """
+    global _forcemerge_last_run
+    if _forcemerge_lock.locked():
+        return {"triggered": False, "reason": "in_progress"}
+    if time.monotonic() - _forcemerge_last_run < FORCEMERGE_MIN_INTERVAL_S:
+        return {"triggered": False, "reason": "debounced"}
+    async with _forcemerge_lock:
+        # Re-check inside the lock to close the check-then-act race.
+        if time.monotonic() - _forcemerge_last_run < FORCEMERGE_MIN_INTERVAL_S:
+            return {"triggered": False, "reason": "debounced"}
+        try:
+            async with httpx.AsyncClient(timeout=FORCEMERGE_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{settings.os_url}/{FORCEMERGE_INDEX}/_forcemerge",
+                    params={"only_expunge_deletes": "true"},
+                )
+                resp.raise_for_status()
+            _forcemerge_last_run = time.monotonic()
+            return {"triggered": True}
+        except httpx.HTTPError as e:
+            logger.warning("force-merge of %s failed: %s", FORCEMERGE_INDEX, e)
+            return {"triggered": False, "reason": "error"}
+
+
 IMPACT_INDEXES = ["orders", "inventory"]
 
 

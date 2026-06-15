@@ -731,6 +731,10 @@ export const searchApi = {
     apiClient.get<RerankResponse>('/api/search/vector/orders/reranked', {
       params: { q: query, limit, candidates },
     }),
+  // Expunge deleted docs from the orders index so kNN recall stays healthy.
+  // Server-side single-flight + debounced; safe to call on every page load.
+  forceMergeSearchIndex: () =>
+    apiClient.post<{ triggered: boolean; reason?: string }>('/api/search/force-merge'),
 }
 
 // Diff counters from the perfect-embeddings SMT (re-embeds skipped vs computed).

@@ -809,3 +809,74 @@ class TestRerankedVectorSearchAPI:
         assert response.json()["results"] == []
         # Only the OpenSearch post happened — the reranker was never called.
         assert mock_post.call_count == 1
+
+
+class TestForceMergeAPI:
+    """Tests for POST /api/search/force-merge (kNN recall maintenance)."""
+
+    @staticmethod
+    def _mock_os_client(post_mock):
+        """Build a patch target for the route's outbound httpx.AsyncClient.
+
+        Patching the module's `httpx.AsyncClient` (rather than the class method)
+        avoids intercepting the test client's own POST to the app.
+        """
+        instance = MagicMock()
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        instance.post = post_mock
+        return patch("src.routes.search.httpx.AsyncClient", return_value=instance)
+
+    @pytest.mark.asyncio
+    async def test_force_merge_triggers_expunge_deletes(self, async_client: AsyncClient):
+        """A first call expunges deletes on the orders index and reports triggered."""
+        import src.routes.search as search
+
+        search._forcemerge_last_run = 0.0  # bypass debounce
+        resp_ok = MagicMock(status_code=200)
+        resp_ok.raise_for_status = lambda: None
+        post_mock = AsyncMock(return_value=resp_ok)
+
+        with self._mock_os_client(post_mock):
+            response = await async_client.post("/api/search/force-merge")
+
+        assert response.status_code == 200
+        assert response.json() == {"triggered": True}
+        # Hit the orders force-merge endpoint with only_expunge_deletes.
+        url = post_mock.call_args.args[0]
+        params = post_mock.call_args.kwargs["params"]
+        assert url.endswith("/orders/_forcemerge")
+        assert params == {"only_expunge_deletes": "true"}
+
+    @pytest.mark.asyncio
+    async def test_force_merge_debounced_within_interval(self, async_client: AsyncClient):
+        """A call soon after a prior merge is skipped without touching OpenSearch."""
+        import time
+
+        import src.routes.search as search
+
+        search._forcemerge_last_run = time.monotonic()  # just ran
+        post_mock = AsyncMock()
+
+        with self._mock_os_client(post_mock) as os_client:
+            response = await async_client.post("/api/search/force-merge")
+
+        assert response.status_code == 200
+        assert response.json() == {"triggered": False, "reason": "debounced"}
+        os_client.assert_not_called()  # no merge attempted
+
+    @pytest.mark.asyncio
+    async def test_force_merge_degrades_on_opensearch_error(self, async_client: AsyncClient):
+        """An OpenSearch failure never raises — the page must still render."""
+        import httpx
+
+        import src.routes.search as search
+
+        search._forcemerge_last_run = 0.0
+        post_mock = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+        with self._mock_os_client(post_mock):
+            response = await async_client.post("/api/search/force-merge")
+
+        assert response.status_code == 200
+        assert response.json() == {"triggered": False, "reason": "error"}
