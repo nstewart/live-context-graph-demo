@@ -795,7 +795,13 @@ export default function QueryStatisticsPage() {
   // Guard the 1s poller so at most one batch of metric requests is ever in flight.
   // Without this, a slow backend/tunnel lets ticks pile up faster than they drain
   // and exhaust the browser's per-origin connection pool, stalling writes.
-  const fetchMetricsGuarded = useMemo(() => singleFlight(fetchMetrics), [fetchMetrics]);
+  // useRef lazy-init guarantees exactly one guard per component instance, stable
+  // across re-renders regardless of whether fetchMetrics' identity ever changes.
+  const fetchMetricsGuardedRef = useRef<(() => Promise<void>) | null>(null);
+  if (fetchMetricsGuardedRef.current === null) {
+    fetchMetricsGuardedRef.current = singleFlight(fetchMetrics);
+  }
+  const fetchMetricsGuarded = fetchMetricsGuardedRef.current;
 
   // Start polling
   const handleStartPolling = async () => {
