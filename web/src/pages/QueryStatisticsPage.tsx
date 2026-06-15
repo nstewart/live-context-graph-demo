@@ -795,11 +795,15 @@ export default function QueryStatisticsPage() {
   // Guard the 1s poller so at most one batch of metric requests is ever in flight.
   // Without this, a slow backend/tunnel lets ticks pile up faster than they drain
   // and exhaust the browser's per-origin connection pool, stalling writes.
-  // useRef lazy-init guarantees exactly one guard per component instance, stable
-  // across re-renders regardless of whether fetchMetrics' identity ever changes.
+  //
+  // "latest-ref" pattern: the guard wrapper is created once per mount (stable inFlight
+  // flag), but always delegates to fetchMetricsLatestRef.current so it calls the
+  // current closure even if fetchMetrics gains dependencies in the future.
+  const fetchMetricsLatestRef = useRef(fetchMetrics);
+  fetchMetricsLatestRef.current = fetchMetrics;
   const fetchMetricsGuardedRef = useRef<(() => Promise<void>) | null>(null);
   if (fetchMetricsGuardedRef.current === null) {
-    fetchMetricsGuardedRef.current = singleFlight(fetchMetrics);
+    fetchMetricsGuardedRef.current = singleFlight(() => fetchMetricsLatestRef.current());
   }
   const fetchMetricsGuarded = fetchMetricsGuardedRef.current;
 
