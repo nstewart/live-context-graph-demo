@@ -625,28 +625,35 @@ async def measure_batch_query(order_id: str, store_id: Optional[str]):
 
         response_ms = (time.perf_counter() - start) * 1000
 
-        if order_row:
-            # Serialize the result (line_items is already enriched with pricing)
-            order_data = serialize_row(dict(order_row))
+        if not order_row:
+            # No row means the batch MV has no measurable data for this order
+            # (e.g. an order with no line items: the LATERAL over line_items
+            # yields nothing). Skip the sample entirely — previously this
+            # fabricated a reaction time of BATCH_REFRESH_INTERVAL * 1000, which
+            # pegged median/p99/max at a fake 60000ms and looked like a batch
+            # that never refreshes.
+            logger.debug(f"Batch query returned no row for order {order_id}; skipping sample")
+            return
 
-            # Update global state with lock protection
-            async with get_state_lock():
-                latest_order_data["batch_cache"] = order_data
+        # Serialize the result (line_items is already enriched with pricing)
+        order_data = serialize_row(dict(order_row))
 
-            # Reaction time = now - effective_updated_at
-            # This shows how stale the data is (up to 60 seconds between refreshes)
-            effective_updated = order_data.get("effective_updated_at")
-            if effective_updated:
-                try:
-                    updated_at = parse_effective_updated_at(effective_updated)
-                    reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
-                except (ValueError, TypeError, AttributeError) as e:
-                    logger.warning(f"Failed to parse timestamp for reaction time: {e}")
-                    reaction_ms = BATCH_REFRESH_INTERVAL * 1000
-            else:
-                reaction_ms = BATCH_REFRESH_INTERVAL * 1000  # Fallback if no timestamp
+        # Update global state with lock protection
+        async with get_state_lock():
+            latest_order_data["batch_cache"] = order_data
+
+        # Reaction time = now - effective_updated_at
+        # This shows how stale the data is (up to 60 seconds between refreshes)
+        effective_updated = order_data.get("effective_updated_at")
+        if effective_updated:
+            try:
+                updated_at = parse_effective_updated_at(effective_updated)
+                reaction_ms = (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(f"Failed to parse timestamp for reaction time: {e}")
+                reaction_ms = response_ms
         else:
-            reaction_ms = BATCH_REFRESH_INTERVAL * 1000  # No data yet
+            reaction_ms = response_ms  # No timestamp — mirror the PG/MZ paths
 
         metrics_store["batch_cache"].record(response_ms, reaction_ms)
     except asyncio.CancelledError:
@@ -771,6 +778,14 @@ async def list_orders():
                 text("""
                     SELECT order_id, order_number, order_status, customer_name, store_name, store_id
                     FROM orders_with_lines_mv
+                    -- Only surface orders that are actually measurable in the
+                    -- comparison. An order with no line items makes the batch/PG
+                    -- point-lookup queries (LATERAL over line_items) return no
+                    -- row — which pegs batch reaction time at the fallback and
+                    -- leaves the heartbeat with no product to pulse. Also drop
+                    -- E2E test orders, which are throwaway fixtures.
+                    WHERE line_item_count > 0
+                      AND order_id NOT LIKE 'order:FM-E2E-%'
                     ORDER BY effective_updated_at DESC
                     LIMIT 50
                 """)
