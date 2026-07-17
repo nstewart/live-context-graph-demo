@@ -199,8 +199,10 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const [filterZone, setFilterZone]         = useState("");
   const [filterStatus, setFilterStatus]     = useState("");
 
-  // Keyed by order_id so they survive result reordering
-  const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
+  // Keyed by order_id so they survive result reordering. Holds a per-line
+  // signature of every field the row displays (name, category, qty, price) so a
+  // change to ANY of them flashes the row — not just a price change.
+  const prevRowSigRef     = useRef<Record<string, Record<number, string>>>({});
   // The server no longer stamps embedded_at (the perfect-embeddings SMT adds the
   // vector but no timestamp). We detect a re-embed by the embedding vector itself
   // changing — prevEmbFpRef holds the last fingerprint, embedObservedAtRef the
@@ -222,16 +224,19 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
 
     newResults.forEach((result, resultIdx) => {
       const id = result.order_id;
-      const prevPrices = prevPricesRef.current[id] ?? {};
+      const prevSigs = prevRowSigRef.current[id] ?? {};
       const rowFlash = new Set<number>();
 
       (result.line_items ?? []).forEach((item, lineIdx) => {
-        const prev = prevPrices[lineIdx];
-        const curr = item.live_price ?? item.unit_price ?? 0;
+        // Signature over every field the row renders, so editing the product
+        // name (or category/qty), not just the price, flashes the row.
+        const price = item.live_price ?? item.unit_price ?? 0;
+        const curr = [item.product_name ?? "", item.category ?? "", item.quantity ?? "", price].join("|");
+        const prev = prevSigs[lineIdx];
         if (prev !== undefined && prev !== curr) rowFlash.add(lineIdx);
-        prevPrices[lineIdx] = curr;
+        prevSigs[lineIdx] = curr;
       });
-      prevPricesRef.current[id] = prevPrices;
+      prevRowSigRef.current[id] = prevSigs;
       if (rowFlash.size > 0) newFlashedRows[resultIdx] = rowFlash;
 
       // Re-embed detection: the vector (hence its fingerprint) changes only when
