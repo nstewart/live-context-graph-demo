@@ -176,6 +176,13 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSel
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+// Explicit searches show the top few by relevance; the silent value-refresh
+// re-queries a much wider window so it can still find (and update) a pinned
+// order that has fallen in rank. Kept ≤ MAX_SEARCH_LIMIT on the API.
+const EXPLICIT_SEARCH_LIMIT = 5;
+const REFRESH_SEARCH_LIMIT = 50;
+const MIN_SCORE = 0.6;
+
 export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpanded?: boolean }) => {
   const [isExpanded, setIsExpanded]         = useState(defaultExpanded);
   const [searchQuery, setSearchQuery]       = useState("");
@@ -192,8 +199,10 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const [filterZone, setFilterZone]         = useState("");
   const [filterStatus, setFilterStatus]     = useState("");
 
-  // Keyed by order_id so they survive result reordering
-  const prevPricesRef     = useRef<Record<string, Record<number, number>>>({});
+  // Keyed by order_id so they survive result reordering. Holds a per-line
+  // signature of every field the row displays (name, category, qty, price) so a
+  // change to ANY of them flashes the row — not just a price change.
+  const prevRowSigRef     = useRef<Record<string, Record<number, string>>>({});
   // The server no longer stamps embedded_at (the perfect-embeddings SMT adds the
   // vector but no timestamp). We detect a re-embed by the embedding vector itself
   // changing — prevEmbFpRef holds the last fingerprint, embedObservedAtRef the
@@ -201,6 +210,13 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const prevEmbFpRef      = useRef<Record<string, string>>({});
   const embedObservedAtRef = useRef<Record<string, string>>({});
   const refreshTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The displayed result set is *pinned*: its membership and order are fixed by
+  // the last explicit search. The silent auto-refresh only updates each pinned
+  // order's live values in place — it never re-ranks. pinnedIdsRef holds that
+  // frozen order; displayedByIdRef is the last-shown value for each id, used as
+  // a fallback for a pinned order that dropped out of the refresh window.
+  const pinnedIdsRef      = useRef<string[]>([]);
+  const displayedByIdRef  = useRef<Record<string, VectorSearchResult>>({});
 
   const applyResults = useCallback((newResults: VectorSearchResult[]) => {
     const newFlashedRows: Record<number, Set<number>> = {};
@@ -208,16 +224,19 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
 
     newResults.forEach((result, resultIdx) => {
       const id = result.order_id;
-      const prevPrices = prevPricesRef.current[id] ?? {};
+      const prevSigs = prevRowSigRef.current[id] ?? {};
       const rowFlash = new Set<number>();
 
       (result.line_items ?? []).forEach((item, lineIdx) => {
-        const prev = prevPrices[lineIdx];
-        const curr = item.live_price ?? item.unit_price ?? 0;
+        // Signature over every field the row renders, so editing the product
+        // name (or category/qty), not just the price, flashes the row.
+        const price = item.live_price ?? item.unit_price ?? 0;
+        const curr = [item.product_name ?? "", item.category ?? "", item.quantity ?? "", price].join("|");
+        const prev = prevSigs[lineIdx];
         if (prev !== undefined && prev !== curr) rowFlash.add(lineIdx);
-        prevPrices[lineIdx] = curr;
+        prevSigs[lineIdx] = curr;
       });
-      prevPricesRef.current[id] = prevPrices;
+      prevRowSigRef.current[id] = prevSigs;
       if (rowFlash.size > 0) newFlashedRows[resultIdx] = rowFlash;
 
       // Re-embed detection: the vector (hence its fingerprint) changes only when
@@ -235,6 +254,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
       result.embedded_at = embedObservedAtRef.current[id] ?? null;
     });
 
+    displayedByIdRef.current = Object.fromEntries(newResults.map(r => [r.order_id, r]));
     setResults(newResults);
     setLastRefresh(new Date());
 
@@ -251,6 +271,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const executeSearch = useCallback(async (query: string, silent = false) => {
     if (!query) {
       setResults([]); setSearchError(null); setSubmittedQuery(""); setHasSearched(false);
+      pinnedIdsRef.current = []; displayedByIdRef.current = {};
       return;
     }
     if (!silent) { setIsSearching(true); setSearchError(null); setSubmittedQuery(query); setHasSearched(true); }
@@ -259,26 +280,46 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
         ...(filterZone ? { store_zone: filterZone } : {}),
         ...(filterStatus ? { order_status: filterStatus } : {}),
       };
-      const response = await searchApi.vectorSearchOrders(query, 5, filters);
-      applyResults((response.data.results ?? []).filter(r => r.score >= 0.6));
+      if (!silent) {
+        // Explicit search: this is the ONLY path that (re-)ranks. Take the top
+        // matches by relevance and pin that set + order for the value-refresh.
+        const response = await searchApi.vectorSearchOrders(query, EXPLICIT_SEARCH_LIMIT, filters);
+        const ranked = (response.data.results ?? []).filter(r => r.score >= MIN_SCORE);
+        pinnedIdsRef.current = ranked.map(r => r.order_id);
+        applyResults(ranked);
+      } else {
+        // Silent refresh: update the pinned orders' live values in place without
+        // re-ranking. Query a wide window and reconcile by order_id so an order
+        // that has fallen in rank still refreshes; the MIN_SCORE gate does not
+        // apply here (a pinned order whose score dropped must still update, not
+        // vanish). Orders that fell out of the window keep their last values.
+        if (pinnedIdsRef.current.length === 0) return;
+        const response = await searchApi.vectorSearchOrders(query, REFRESH_SEARCH_LIMIT, filters);
+        const freshById = new Map((response.data.results ?? []).map(r => [r.order_id, r]));
+        const reconciled = pinnedIdsRef.current
+          .map(id => freshById.get(id) ?? displayedByIdRef.current[id])
+          .filter((r): r is VectorSearchResult => Boolean(r));
+        applyResults(reconciled);
+      }
     } catch (err) {
       if (!silent) {
         console.error("Vector search failed:", err);
         setSearchError("Vector search unavailable. Ensure OpenSearch and the embedding service are running.");
         setResults([]);
+        pinnedIdsRef.current = []; displayedByIdRef.current = {};
       }
     } finally {
       if (!silent) setIsSearching(false);
     }
   }, [applyResults, filterZone, filterStatus]);
 
-  // Auto-refresh every 5s after a successful search
+  // Auto-refresh every 2s after a successful search
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     if (!submittedQuery) return;
     refreshTimerRef.current = setInterval(() => {
       executeSearch(submittedQuery, true);
-    }, 5000);
+    }, 2000);
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
   }, [submittedQuery, executeSearch]);
 

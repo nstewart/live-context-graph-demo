@@ -27,7 +27,11 @@ settings = get_settings()
 
 # Constants for search configuration
 DEFAULT_SEARCH_LIMIT = 5
-MAX_SEARCH_LIMIT = 20
+# Raised from 20 to give the vector-search UI's live value-refresh room to find
+# pinned orders that have fallen in rank: the page freezes the displayed result
+# set and only re-ranks on an explicit search, but keeps refreshing each pinned
+# order's live values by re-querying a wide window and reconciling by order_id.
+MAX_SEARCH_LIMIT = 50
 OPENSEARCH_TIMEOUT = 10.0
 # Single budget covering both the embedding model's lazy load and inference,
 # so a query-time embed can't hang the route for two back-to-back timeouts.

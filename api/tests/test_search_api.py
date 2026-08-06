@@ -7,6 +7,7 @@ import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src.routes.search import MAX_SEARCH_LIMIT
 from tests.conftest import requires_db
 
 
@@ -104,9 +105,9 @@ class TestSearchOrdersAPI:
         )
         assert response.status_code == 422
 
-        # Test limit too large
+        # Test limit too large (one past the configured maximum)
         response = await async_client.get(
-            "/api/search/orders", params={"q": "test", "limit": 21}
+            "/api/search/orders", params={"q": "test", "limit": MAX_SEARCH_LIMIT + 1}
         )
         assert response.status_code == 422
 
