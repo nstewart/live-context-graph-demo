@@ -1058,6 +1058,10 @@ ALLOWED_VIEWS = {
     "inventory_items_with_dynamic_pricing",
     "inventory_items_with_dynamic_pricing_mv",
     "store_inventory_mv",
+    # The two views the Kafka sinks read from, one per OpenSearch collection.
+    # These are what actually feed search; the lineage graph shows them as gold.
+    "orders_sink_v",
+    "inventory_sink_v",
 }
 
 # Map catalog type to SHOW CREATE syntax

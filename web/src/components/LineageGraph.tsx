@@ -534,7 +534,17 @@ const nodeDefinitions: Array<{
   { id: 'orders_with_lines_mv', label: 'orders_with_lines_mv', type: 'mv', highlighted: true, medallionLayer: 'silver' },
   { id: 'inventory_items_with_dynamic_pricing', label: 'dynamic_pricing', type: 'view', medallionLayer: 'gold' },
   { id: 'inventory_items_with_dynamic_pricing_mv', label: 'dynamic_pricing_mv', type: 'mv', highlighted: true, medallionLayer: 'gold' },
+  // The views the Kafka sinks read from — one per OpenSearch collection. Only
+  // drawn in the RAG architecture, where gold means "what actually feeds search".
+  { id: 'orders_sink_v', label: 'orders_sink_v', type: 'mv', highlighted: true, medallionLayer: 'gold' },
+  { id: 'inventory_sink_v', label: 'inventory_sink_v', type: 'mv', highlighted: true, medallionLayer: 'gold' },
 ];
+
+// Nodes that exist only in the RAG architecture
+const SINK_VIEW_IDS = ['orders_sink_v', 'inventory_sink_v'];
+// Dynamic pricing is gold elsewhere, but in the RAG architecture it's an
+// intermediate step: the sink views downstream of it are what search reads.
+const PRICING_IDS = ['inventory_items_with_dynamic_pricing', 'inventory_items_with_dynamic_pricing_mv'];
 
 // Lineage edge definitions
 const edgeDefinitions = [
@@ -560,12 +570,18 @@ const edgeDefinitions = [
   { source: 'orders_flat_mv', target: 'inventory_items_with_dynamic_pricing' },
   { source: 'order_lines_flat_mv', target: 'inventory_items_with_dynamic_pricing' },
   { source: 'inventory_items_with_dynamic_pricing', target: 'inventory_items_with_dynamic_pricing_mv' },
+  // Each sink view projects one silver MV into the shape its OpenSearch
+  // collection expects (ISO timestamps, float casts, embedding_text).
+  { source: 'orders_with_lines_mv', target: 'orders_sink_v' },
+  { source: 'inventory_items_with_dynamic_pricing_mv', target: 'inventory_sink_v' },
 ];
 
 const edgeStyle = { stroke: '#94a3b8', strokeWidth: 2 };
 
 // Node dimensions for dagre layout
 const NODE_WIDTH = 168;
+// Mirrors the dagre ranksep below; used when pinning columns after layout.
+const RANK_SEP = 50;
 const NODE_HEIGHT = 44;
 const BAND_PADDING_X = 12;
 const BAND_PADDING_Y = 32;
@@ -626,17 +642,35 @@ function getLayoutedElements(
             return { ...n, medallionLayer: 'biz_logic' as MedallionLayer };
           return n;
         })
-    : isTripleSource
+    : isRagArchitecture
       ? nodeDefs
           .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
-          .map((n) => (n.id === 'triples' ? { ...n, label: 'Agent Writes & Memories' } : n))
-      : nodeDefs.filter((n) => n.id !== 'triples');
+          .map((n) => {
+            if (n.id === 'triples') return { ...n, label: 'Agent Writes & Memories' };
+            // Gold is reserved for what search actually reads, so the pricing
+            // views drop back to silver alongside the other served MVs.
+            if (PRICING_IDS.includes(n.id))
+              return { ...n, medallionLayer: 'silver' as MedallionLayer, highlighted: false };
+            return n;
+          })
+      : isTripleSource
+        ? nodeDefs
+            .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
+            .filter((n) => !SINK_VIEW_IDS.includes(n.id))
+            .map((n) => (n.id === 'triples' ? { ...n, label: 'Agent Writes & Memories' } : n))
+        : nodeDefs
+            .filter((n) => n.id !== 'triples')
+            .filter((n) => !SINK_VIEW_IDS.includes(n.id));
 
   // Triple-store scenarios keep the original triples → X edges; the others fan
-  // them out to the per-system sources.
-  const effectiveEdgeDefs = isTripleSource
+  // them out to the per-system sources. Sink-view edges are RAG-only.
+  const withoutSinkEdges = isRagArchitecture
     ? edgeDefs
-    : edgeDefs.map((e) =>
+    : edgeDefs.filter((e) => !SINK_VIEW_IDS.includes(e.target));
+
+  const effectiveEdgeDefs = isTripleSource
+    ? withoutSinkEdges
+    : withoutSinkEdges.map((e) =>
         e.source === 'triples'
           ? { ...e, source: tripleSourceMap[e.target] ?? e.source }
           : e
@@ -644,7 +678,7 @@ function getLayoutedElements(
 
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: 50, marginx: 10, marginy: 20 });
+  dagreGraph.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: RANK_SEP, marginx: 10, marginy: 20 });
 
   // Add lineage nodes + source_systems_box to dagre for layout
   effectiveNodeDefs.forEach((node) => {
@@ -653,31 +687,40 @@ function getLayoutedElements(
   effectiveEdgeDefs.forEach((edge) => {
     dagreGraph.setEdge(edge.source, edge.target);
   });
-  dagreGraph.setNode('source_systems_box', { width: SS_W, height: SS_H });
-  // Anchor source_systems_box to source nodes so they all end up at the same dagre rank
-  if (isTripleSource) {
-    dagreGraph.setEdge('source_systems_box', 'triples');
-  } else {
-    dagreGraph.setEdge('source_systems_box', 'src_customers');
-    dagreGraph.setEdge('source_systems_box', 'src_operations');
-    dagreGraph.setEdge('source_systems_box', 'src_courier');
+  // The RAG architecture drops the Source Systems box entirely — the agent
+  // writes straight into the sources column — which also buys the horizontal
+  // room the two gold sink views need.
+  if (!isRagArchitecture) {
+    dagreGraph.setNode('source_systems_box', { width: SS_W, height: SS_H });
+    // Anchor source_systems_box to source nodes so they all end up at the same dagre rank
+    if (isTripleSource) {
+      dagreGraph.setEdge('source_systems_box', 'triples');
+    } else {
+      dagreGraph.setEdge('source_systems_box', 'src_customers');
+      dagreGraph.setEdge('source_systems_box', 'src_operations');
+      dagreGraph.setEdge('source_systems_box', 'src_courier');
+    }
   }
-  // Anchor destination_systems_box to gold/silver outputs for layout.
+  // Anchor destination_systems_box to whatever actually feeds it: the sink views
+  // in the RAG architecture, the served MVs elsewhere.
   // Added in both materialize and batch so the bronze/silver/gold placement is identical;
   // the visual node and band are only rendered in Materialize.
   if (!isPostgres) {
     dagreGraph.setNode('destination_systems_box', { width: DS_W, height: DS_H });
-    dagreGraph.setEdge('store_inventory_mv', 'destination_systems_box');
-    dagreGraph.setEdge('orders_with_lines_mv', 'destination_systems_box');
-    dagreGraph.setEdge('inventory_items_with_dynamic_pricing_mv', 'destination_systems_box');
+    const feeders = isRagArchitecture
+      ? SINK_VIEW_IDS
+      : ['store_inventory_mv', 'orders_with_lines_mv', 'inventory_items_with_dynamic_pricing_mv'];
+    feeders.forEach((id) => dagreGraph.setEdge(id, 'destination_systems_box'));
   }
 
   dagre.layout(dagreGraph);
 
   // Pin source nodes to be evenly distributed within the source_systems_box vertical span,
   // and aligned to the same x column. This makes the layout identical across all scenarios.
-  const ssPos = dagreGraph.node('source_systems_box');
-  if (!isTripleSource) {
+  const ssPos = isRagArchitecture ? null : dagreGraph.node('source_systems_box');
+  // ssPos is always set when !isTripleSource (only the RAG scenario drops the
+  // box, and it is a triple-source scenario); the check is for the type checker.
+  if (ssPos && !isTripleSource) {
     const orderedSourceIds = ['src_customers', 'src_operations', 'src_courier'];
     const minX = Math.min(...orderedSourceIds.map(id => dagreGraph.node(id).x));
     const spacing = (SS_H - NODE_HEIGHT) / (orderedSourceIds.length - 1);
@@ -686,6 +729,29 @@ function getLayoutedElements(
       const n = dagreGraph.node(id);
       dagreGraph.setNode(id, { ...n, x: minX, y: startY + i * spacing });
     });
+  }
+
+  // dagre ranks by longest path, so the pricing chain (store_inventory_mv →
+  // dynamic_pricing → dynamic_pricing_mv) is one hop longer than the orders
+  // chain and lands dynamic_pricing_mv in the same column as orders_sink_v.
+  // Since the swim-lane bands are drawn as x-ranges over their members, that
+  // makes the silver band overlap gold. Pin both sink views to one column clear
+  // of every silver node so the gold column reads as its own stage.
+  if (isRagArchitecture) {
+    const silverXs = effectiveNodeDefs
+      .filter((n) => n.medallionLayer === 'silver')
+      .map((n) => dagreGraph.node(n.id).x);
+    if (silverXs.length > 0) {
+      const goldX = Math.max(...silverXs) + NODE_WIDTH + RANK_SEP;
+      SINK_VIEW_IDS.forEach((id) => {
+        const n = dagreGraph.node(id);
+        dagreGraph.setNode(id, { ...n, x: Math.max(n.x, goldX) });
+      });
+      // Keep the destination clear of the column we just moved
+      const ds = dagreGraph.node('destination_systems_box');
+      const dsMinX = goldX + NODE_WIDTH / 2 + RANK_SEP + DS_W / 2;
+      if (ds && ds.x < dsMinX) dagreGraph.setNode('destination_systems_box', { ...ds, x: dsMinX });
+    }
   }
 
   // Compute bounding boxes per medallion layer and overall graph
@@ -710,11 +776,15 @@ function getLayoutedElements(
     b.maxX = Math.max(b.maxX, pos.x + NODE_WIDTH / 2);
   });
 
-  // Include source_systems_box in graph + layer bounds
-  graphMinY = Math.min(graphMinY, ssPos.y - SS_H / 2);
-  graphMaxY = Math.max(graphMaxY, ssPos.y + SS_H / 2);
-  layerBounds.source_systems.minX = ssPos.x - SS_W / 2;
-  layerBounds.source_systems.maxX = ssPos.x + SS_W / 2;
+  // Include source_systems_box in graph + layer bounds. Absent in the RAG
+  // architecture, which leaves source_systems at Infinity so its band is
+  // filtered out below along with the box itself.
+  if (ssPos) {
+    graphMinY = Math.min(graphMinY, ssPos.y - SS_H / 2);
+    graphMaxY = Math.max(graphMaxY, ssPos.y + SS_H / 2);
+    layerBounds.source_systems.minX = ssPos.x - SS_W / 2;
+    layerBounds.source_systems.maxX = ssPos.x + SS_W / 2;
+  }
 
   // Include destination_systems_box in graph height bounds for both materialize and batch
   // (keeps canvas size identical). Only populate layerBounds for Materialize so the band
@@ -802,9 +872,12 @@ function getLayoutedElements(
     focusable: false,
   };
 
-  // Floating Agent + MCP nodes above the graph
+  // Floating Agent + MCP nodes above the graph. The agent normally sits over the
+  // Source Systems box; without one it anchors over the sources column it now
+  // writes into directly.
   const floatY = wrapperTop - FLOAT_GAP - AGENT_H;
-  const ssCenterX = (layerBounds.source_systems.minX + layerBounds.source_systems.maxX) / 2;
+  const agentAnchor = ssPos ? layerBounds.source_systems : layerBounds.sources;
+  const ssCenterX = (agentAnchor.minX + agentAnchor.maxX) / 2;
   const wrapperCenterX = wrapperLeft + wrapperWidth / 2;
 
   const agentNode: Node = {
@@ -835,8 +908,8 @@ function getLayoutedElements(
     focusable: false,
   };
 
-  // Source Systems box node
-  const sourceSysNode: Node = {
+  // Source Systems box node (omitted in the RAG architecture)
+  const sourceSysNode: Node | null = ssPos ? {
     id: 'source_systems_box',
     type: 'source_systems_node',
     position: { x: ssPos.x - SS_W / 2, y: ssPos.y - SS_H / 2 },
@@ -848,7 +921,7 @@ function getLayoutedElements(
     selectable: false,
     draggable: false,
     focusable: false,
-  };
+  } : null;
 
   // Destination box node (Materialize only). The triple-store architecture
   // serves a vector DB, so it swaps the generic destinations column for that.
@@ -881,13 +954,19 @@ function getLayoutedElements(
       style = { ...style, border: '3px solid #059669', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' };
     }
 
+    // The agent's Act edge comes down from above, so the triple store takes its
+    // incoming edge on top rather than the left. Safe because the box that used
+    // to feed it from the left is gone in this scenario — nothing else targets
+    // triples, every other edge treats it as a source.
+    const takesWritesFromAbove = isRagArchitecture && nodeDef.id === 'triples';
+
     return {
       id: nodeDef.id,
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
       data: { label: nodeDef.label },
       style,
       sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      targetPosition: takesWritesFromAbove ? Position.Top : Position.Left,
       zIndex: 1,
     };
   });
@@ -915,17 +994,21 @@ function getLayoutedElements(
     };
   });
 
-  // Overlay edges: source systems data flow + agent/MCP interactions
+  // Overlay edges: source systems data flow + agent/MCP interactions.
+  // The RAG architecture has no Source Systems box, so none of its feed edges
+  // exist there — the agent's Act edge reaches the sources column directly.
   const overlayEdges: Edge[] = [
-    {
-      id: 'e-src-triples',
-      source: 'source_systems_box',
-      target: isTripleSource ? 'triples' : 'src_operations',
-      sourceHandle: 'right',
-      style: edgeStyle,
-      animated: true,
-      zIndex: 1,
-    },
+    ...(!isRagArchitecture ? [
+      {
+        id: 'e-src-triples',
+        source: 'source_systems_box',
+        target: isTripleSource ? 'triples' : 'src_operations',
+        sourceHandle: 'right',
+        style: edgeStyle,
+        animated: true,
+        zIndex: 1,
+      },
+    ] : []),
     ...(!isTripleSource ? [
       {
         id: 'e-src-customers',
@@ -984,45 +1067,44 @@ function getLayoutedElements(
     {
       id: 'e-agent-src',
       source: '__agent__',
-      target: 'source_systems_box',
+      // Without a Source Systems box the agent writes straight into the
+      // sources column, which is where its writes and memories land anyway.
+      target: isRagArchitecture ? 'triples' : 'source_systems_box',
       sourceHandle: 'bottom',
-      targetHandle: 'top',
-      label: 'Act',
+      ...(isRagArchitecture ? {} : { targetHandle: 'top' }),
+      // Unlabelled in the RAG architecture: the node it lands on already says
+      // "Agent Writes & Memories", so "Act" is just noise on a short edge.
+      label: isRagArchitecture ? undefined : 'Act',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700, transform: 'translateY(-48px)' },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85, transform: 'translateY(-48px)' },
       animated: true,
       zIndex: 3,
     },
-    ...(isMaterialize ? [
-      {
-        id: 'e-silver-store-dst',
-        source: 'store_inventory_mv',
-        target: 'destination_systems_box',
-        style: edgeStyle,
-        animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-        zIndex: 1,
-      },
-      {
-        id: 'e-silver-orders-dst',
-        source: 'orders_with_lines_mv',
-        target: 'destination_systems_box',
-        style: edgeStyle,
-        animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-        zIndex: 1,
-      },
-      {
-        id: 'e-gold-dst',
-        source: 'inventory_items_with_dynamic_pricing_mv',
-        target: 'destination_systems_box',
-        style: edgeStyle,
-        animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-        zIndex: 1,
-      },
-    ] : []),
+    // What actually reaches the destination. In the RAG architecture that's the
+    // two sink views — one per OpenSearch collection — not the MVs upstream of
+    // them, which reach search only by way of a sink.
+    ...(isMaterialize
+      ? (isRagArchitecture
+          ? [
+              { id: 'e-orders-sink-dst', source: 'orders_sink_v' },
+              { id: 'e-inventory-sink-dst', source: 'inventory_sink_v' },
+            ]
+          : [
+              { id: 'e-silver-store-dst', source: 'store_inventory_mv' },
+              { id: 'e-silver-orders-dst', source: 'orders_with_lines_mv' },
+              { id: 'e-gold-dst', source: 'inventory_items_with_dynamic_pricing_mv' },
+            ]
+        ).map(({ id, source }) => ({
+          id,
+          source,
+          target: 'destination_systems_box',
+          style: edgeStyle,
+          animated: true,
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+          zIndex: 1,
+        }))
+      : []),
     {
       id: 'e-mcp-wrapper',
       source: isMaterialize ? '__fgac__' : isBatch ? '__olap__' : '__source_wrapper__',
@@ -1040,7 +1122,15 @@ function getLayoutedElements(
   ];
 
   return {
-    nodes: [...bandNodes, outerBandNode, agentNode, mcpNode, sourceSysNode, ...(destinationSysNode ? [destinationSysNode] : []), ...nodes],
+    nodes: [
+      ...bandNodes,
+      outerBandNode,
+      agentNode,
+      mcpNode,
+      ...(sourceSysNode ? [sourceSysNode] : []),
+      ...(destinationSysNode ? [destinationSysNode] : []),
+      ...nodes,
+    ],
     edges: [...edges, ...overlayEdges],
   };
 }

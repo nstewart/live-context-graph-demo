@@ -84,8 +84,9 @@ describe('LineageGraph scenarios', () => {
     // Step 2: the same line that used to say "Observe" now names the enrichment
     expect(byId['e-agent-mcp'].label).toBe('\u2461 Features from MZ + rerank')
 
-    // Act is deliberately untouched
-    expect(byId['e-agent-src'].label).toBe('Act')
+    // The write edge survives but sheds its label; see the sources-column test
+    expect(byId['e-agent-src']).toBeTruthy()
+    expect(byId['e-agent-src'].label).toBeUndefined()
   })
 
   it('keeps the plain observe/act loop in the default materialize scenario', () => {
@@ -93,23 +94,103 @@ describe('LineageGraph scenarios', () => {
     const byId = Object.fromEntries(edges.map((e) => [e.id, e]))
 
     expect(byId['e-agent-mcp'].label).toBe('Observe')
-    expect(byId['e-agent-src'].label).toBe('Act')
+    expect(byId['e-agent-src'].label).toBe('Act')  // still labelled on the home page
     expect(byId['e-vectordb-agent']).toBeUndefined()
   })
 
-  it('keeps the vector store fed by the live medallion views', () => {
+  it('feeds the vector store from the sink views, not the MVs upstream', () => {
     const { edges } = buildLineageLayout('materialize_triples')
     const intoVectorDb = edges
       .filter((e) => e.target === 'destination_systems_box')
       .map((e) => e.source)
+      .sort()
 
-    expect(intoVectorDb).toEqual(
-      expect.arrayContaining([
-        'store_inventory_mv',
-        'orders_with_lines_mv',
-        'inventory_items_with_dynamic_pricing_mv',
-      ])
-    )
+    // One sink view per OpenSearch collection. store_inventory_mv and
+    // orders_with_lines_mv reach search only by way of a sink, so they must not
+    // be drawn as feeding it directly.
+    expect(intoVectorDb).toEqual(['inventory_sink_v', 'orders_sink_v'])
+  })
+
+  it('puts the sink views in gold and dynamic pricing back in silver', () => {
+    const { nodes } = buildLineageLayout('materialize_triples')
+    const bandFor = (layer: string) => nodes.find((n) => n.id === `__band__${layer}`)
+
+    // Both bands are drawn, and gold sits to the right of silver
+    expect(bandFor('gold')).toBeTruthy()
+    expect(bandFor('silver')).toBeTruthy()
+    expect(bandFor('gold')!.position.x).toBeGreaterThan(bandFor('silver')!.position.x)
+
+    const xOf = (id: string) => nodes.find((n) => n.id === id)!.position.x
+    const goldLeft = bandFor('gold')!.position.x
+
+    // The sink views are the only nodes in the gold column...
+    expect(xOf('orders_sink_v')).toBeGreaterThanOrEqual(goldLeft)
+    expect(xOf('inventory_sink_v')).toBeGreaterThanOrEqual(goldLeft)
+    // ...and dynamic pricing has moved left of it, into silver
+    expect(xOf('inventory_items_with_dynamic_pricing_mv')).toBeLessThan(goldLeft)
+    expect(xOf('inventory_items_with_dynamic_pricing')).toBeLessThan(goldLeft)
+  })
+
+  it('keeps the medallion bands from overlapping', () => {
+    const { nodes } = buildLineageLayout('materialize_triples')
+    const span = (layer: string) => {
+      const b = nodes.find((n) => n.id === `__band__${layer}`)!
+      return [b.position.x, b.position.x + Number(b.style!.width)]
+    }
+
+    // dagre ranks the pricing chain one hop longer than the orders chain, which
+    // would otherwise stretch silver across gold. Each band must end before the
+    // next begins, or the swim lanes read as mush.
+    const order = ['sources', 'bronze', 'silver', 'gold', 'destination_systems']
+    for (let i = 0; i < order.length - 1; i++) {
+      const [, end] = span(order[i])
+      const [nextStart] = span(order[i + 1])
+      expect(end).toBeLessThanOrEqual(nextStart)
+    }
+  })
+
+  it('chains each silver MV into its own sink view', () => {
+    const { edges } = buildLineageLayout('materialize_triples')
+    const pairs = edges.map((e) => `${e.source}->${e.target}`)
+
+    expect(pairs).toContain('orders_with_lines_mv->orders_sink_v')
+    expect(pairs).toContain('inventory_items_with_dynamic_pricing_mv->inventory_sink_v')
+  })
+
+  it('drops the source systems box and writes straight into the sources column', () => {
+    const { nodes, edges } = buildLineageLayout('materialize_triples')
+
+    expect(nodes.find((n) => n.id === 'source_systems_box')).toBeUndefined()
+    expect(nodes.find((n) => n.id === '__band__source_systems')).toBeUndefined()
+    expect(edges.find((e) => e.id === 'e-src-triples')).toBeUndefined()
+
+    // Act now lands on the triple store itself, entering from above
+    const act = edges.find((e) => e.id === 'e-agent-src')!
+    expect(act.source).toBe('__agent__')
+    expect(act.target).toBe('triples')
+    // Unlabelled here — the target node already reads "Agent Writes & Memories"
+    expect(act.label).toBeUndefined()
+
+    // The agent sits above the node, so the write arrives on the top edge
+    const triples = nodes.find((n) => n.id === 'triples')!
+    expect(triples.targetPosition).toBe('top')
+    // Everything else still flows left-to-right
+    expect(nodes.find((n) => n.id === 'orders_sink_v')!.targetPosition).toBe('left')
+  })
+
+  it('leaves the default materialize scenario structurally untouched', () => {
+    const { nodes, edges } = buildLineageLayout('materialize')
+
+    // Source systems box and its feeds survive
+    expect(nodes.find((n) => n.id === 'source_systems_box')).toBeTruthy()
+    expect(edges.find((e) => e.id === 'e-agent-src')!.target).toBe('source_systems_box')
+    // Sink views are RAG-only
+    expect(nodes.find((n) => n.id === 'orders_sink_v')).toBeUndefined()
+    expect(nodes.find((n) => n.id === 'inventory_sink_v')).toBeUndefined()
+    // And the destinations column keeps its original three feeds
+    const intoDest = edges.filter((e) => e.target === 'destination_systems_box').map((e) => e.source)
+    expect(intoDest).toHaveLength(3)
+    expect(intoDest).toContain('inventory_items_with_dynamic_pricing_mv')
   })
 
   it('reports the clicked node id', async () => {
