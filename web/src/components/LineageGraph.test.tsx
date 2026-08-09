@@ -193,6 +193,25 @@ describe('LineageGraph scenarios', () => {
     expect(intoDest).toContain('inventory_items_with_dynamic_pricing_mv')
   })
 
+  it('leaves the postgres query-offload scenario structurally untouched', () => {
+    const { nodes } = buildLineageLayout('postgres')
+
+    // Sink views are RAG-only. Postgres has no destination column for them to
+    // feed, so their edges are filtered out — leaving them as orphans at dagre
+    // rank 0 if the nodes come through, which drags the biz_logic band left
+    // across "Base Tables".
+    expect(nodes.find((n) => n.id === 'orders_sink_v')).toBeUndefined()
+    expect(nodes.find((n) => n.id === 'inventory_sink_v')).toBeUndefined()
+
+    const span = (layer: string) => {
+      const b = nodes.find((n) => n.id === `__band__${layer}`)!
+      return [b.position.x, b.position.x + Number(b.style!.width)]
+    }
+    const [, bronzeEnd] = span('bronze')
+    const [bizStart] = span('biz_logic')
+    expect(bronzeEnd).toBeLessThanOrEqual(bizStart)
+  })
+
   it('reports the clicked node id', async () => {
     const onNodeClick = vi.fn()
     render(<LineageGraph scenario="materialize_triples" onNodeClick={onNodeClick} />)

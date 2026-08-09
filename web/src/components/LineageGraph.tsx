@@ -630,11 +630,17 @@ function getLayoutedElements(
     delivery_tasks_flat:'src_courier',
   };
 
+  // The sink views are RAG-only, so drop them once here rather than in each
+  // branch below — mirrors withoutSinkEdges, which does the same for their edges.
+  const scopedNodeDefs = isRagArchitecture
+    ? nodeDefs
+    : nodeDefs.filter((n) => !SINK_VIEW_IDS.includes(n.id));
+
   // Postgres: triples stays in bronze ("Base Tables"), all other content nodes remapped to biz_logic.
   // Materialize+triples: triples is the sole source feeding an unchanged medallion stack.
   // Materialize/Batch: hide triples, show src_* nodes with remapped edges.
   const effectiveNodeDefs = isPostgres
-    ? nodeDefs
+    ? scopedNodeDefs
         .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
         .map((n) => {
           if (n.id === 'triples') return { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer };
@@ -643,7 +649,7 @@ function getLayoutedElements(
           return n;
         })
     : isRagArchitecture
-      ? nodeDefs
+      ? scopedNodeDefs
           .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
           .map((n) => {
             if (n.id === 'triples') return { ...n, label: 'Agent Writes & Memories' };
@@ -654,13 +660,10 @@ function getLayoutedElements(
             return n;
           })
       : isTripleSource
-        ? nodeDefs
+        ? scopedNodeDefs
             .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
-            .filter((n) => !SINK_VIEW_IDS.includes(n.id))
             .map((n) => (n.id === 'triples' ? { ...n, label: 'Agent Writes & Memories' } : n))
-        : nodeDefs
-            .filter((n) => n.id !== 'triples')
-            .filter((n) => !SINK_VIEW_IDS.includes(n.id));
+        : scopedNodeDefs.filter((n) => n.id !== 'triples');
 
   // Triple-store scenarios keep the original triples → X edges; the others fan
   // them out to the per-system sources. Sink-view edges are RAG-only.
