@@ -908,7 +908,7 @@ export default function QueryStatisticsPage() {
       <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         {/* Top row: Title and Controls */}
         <div className="flex justify-between items-start">
-          <h1 className="text-2xl font-bold text-gray-900">Freshmart Demo</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Freshmart: Live Context Layer + Agent Memory Demo</h1>
 
           {/* Controls group */}
           <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
@@ -961,7 +961,7 @@ export default function QueryStatisticsPage() {
 
         {/* Description row */}
         <p className="text-gray-600 text-sm max-w-3xl">
-          Materialize creates a foundational data layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads from siloed operational databases.
+          Materialize creates a live context layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads from siloed operational databases.
         </p>
 
         {/* Polling status indicator */}
@@ -1005,9 +1005,9 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-time data products for agents and apps' : viewMode === 'batch' ? 'Batch data products for agents and apps' : 'Data product APIs for agents and apps'}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Live context layer for agents and apps' : viewMode === 'batch' ? 'Batch context layer for agents and apps' : 'Reactive context layer for agents and apps'}</h3>
               <p className="text-xs text-gray-500">
-                A data product is a named dataset or view that is maintained and exposed for consumption by agents or applications. Unlike a one-off query, it is designed to be discoverable, reusable, and composable across teams and services.
+                The context layer is made up of canonical views that represent the core "nouns" of the agent's world model. You can think of these as data products or named datasets that are maintained and exposed for consumption by agents and applications. Unlike a one-off query, they are designed to be discoverable, reusable, and composable across teams and services.
               </p>
             </div>
           </div>
@@ -1138,8 +1138,8 @@ export default function QueryStatisticsPage() {
                       <ChevronRight className="h-4 w-4 text-gray-500" />
                     )}
                     <div className="text-left">
-                      <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
-                      <p className="text-xs text-gray-500">Query latency: how long does each query take to execute?</p>
+                      <h4 className="font-semibold text-gray-900">Context Assembly Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Assembly latency: how long does each query take to assemble its slice of context?</p>
                     </div>
                   </div>
                   {responseChartOpen && (
@@ -1251,8 +1251,8 @@ export default function QueryStatisticsPage() {
                       <ChevronRight className="h-4 w-4 text-gray-500" />
                     )}
                     <div className="text-left">
-                      <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
-                      <p className="text-xs text-gray-500">Data freshness: how stale is the data when the query completes?</p>
+                      <h4 className="font-semibold text-gray-900">End-to-End Context Latency Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Context freshness: how stale is the context when the query completes?</p>
                     </div>
                   </div>
                   {reactionChartOpen && (
@@ -1617,7 +1617,7 @@ export default function QueryStatisticsPage() {
             ) : (
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
-            <h3 className="text-lg font-semibold text-gray-900">UI components</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Context Assembly</h3>
           </div>
         </button>
         {freshmartUIOpen && (
