@@ -11,7 +11,9 @@ const metrics = (over = {}) => ({
 })
 
 describe('useEmbeddingMetrics', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   it('returns null until the first response, then the metrics', async () => {
     vi.mocked(searchApi.embeddingMetrics).mockResolvedValue({ data: metrics() } as never)

@@ -68,3 +68,9 @@ aws/.state/
 
 # fastembed model cache (downloaded locally when running outside Docker)
 api/.fastembed_cache/
+
+# Claude Code scratch worktrees (transient checkouts, hundreds of MB)
+.claude/worktrees/
+
+# Installer downloads (e.g. AWSCLIV2.pkg fetched while setting up deploys)
+*.pkg

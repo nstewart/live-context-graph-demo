@@ -24,8 +24,6 @@ import {
   Package,
   ChevronDown,
   ChevronRight,
-  Code,
-  X,
 } from "lucide-react";
 import { useZero, useQuery } from "@rocicorp/zero/react";
 import { Schema } from "../schema";
@@ -37,16 +35,15 @@ import {
   OrderDataResponse,
   OrderWithLinesData,
   OrderLineItem,
-  ViewDefinitionResponse,
 } from "../api/client";
 import { singleFlight } from "../api/singleFlight";
 import { LineageGraph } from "../components/LineageGraph";
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { WriteTripleForm } from "../components/WriteTripleForm";
+import { ViewDefinitionModal } from "../components/ViewDefinitionModal";
 import { usePropagation } from "../contexts/PropagationContext";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useViewDefinitionSelection } from "../hooks/useViewDefinitions";
 
 interface ChartDataPoint {
   time: number;
@@ -502,10 +499,15 @@ export default function QueryStatisticsPage() {
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
 
-  // View definition state for SQL viewer
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [viewDefinition, setViewDefinition] = useState<ViewDefinitionResponse | null>(null);
-  const [viewDefLoading, setViewDefLoading] = useState(false);
+  // View definition state for SQL viewer. Definitions are prefetched on mount
+  // so lineage-graph clicks don't wait on Materialize mid-demo.
+  const {
+    selectedNodeId,
+    definition: viewDefinition,
+    isLoading: viewDefLoading,
+    onNodeClick: handleNodeClick,
+    close: closeViewDefinition,
+  } = useViewDefinitionSelection();
 
   // Zero for real-time Materialize data
   const z = useZero<Schema>();
@@ -870,31 +872,6 @@ export default function QueryStatisticsPage() {
     setTriplePredicate(predicate);
   }, []);
 
-  // Handle triple write
-  // Handle lineage graph node click
-  const handleNodeClick = useCallback(async (nodeId: string) => {
-    // Toggle selection if clicking the same node
-    if (nodeId === selectedNodeId) {
-      setSelectedNodeId(null);
-      setViewDefinition(null);
-      return;
-    }
-
-    setSelectedNodeId(nodeId);
-    setViewDefLoading(true);
-    setViewDefinition(null);
-
-    try {
-      const response = await queryStatsApi.getViewDefinition(nodeId);
-      setViewDefinition(response.data);
-    } catch (err) {
-      console.error("Failed to fetch view definition:", err);
-      setViewDefinition(null);
-    } finally {
-      setViewDefLoading(false);
-    }
-  }, [selectedNodeId]);
-
   // Format milliseconds for display
   const formatMs = (ms: number | undefined): string => {
     if (ms === undefined || ms === null) return "-";
@@ -908,7 +885,7 @@ export default function QueryStatisticsPage() {
       <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         {/* Top row: Title and Controls */}
         <div className="flex justify-between items-start">
-          <h1 className="text-2xl font-bold text-gray-900">Freshmart Demo</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Freshmart: Live Context Layer + Agent Memory Demo</h1>
 
           {/* Controls group */}
           <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
@@ -961,7 +938,7 @@ export default function QueryStatisticsPage() {
 
         {/* Description row */}
         <p className="text-gray-600 text-sm max-w-3xl">
-          Materialize creates a foundational data layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads from siloed operational databases.
+          Materialize creates a live context layer for AI agents by creating a live semantic representation of a business that can handle agent-scale writes and reads from siloed operational databases.
         </p>
 
         {/* Polling status indicator */}
@@ -1005,9 +982,9 @@ export default function QueryStatisticsPage() {
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
             <div className="text-left">
-              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Real-time data products for agents and apps' : viewMode === 'batch' ? 'Batch data products for agents and apps' : 'Data product APIs for agents and apps'}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{viewMode === 'materialize' ? 'Live context layer for agents and apps' : viewMode === 'batch' ? 'Batch context layer for agents and apps' : 'Reactive context layer for agents and apps'}</h3>
               <p className="text-xs text-gray-500">
-                A data product is a named dataset or view that is maintained and exposed for consumption by agents or applications. Unlike a one-off query, it is designed to be discoverable, reusable, and composable across teams and services.
+                The context layer is made up of canonical views that represent the core "nouns" of the agent's world model. You can think of these as data products or named datasets that are maintained and exposed for consumption by agents and applications. Unlike a one-off query, they are designed to be discoverable, reusable, and composable across teams and services.
               </p>
             </div>
           </div>
@@ -1138,8 +1115,8 @@ export default function QueryStatisticsPage() {
                       <ChevronRight className="h-4 w-4 text-gray-500" />
                     )}
                     <div className="text-left">
-                      <h4 className="font-semibold text-gray-900">Response Time Over Time (p99/sec)</h4>
-                      <p className="text-xs text-gray-500">Query latency: how long does each query take to execute?</p>
+                      <h4 className="font-semibold text-gray-900">Context Assembly Time Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Assembly latency: how long does each query take to assemble its slice of context?</p>
                     </div>
                   </div>
                   {responseChartOpen && (
@@ -1251,8 +1228,8 @@ export default function QueryStatisticsPage() {
                       <ChevronRight className="h-4 w-4 text-gray-500" />
                     )}
                     <div className="text-left">
-                      <h4 className="font-semibold text-gray-900">Reaction Time Over Time (p99/sec)</h4>
-                      <p className="text-xs text-gray-500">Data freshness: how stale is the data when the query completes?</p>
+                      <h4 className="font-semibold text-gray-900">End-to-End Context Latency Over Time (p99/sec)</h4>
+                      <p className="text-xs text-gray-500">Context freshness: how stale is the context when the query completes?</p>
                     </div>
                   </div>
                   {reactionChartOpen && (
@@ -1537,73 +1514,12 @@ export default function QueryStatisticsPage() {
       </div>
 
       {/* View Definition Modal */}
-      {selectedNodeId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                {/* Backdrop */}
-                <div
-                  className="absolute inset-0 bg-black/50"
-                  onClick={() => {
-                    setSelectedNodeId(null);
-                    setViewDefinition(null);
-                  }}
-                />
-                {/* Modal */}
-                <div className="relative bg-gray-900 rounded-lg overflow-hidden w-full max-w-4xl max-h-[80vh] flex flex-col shadow-2xl">
-                  {/* Header */}
-                  <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Code className="h-4 w-4 text-yellow-400" />
-                        <span className="text-sm font-medium text-gray-200">View Definition</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setSelectedNodeId(null);
-                          setViewDefinition(null);
-                        }}
-                        className="text-gray-400 hover:text-gray-200 transition-colors"
-                        title="Close"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
-                    </div>
-                    <div className="mt-2 font-mono text-xs text-gray-400">
-                      <span className="text-purple-400">SHOW CREATE</span>{' '}
-                      <span className="text-blue-400">
-                        {viewDefinition?.object_type === 'materialized_view' ? 'MATERIALIZED VIEW' :
-                         viewDefinition?.object_type === 'source' ? 'SOURCE' :
-                         viewDefinition?.object_type === 'table' ? 'TABLE' : 'VIEW'}
-                      </span>{' '}
-                      <span className="text-green-400">{selectedNodeId}</span>
-                    </div>
-                  </div>
-                  {/* SQL Content */}
-                  <div className="flex-1 overflow-auto p-4">
-                    {viewDefLoading ? (
-                      <div className="flex items-center justify-center py-8">
-                        <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-600 border-t-yellow-400"></div>
-                      </div>
-                    ) : viewDefinition ? (
-                      <SyntaxHighlighter
-                        language="sql"
-                        style={vscDarkPlus}
-                        customStyle={{
-                          margin: 0,
-                          padding: 0,
-                          background: 'transparent',
-                          fontSize: '0.875rem',
-                        }}
-                        wrapLongLines={true}
-                      >
-                        {viewDefinition.sql}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <pre className="text-xs font-mono text-gray-500">Failed to load view definition</pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+      <ViewDefinitionModal
+        viewName={selectedNodeId}
+        definition={viewDefinition}
+        isLoading={viewDefLoading}
+        onClose={closeViewDefinition}
+      />
 
       {/* Freshmart UI Components (Collapsible) */}
       <div className="bg-white rounded-lg shadow mb-6">
@@ -1617,7 +1533,7 @@ export default function QueryStatisticsPage() {
             ) : (
               <ChevronRight className="h-5 w-5 text-gray-500" />
             )}
-            <h3 className="text-lg font-semibold text-gray-900">UI components</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Context Assembly</h3>
           </div>
         </button>
         {freshmartUIOpen && (

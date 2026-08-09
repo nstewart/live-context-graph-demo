@@ -67,16 +67,26 @@ interface ResultCardProps {
   rank: number;
   flashedRows: Set<number>;
   embeddingFlashing: boolean;
+  statusFlashing: boolean;
   onSelectSubject?: (id: string) => void;
 }
 
-const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, onSelectSubject }: ResultCardProps) => (
+const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, statusFlashing, onSelectSubject }: ResultCardProps) => (
   <div className="space-y-1.5">
     {/* Header row */}
     <div className="flex items-center gap-2 flex-wrap">
       <span className="font-semibold text-gray-900 text-sm">#{result.order_number ?? result.order_id}</span>
       {result.order_status && (
-        <span className={`px-1.5 py-0.5 text-xs font-medium rounded border ${getStatusClasses(result.order_status)}`}>
+        /* Ring sits over the status colors so DELIVERED stays green while it pulses */
+        <span
+          data-testid="order-status"
+          data-flashing={statusFlashing || undefined}
+          className={`px-1.5 py-0.5 text-xs font-medium rounded border transition-all duration-300 ${getStatusClasses(result.order_status)} ${
+            statusFlashing
+              ? "ring-2 ring-yellow-400 shadow-[0_0_10px_2px_rgba(250,204,21,0.4)] animate-pulse"
+              : ""
+          }`}
+        >
           {result.order_status}
         </span>
       )}
@@ -193,6 +203,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const [hasSearched, setHasSearched]       = useState(false);
   const [flashedRowsByResult, setFlashedRowsByResult] = useState<Record<number, Set<number>>>({});
   const [flashedEmbeddings, setFlashedEmbeddings]     = useState<Set<number>>(new Set());
+  const [flashedStatuses, setFlashedStatuses]         = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh]       = useState<Date | null>(null);
   const [writeSubject, setWriteSubject]     = useState("");
   const [writeTrigger, setWriteTrigger]     = useState<{ mzLowerBound: number; wallClock: number } | null>(null);
@@ -209,6 +220,11 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   // local time we last saw it change (used as the displayed "embedded at").
   const prevEmbFpRef      = useRef<Record<string, string>>({});
   const embedObservedAtRef = useRef<Record<string, string>>({});
+  // Order status lives in the header, not the line-item table, and isn't part of
+  // embedding_text (that's product names + categories only). Without its own
+  // tracking a DELIVERED → CREATED edit swaps the badge with nothing to catch
+  // the eye, so keep the last seen status per order and flash on change.
+  const prevStatusRef     = useRef<Record<string, string>>({});
   const refreshTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   // The displayed result set is *pinned*: its membership and order are fixed by
   // the last explicit search. The silent auto-refresh only updates each pinned
@@ -221,6 +237,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
   const applyResults = useCallback((newResults: VectorSearchResult[]) => {
     const newFlashedRows: Record<number, Set<number>> = {};
     const newFlashedEmbeddings = new Set<number>();
+    const newFlashedStatuses = new Set<number>();
 
     newResults.forEach((result, resultIdx) => {
       const id = result.order_id;
@@ -252,6 +269,15 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
       prevEmbFpRef.current[id] = fp;
       // Surface the observed embed time to the card (replaces server embedded_at).
       result.embedded_at = embedObservedAtRef.current[id] ?? null;
+
+      // Status change. Like the embedding, first sighting only sets a baseline
+      // so an explicit search doesn't light up every card at once.
+      const status = result.order_status ?? "";
+      const prevStatus = prevStatusRef.current[id];
+      if (prevStatus !== undefined && prevStatus !== status) {
+        newFlashedStatuses.add(resultIdx);
+      }
+      prevStatusRef.current[id] = status;
     });
 
     displayedByIdRef.current = Object.fromEntries(newResults.map(r => [r.order_id, r]));
@@ -265,6 +291,12 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
     if (newFlashedEmbeddings.size > 0) {
       setFlashedEmbeddings(newFlashedEmbeddings);
       setTimeout(() => setFlashedEmbeddings(new Set()), 2000);
+    }
+    // Held as long as the embedding flash, not the shorter row flash: a status
+    // change is the headline event in this demo and has to survive a glance away.
+    if (newFlashedStatuses.size > 0) {
+      setFlashedStatuses(newFlashedStatuses);
+      setTimeout(() => setFlashedStatuses(new Set()), 2000);
     }
   }, []);
 
@@ -463,6 +495,7 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
                         rank={idx + 1}
                         flashedRows={flashedRowsByResult[idx] ?? new Set()}
                         embeddingFlashing={flashedEmbeddings.has(idx)}
+                        statusFlashing={flashedStatuses.has(idx)}
                         onSelectSubject={setWriteSubject}
                       />
                     </div>

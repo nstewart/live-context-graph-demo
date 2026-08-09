@@ -347,3 +347,141 @@ class TestWriteTripleMzTimestamp:
         assert data["mz_timestamp_lower_bound"] is not None
         # Sanity: epoch ms for dates after 2020-01-01
         assert data["mz_timestamp_lower_bound"] > 1_577_836_800_000
+
+
+@pytest.mark.asyncio
+class TestViewDefinitionCache:
+    """View definitions are prefetched and cached so demo clicks never wait."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self):
+        """Each test starts from a cold cache (it's process-global)."""
+        from src.routes.query_stats import _view_definition_cache
+
+        _view_definition_cache.clear()
+        yield
+        _view_definition_cache.clear()
+
+    def _mock_session(self, catalog_rows, create_rows):
+        """Build a mock Materialize session for one _fetch_view_definitions call.
+
+        First execute() is SET CLUSTER, second is the catalog lookup, then one
+        SHOW CREATE per object.
+        """
+        catalog_result = MagicMock()
+        catalog_result.fetchall.return_value = catalog_rows
+
+        show_results = []
+        for row in create_rows:
+            result = MagicMock()
+            result.fetchone.return_value = row
+            show_results.append(result)
+
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.__aexit__.return_value = None
+        session.execute = AsyncMock(
+            side_effect=[MagicMock(), catalog_result, *show_results]
+        )
+        return session
+
+    async def test_batch_endpoint_returns_all_definitions(self, async_client: AsyncClient):
+        """GET /view-definitions fetches every allowlisted object in one session."""
+        from src.routes.query_stats import ALLOWED_VIEWS
+
+        names = sorted(ALLOWED_VIEWS)
+        catalog_rows = [(name, "view") for name in names]
+        create_rows = [(name, f"CREATE VIEW {name} AS SELECT 1") for name in names]
+        session = self._mock_session(catalog_rows, create_rows)
+
+        with patch("src.routes.query_stats.get_mz_session", return_value=session):
+            response = await async_client.get("/api/query-stats/view-definitions")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["cached_count"] == len(ALLOWED_VIEWS)
+        assert data["expected_count"] == len(ALLOWED_VIEWS)
+        assert set(data["definitions"]) == ALLOWED_VIEWS
+        assert data["definitions"][names[0]]["sql"].startswith("CREATE VIEW")
+
+        # One pool checkout for the whole batch, not one per view
+        assert session.__aenter__.await_count == 1
+
+    async def test_second_batch_call_hits_no_database(self, async_client: AsyncClient):
+        """A warm cache serves the batch endpoint without touching Materialize."""
+        from src.routes.query_stats import ALLOWED_VIEWS
+
+        names = sorted(ALLOWED_VIEWS)
+        session = self._mock_session(
+            [(name, "view") for name in names],
+            [(name, f"CREATE VIEW {name} AS SELECT 1") for name in names],
+        )
+        with patch("src.routes.query_stats.get_mz_session", return_value=session):
+            await async_client.get("/api/query-stats/view-definitions")
+
+        # Any DB access on the second call would raise, since the mock is exhausted
+        with patch("src.routes.query_stats.get_mz_session") as never_called:
+            response = await async_client.get("/api/query-stats/view-definitions")
+            assert never_called.call_count == 0
+
+        assert response.status_code == 200
+        assert response.json()["cached_count"] == len(ALLOWED_VIEWS)
+
+    async def test_single_view_served_from_prefetched_cache(self, async_client: AsyncClient):
+        """After a prefetch, a per-view click never queries Materialize."""
+        from src.routes.query_stats import _view_definition_cache
+
+        _view_definition_cache["orders_with_lines_mv"] = {
+            "view_name": "orders_with_lines_mv",
+            "object_type": "materialized_view",
+            "sql": "CREATE MATERIALIZED VIEW orders_with_lines_mv AS SELECT 1",
+        }
+
+        with patch("src.routes.query_stats.get_mz_session") as never_called:
+            response = await async_client.get(
+                "/api/query-stats/view-definition/orders_with_lines_mv"
+            )
+            assert never_called.call_count == 0
+
+        assert response.status_code == 200
+        assert response.json()["object_type"] == "materialized_view"
+
+    async def test_single_view_falls_back_to_query_on_cache_miss(self, async_client: AsyncClient):
+        """A cold cache still serves the per-view endpoint, and warms itself."""
+        from src.routes.query_stats import _view_definition_cache
+
+        session = self._mock_session(
+            [("stores_flat", "view")],
+            [("stores_flat", "CREATE VIEW stores_flat AS SELECT 1")],
+        )
+        with patch("src.routes.query_stats.get_mz_session", return_value=session):
+            response = await async_client.get("/api/query-stats/view-definition/stores_flat")
+
+        assert response.status_code == 200
+        assert response.json()["sql"] == "CREATE VIEW stores_flat AS SELECT 1"
+        # The fetched definition is now cached for the next click
+        assert "stores_flat" in _view_definition_cache
+
+    async def test_unknown_view_still_rejected(self, async_client: AsyncClient):
+        """The allowlist still guards the interpolated SHOW CREATE identifier."""
+        response = await async_client.get(
+            "/api/query-stats/view-definition/pg_sleep(10);DROP"
+        )
+        assert response.status_code == 400
+
+    async def test_missing_catalog_object_is_skipped_not_fatal(self, async_client: AsyncClient):
+        """One object missing from the catalog doesn't fail the whole prefetch."""
+        from src.routes.query_stats import ALLOWED_VIEWS
+
+        present = sorted(ALLOWED_VIEWS)[:-1]
+        session = self._mock_session(
+            [(name, "view") for name in present],
+            [(name, f"CREATE VIEW {name} AS SELECT 1") for name in present],
+        )
+        with patch("src.routes.query_stats.get_mz_session", return_value=session):
+            response = await async_client.get("/api/query-stats/view-definitions")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["cached_count"] == len(ALLOWED_VIEWS) - 1
+        assert data["expected_count"] == len(ALLOWED_VIEWS)

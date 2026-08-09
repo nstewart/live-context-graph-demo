@@ -1041,6 +1041,119 @@ async def write_triple(data: TripleWrite):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Whitelist of lineage-graph objects whose definitions may be fetched.
+# Doubles as SQL-injection protection: SHOW CREATE takes an identifier, which
+# can't be passed as a bind parameter, so the name is interpolated and must
+# never come from unvalidated input.
+ALLOWED_VIEWS = {
+    "triples",
+    "customers_flat",
+    "stores_flat",
+    "products_flat",
+    "order_lines_base",
+    "delivery_tasks_flat",
+    "orders_flat_mv",
+    "order_lines_flat_mv",
+    "orders_with_lines_mv",
+    "inventory_items_with_dynamic_pricing",
+    "inventory_items_with_dynamic_pricing_mv",
+    "store_inventory_mv",
+    # The two views the Kafka sinks read from, one per OpenSearch collection.
+    # These are what actually feed search; the lineage graph shows them as gold.
+    "orders_sink_v",
+    "inventory_sink_v",
+}
+
+# Map catalog type to SHOW CREATE syntax
+_SHOW_CREATE_TYPES = {
+    "view": "VIEW",
+    "materialized-view": "MATERIALIZED VIEW",
+    "source": "SOURCE",
+    "table": "TABLE",
+}
+
+# View definitions are immutable for the life of the process — the schema is
+# created at deploy time and never altered while the demo runs. Caching them
+# means a click during a demo never has to wait on the Materialize pool, which
+# is busy serving the load generator.
+_view_definition_cache: dict[str, dict[str, str]] = {}
+
+
+async def _fetch_view_definitions(session, view_names: list[str]) -> dict[str, dict[str, str]]:
+    """Fetch SHOW CREATE output for several objects over one session.
+
+    Reuses a single pool checkout for the whole batch: one catalog lookup for
+    every type, then one SHOW CREATE per object. Objects missing from the
+    catalog are skipped rather than failing the batch.
+    """
+    await session.execute(text("SET CLUSTER = serving"))
+
+    # One catalog round trip for every requested object, not one apiece.
+    # Deliberately unparameterized and filtered in Python: Materialize can't
+    # decode an array bind parameter ("input of array types is not implemented"),
+    # and the public schema holds few enough objects that fetching them all is
+    # cheaper than a query per name.
+    type_result = await session.execute(
+        text("""
+            SELECT name, type FROM mz_catalog.mz_objects
+            WHERE schema_id = (SELECT id FROM mz_catalog.mz_schemas WHERE name = 'public')
+            AND type IN ('view', 'materialized-view', 'source', 'table')
+        """)
+    )
+    requested = set(view_names)
+    obj_types = {
+        row[0]: row[1] for row in type_result.fetchall() if row[0] in requested
+    }
+
+    definitions: dict[str, dict[str, str]] = {}
+    for view_name in view_names:
+        obj_type = obj_types.get(view_name)
+        if obj_type is None:
+            logger.warning(f"View '{view_name}' not found in catalog; skipping")
+            continue
+
+        show_type = _SHOW_CREATE_TYPES.get(obj_type, "VIEW")
+        result = await session.execute(text(f"SHOW CREATE {show_type} {view_name}"))
+        row = result.fetchone()
+        if row:
+            definitions[view_name] = {
+                "view_name": view_name,
+                "object_type": obj_type.replace("-", "_"),
+                "sql": row[1] if len(row) > 1 else str(row[0]),
+            }
+
+    return definitions
+
+
+@router.get("/view-definitions")
+async def get_view_definitions():
+    """Get every lineage-graph view definition in one round trip.
+
+    The UI prefetches this on page load so clicking a node in the lineage graph
+    renders instantly instead of waiting on a query behind the load generator.
+    """
+    missing = sorted(ALLOWED_VIEWS - _view_definition_cache.keys())
+
+    if missing:
+        try:
+            async with get_mz_session() as session:
+                _view_definition_cache.update(
+                    await _fetch_view_definitions(session, missing)
+                )
+        except Exception as e:
+            # Serve whatever is already cached; the per-view endpoint remains
+            # available as a fallback for anything we couldn't fetch.
+            logger.error(f"Failed to prefetch view definitions: {e}")
+            if not _view_definition_cache:
+                raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "definitions": _view_definition_cache,
+        "cached_count": len(_view_definition_cache),
+        "expected_count": len(ALLOWED_VIEWS),
+    }
+
+
 @router.get("/view-definition/{view_name}")
 async def get_view_definition(view_name: str):
     """Get the SQL definition of a view or materialized view from Materialize.
@@ -1048,78 +1161,28 @@ async def get_view_definition(view_name: str):
     This endpoint fetches the CREATE statement for the specified object,
     allowing users to see the SQL that defines each node in the lineage graph.
     """
-    # Whitelist of allowed view names to prevent SQL injection
-    allowed_views = {
-        "triples",
-        "customers_flat",
-        "stores_flat",
-        "products_flat",
-        "order_lines_base",
-        "delivery_tasks_flat",
-        "orders_flat_mv",
-        "order_lines_flat_mv",
-        "orders_with_lines_mv",
-        "inventory_items_with_dynamic_pricing",
-        "inventory_items_with_dynamic_pricing_mv",
-        "store_inventory_mv",
-    }
-
-    if view_name not in allowed_views:
+    if view_name not in ALLOWED_VIEWS:
         raise HTTPException(
             status_code=400,
-            detail=f"View '{view_name}' not found. Allowed views: {', '.join(sorted(allowed_views))}",
+            detail=f"View '{view_name}' not found. Allowed views: {', '.join(sorted(ALLOWED_VIEWS))}",
         )
+
+    cached = _view_definition_cache.get(view_name)
+    if cached is not None:
+        return cached
 
     try:
         async with get_mz_session() as session:
-            # Set cluster for consistent behavior
-            await session.execute(text("SET CLUSTER = serving"))
+            definitions = await _fetch_view_definitions(session, [view_name])
 
-            # First, query the catalog to find the object type
-            type_result = await session.execute(
-                text("""
-                    SELECT type FROM mz_catalog.mz_objects
-                    WHERE name = :view_name
-                    AND schema_id = (SELECT id FROM mz_catalog.mz_schemas WHERE name = 'public')
-                """),
-                {"view_name": view_name},
-            )
-            type_row = type_result.fetchone()
-
-            if not type_row:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Could not find object '{view_name}' in catalog",
-                )
-
-            obj_type = type_row[0]
-
-            # Map catalog type to SHOW CREATE syntax
-            type_mapping = {
-                "view": "VIEW",
-                "materialized-view": "MATERIALIZED VIEW",
-                "source": "SOURCE",
-                "table": "TABLE",
-            }
-            show_type = type_mapping.get(obj_type, "VIEW")
-
-            # Now get the CREATE statement
-            result = await session.execute(
-                text(f"SHOW CREATE {show_type} {view_name}")
-            )
-            row = result.fetchone()
-
-            if row:
-                return {
-                    "view_name": view_name,
-                    "object_type": obj_type.replace("-", "_"),
-                    "sql": row[1] if len(row) > 1 else str(row[0]),
-                }
-
+        if view_name not in definitions:
             raise HTTPException(
                 status_code=404,
                 detail=f"Could not find definition for '{view_name}'",
             )
+
+        _view_definition_cache.update(definitions)
+        return definitions[view_name]
     except HTTPException:
         raise
     except Exception as e:
