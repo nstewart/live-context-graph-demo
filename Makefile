@@ -3,6 +3,16 @@
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
 
+# Ownership tags required on new AWS resources by the RequireTagsScratch SCP
+# (MaterializeInc/i2#3620). Override on the command line, e.g.
+#   make up-agent-aws TEAM="Cloud" DELETE_AFTER_HOURS=72
+OWNER_EMAIL ?= $(shell git config user.email)
+REASON ?= Freshmart Demo
+TEAM ?= Field Engineering
+DELETE_AFTER_HOURS ?= 24
+AWS_TAG_ENV = OWNER_EMAIL="$(OWNER_EMAIL)" REASON="$(REASON)" TEAM="$(TEAM)" \
+	DELETE_AFTER_HOURS="$(DELETE_AFTER_HOURS)" DELETE_AFTER="$(DELETE_AFTER)"
+
 # Default target
 help:
 	@echo "FreshMart Digital Twin - Available Commands"
@@ -47,6 +57,13 @@ help:
 	@echo "  make aws-logs              - Tail remote Docker Compose logs"
 	@echo "  make aws-debug             - Preflight check (AWS CLI, IAM, region, tools)"
 	@echo "  make aws-status            - Check tunnel and instance status"
+	@echo ""
+	@echo "  Required resource tags (overridable):"
+	@echo "    OWNER_EMAIL=$(OWNER_EMAIL)"
+	@echo "    TEAM=$(TEAM)"
+	@echo "    REASON=$(REASON)"
+	@echo "    DELETE_AFTER_HOURS=$(DELETE_AFTER_HOURS)"
+	@echo "    e.g. make up-agent-aws TEAM=\"Cloud\" DELETE_AFTER_HOURS=72"
 	@echo ""
 	@echo "Development:"
 	@echo "  make test       - Run all tests"
@@ -316,16 +333,16 @@ test-load-gen: setup-load-gen
 
 # AWS Deployment
 aws-debug:
-	@bash aws/debug.sh
+	@$(AWS_TAG_ENV) bash aws/debug.sh
 
 up-aws:
-	@bash aws/deploy.sh "docker compose up -d --remove-orphans"
+	@$(AWS_TAG_ENV) bash aws/deploy.sh "docker compose up -d --remove-orphans"
 
 up-agent-aws:
-	@bash aws/deploy.sh "docker compose --profile agent up -d --remove-orphans"
+	@$(AWS_TAG_ENV) bash aws/deploy.sh "docker compose --profile agent up -d --remove-orphans"
 
 up-agent-bundling-aws:
-	@ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d --remove-orphans"
+	@$(AWS_TAG_ENV) ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d --remove-orphans"
 
 down-aws:
 	@bash aws/teardown.sh
