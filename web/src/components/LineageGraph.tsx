@@ -1060,7 +1060,7 @@ function getLayoutedElements(
       targetHandle: 'right-in',
       // Step ②: the recalled candidates are enriched and rescored against live
       // Materialize. Other scenarios keep the generic observe/act framing.
-      label: isRagArchitecture ? '② Features from MZ + rerank' : 'Observe',
+      label: isRagArchitecture ? '② Enrich and rerank with MZ outputs' : 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: isRagArchitecture ? '14px' : '15px', fill: '#6b7280', fontWeight: 700 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },

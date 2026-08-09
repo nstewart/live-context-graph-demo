@@ -82,7 +82,7 @@ describe('LineageGraph scenarios', () => {
     expect(recall.targetHandle).toBe('top-in')
 
     // Step 2: the same line that used to say "Observe" now names the enrichment
-    expect(byId['e-agent-mcp'].label).toBe('\u2461 Features from MZ + rerank')
+    expect(byId['e-agent-mcp'].label).toBe('\u2461 Enrich and rerank with MZ outputs')
 
     // The write edge survives but sheds its label; see the sources-column test
     expect(byId['e-agent-src']).toBeTruthy()
