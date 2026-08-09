@@ -126,6 +126,18 @@ if ! command -v rsync &>/dev/null; then
 fi
 pass "rsync available"
 
+# 9. Required ownership tags (RequireTagsScratch SCP, MaterializeInc/i2#3620)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TAG_OUTPUT=$(source "${SCRIPT_DIR}/tags.sh" 2>&1 && \
+    printf 'owner=%s|team=%s|reason=%s|deleteAfter=%s' \
+    "$OWNER_EMAIL" "$TEAM" "$REASON" "$DELETE_AFTER") || {
+    fail "Required resource tags cannot be resolved"
+    echo "$TAG_OUTPUT" | sed 's/^/    /'
+    exit 1
+}
+pass "Required resource tags resolve"
+echo "$TAG_OUTPUT" | tr '|' '\n' | sed 's/^/      /'
+
 # Summary
 echo ""
 echo -e "${GREEN}${BOLD}All checks passed!${NC}"

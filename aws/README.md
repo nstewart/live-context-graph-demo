@@ -95,6 +95,37 @@ Removes everything created during deployment:
 |---------------------|---------|-------------|
 | `INSTANCE_TYPE` | `m5.2xlarge` | EC2 instance type |
 | `ENABLE_DELIVERY_BUNDLING` | *(unset)* | Set to `true` for delivery bundling (CPU intensive) |
+| `OWNER_EMAIL` | `git config user.email` | `owner` tag — must be an email address |
+| `TEAM` | `Field Engineering` | `team` tag |
+| `REASON` | `Freshmart Demo` | `reason` tag |
+| `DELETE_AFTER_HOURS` | `24` | Hours from now used to compute the `deleteAfter` tag |
+| `DELETE_AFTER` | *(unset)* | Explicit ISO8601 `deleteAfter` timestamp; overrides `DELETE_AFTER_HOURS` |
+
+All of these can be set as environment variables or passed on the command line:
+
+```bash
+make up-agent-aws TEAM="Cloud" DELETE_AFTER_HOURS=72
+```
+
+### Required resource tags
+
+The scratch account enforces a [service control policy][scp] that **denies creation of
+new resources** unless the `owner`, `reason`, `team`, and `deleteAfter` tags are all
+present on the create request. `make up-aws` and `make up-agent-aws` apply them
+automatically to the EC2 instance, its root EBS volume, and the security group.
+
+Two things worth knowing:
+
+- The root volume must be tagged too. `RunInstances` is authorized against both the
+  instance and the volume it creates, so tagging only the instance gets the whole call
+  denied with a bare `UnauthorizedOperation`.
+- `deleteAfter` is only a tag — nothing in this repo acts on it. But if a reaper in the
+  scratch account honors it, an instance left running past 24 hours may be terminated.
+  For a longer-lived demo, raise it: `make up-agent-aws DELETE_AFTER_HOURS=72`.
+
+Run `make aws-debug` to see the exact tag values that will be applied before deploying.
+
+[scp]: https://github.com/MaterializeInc/i2/pull/3620
 
 ## Troubleshooting
 
@@ -115,7 +146,11 @@ Run `aws configure` and enter your access key and secret key, or export `AWS_ACC
 Run `aws configure set region us-east-1` (or your preferred region), or export `AWS_DEFAULT_REGION`.
 
 **"UnauthorizedOperation" on EC2 calls**
-Your IAM user is missing EC2 permissions. Ask your AWS admin to add you to the `live-context-graph-deployers` IAM group.
+Usually your IAM user is missing EC2 permissions — ask your AWS admin to add you to the
+`live-context-graph-deployers` IAM group. If it only happens on `run-instances` and
+`make aws-debug` passes, it is the required-tags SCP instead: check that the `owner`,
+`reason`, `team`, and `deleteAfter` tags are being applied to *both* the instance and its
+root volume (see [Required resource tags](#required-resource-tags)).
 
 **SSH tunnel disconnects**
 Run `make aws-tunnel` to re-establish. The tunnel uses keep-alive settings but may drop on network changes.

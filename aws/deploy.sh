@@ -76,10 +76,32 @@ REGION=$(aws configure get region || echo "us-east-1")
 save_state "region" "$REGION"
 
 TAG_NAME="live-context-graph-${IAM_USER}"
-TAG_SPECS_INSTANCE="ResourceType=instance,Tags=[{Key=Name,Value=${TAG_NAME}},{Key=Project,Value=live-context-graph},{Key=CreatedBy,Value=${IAM_USER}},{Key=ManagedBy,Value=make-up-aws}]"
-TAG_SPECS_SG="ResourceType=security-group,Tags=[{Key=Name,Value=${TAG_NAME}},{Key=Project,Value=live-context-graph},{Key=CreatedBy,Value=${IAM_USER}},{Key=ManagedBy,Value=make-up-aws}]"
+
+# Resolve owner/reason/team/deleteAfter, required by the RequireTagsScratch SCP.
+# shellcheck source=aws/tags.sh
+source "${SCRIPT_DIR}/tags.sh"
+
+# JSON rather than the CLI's shorthand syntax. reason/team are user-overridable
+# free text, and shorthand delimits on the same characters those values may
+# contain (`,` `=` `{}` `[]`) with no way to escape them. JSON also expresses
+# the two resource types below in a single value.
+TAGS_JSON=$(printf '[{"Key":"Name","Value":"%s"},{"Key":"Project","Value":"live-context-graph"},{"Key":"CreatedBy","Value":"%s"},{"Key":"ManagedBy","Value":"make-up-aws"},{"Key":"owner","Value":"%s"},{"Key":"reason","Value":"%s"},{"Key":"team","Value":"%s"},{"Key":"deleteAfter","Value":"%s"}]' \
+  "$(json_escape "$TAG_NAME")" \
+  "$(json_escape "$IAM_USER")" \
+  "$(json_escape "$OWNER_EMAIL")" \
+  "$(json_escape "$REASON")" \
+  "$(json_escape "$TEAM")" \
+  "$(json_escape "$DELETE_AFTER")")
+
+# RunInstances is authorized against both the instance and the root volume it
+# creates, and the SCP's deny covers arn:aws:ec2:*:*:volume/* as well as
+# instance/*. Tagging only the instance gets the entire call denied — the
+# volume carries no request tags. Tag both, as bin/scratch does upstream.
+TAG_SPECS_LAUNCH="[{\"ResourceType\":\"instance\",\"Tags\":${TAGS_JSON}},{\"ResourceType\":\"volume\",\"Tags\":${TAGS_JSON}}]"
+TAG_SPECS_SG="[{\"ResourceType\":\"security-group\",\"Tags\":${TAGS_JSON}}]"
 
 log "Region: $REGION | IAM User: $IAM_USER | Instance Type: $INSTANCE_TYPE"
+log "Tags: owner=${OWNER_EMAIL} team=${TEAM} reason=${REASON} deleteAfter=${DELETE_AFTER}"
 
 # -------------------------------------------------------------------
 # 2. Key Pair
@@ -204,7 +226,7 @@ if [[ -z "$INSTANCE_ID" ]]; then
     --security-group-ids "$SG_ID" \
     --block-device-mappings "DeviceName=/dev/xvda,Ebs={VolumeSize=30,VolumeType=gp3}" \
     --user-data "file://${SCRIPT_DIR}/user-data.sh" \
-    --tag-specifications "$TAG_SPECS_INSTANCE" \
+    --tag-specifications "$TAG_SPECS_LAUNCH" \
     --query "Instances[0].InstanceId" --output text)
 
   save_state "instance-id" "$INSTANCE_ID"
