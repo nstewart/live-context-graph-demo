@@ -45,6 +45,7 @@ import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { WhatIsKnowledgeGraphCard } from "../components/WhatIsKnowledgeGraphCard";
 import { WriteTripleForm } from "../components/WriteTripleForm";
 import { usePropagation } from "../contexts/PropagationContext";
+import { useViewDefinitions } from "../hooks/useViewDefinitions";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -506,6 +507,8 @@ export default function QueryStatisticsPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewDefinition, setViewDefinition] = useState<ViewDefinitionResponse | null>(null);
   const [viewDefLoading, setViewDefLoading] = useState(false);
+  // Warmed on mount so lineage-graph clicks don't wait on Materialize mid-demo
+  const viewDefinitions = useViewDefinitions();
 
   // Zero for real-time Materialize data
   const z = useZero<Schema>();
@@ -881,19 +884,29 @@ export default function QueryStatisticsPage() {
     }
 
     setSelectedNodeId(nodeId);
+
+    // Prefetched on page load, so a demo click renders without a spinner
+    const prefetched = viewDefinitions.get(nodeId);
+    if (prefetched) {
+      setViewDefinition(prefetched);
+      setViewDefLoading(false);
+      return;
+    }
+
     setViewDefLoading(true);
     setViewDefinition(null);
 
     try {
       const response = await queryStatsApi.getViewDefinition(nodeId);
       setViewDefinition(response.data);
+      viewDefinitions.set(nodeId, response.data);
     } catch (err) {
       console.error("Failed to fetch view definition:", err);
       setViewDefinition(null);
     } finally {
       setViewDefLoading(false);
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, viewDefinitions]);
 
   // Format milliseconds for display
   const formatMs = (ms: number | undefined): string => {

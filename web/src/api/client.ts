@@ -408,6 +408,12 @@ export interface ViewDefinitionResponse {
   sql: string
 }
 
+export interface ViewDefinitionsResponse {
+  definitions: Record<string, ViewDefinitionResponse>
+  cached_count: number
+  expected_count: number
+}
+
 export const queryStatsApi = {
   // Get orders for dropdown selection
   getOrders: () =>
@@ -432,6 +438,9 @@ export const queryStatsApi = {
   // Get view definition from Materialize
   getViewDefinition: (viewName: string) =>
     apiClient.get<ViewDefinitionResponse>(`/api/query-stats/view-definition/${encodeURIComponent(viewName)}`),
+  // Prefetch every lineage-graph view definition in one round trip
+  getViewDefinitions: () =>
+    apiClient.get<ViewDefinitionsResponse>('/api/query-stats/view-definitions'),
 }
 
 // Load Generator Types
