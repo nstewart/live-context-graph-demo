@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { queryStatsApi, ViewDefinitionResponse } from "../api/client";
 
 /** How long to wait before retrying a failed prefetch. Long enough not to
@@ -78,4 +78,64 @@ export function useViewDefinitions(): ViewDefinitionCache {
   }, []);
 
   return { get, set };
+}
+
+export interface ViewDefinitionSelection {
+  selectedNodeId: string | null;
+  definition: ViewDefinitionResponse | null;
+  isLoading: boolean;
+  /** Click a lineage node: opens its definition, or closes if already open. */
+  onNodeClick: (nodeId: string) => void;
+  close: () => void;
+}
+
+/** Selection state for the lineage-graph SQL viewer, backed by the prefetch
+ *  cache. A prefetched node opens with no request and no spinner; anything
+ *  else falls back to a per-view fetch and is cached for the next click. */
+export function useViewDefinitionSelection(): ViewDefinitionSelection {
+  const viewDefinitions = useViewDefinitions();
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [definition, setDefinition] = useState<ViewDefinitionResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const close = useCallback(() => {
+    setSelectedNodeId(null);
+    setDefinition(null);
+  }, []);
+
+  const onNodeClick = useCallback(
+    async (nodeId: string) => {
+      // Toggle selection if clicking the same node
+      if (nodeId === selectedNodeId) {
+        close();
+        return;
+      }
+
+      setSelectedNodeId(nodeId);
+
+      const prefetched = viewDefinitions.get(nodeId);
+      if (prefetched) {
+        setDefinition(prefetched);
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setDefinition(null);
+
+      try {
+        const response = await queryStatsApi.getViewDefinition(nodeId);
+        setDefinition(response.data);
+        viewDefinitions.set(nodeId, response.data);
+      } catch (err) {
+        console.error("Failed to fetch view definition:", err);
+        setDefinition(null);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [selectedNodeId, viewDefinitions, close]
+  );
+
+  return { selectedNodeId, definition, isLoading, onNodeClick, close };
 }

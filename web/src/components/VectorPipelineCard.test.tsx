@@ -291,4 +291,66 @@ describe('VectorPipelineCard', () => {
       await waitFor(() => expect(screen.getByText(/re-embedded/i)).toBeInTheDocument())
     })
   })
+  describe('Order status changes', () => {
+    // order_status lives in the header and is absent from embedding_text, so it
+    // has its own change tracking — without it a status edit swaps the badge
+    // with no visual cue at all.
+    const withStatus = (status: string) => ({
+      data: {
+        ...mockResponse.data,
+        results: [{ ...mockResponse.data.results[0], order_status: status }],
+      },
+    })
+
+    const runSearch = async () => {
+      render(<VectorPipelineCard />)
+      fireEvent.click(screen.getByRole('button', { name: /Vector Pipeline/i }))
+      await waitFor(() => expect(screen.getByPlaceholderText(/search/i)).toBeInTheDocument())
+      const input = screen.getByPlaceholderText(/search/i)
+      const searchButton = screen.getByRole('button', { name: /^Search$/i })
+      fireEvent.change(input, { target: { value: 'dairy' } })
+      fireEvent.click(searchButton)
+      await waitFor(() => expect(screen.getByText('#FM-1001')).toBeInTheDocument())
+      return searchButton
+    }
+
+    it('flashes the status badge when the status changes', async () => {
+      vi.mocked(searchApi.vectorSearchOrders)
+        .mockResolvedValueOnce(withStatus('DELIVERED') as never)
+        .mockResolvedValue(withStatus('CREATED') as never)
+
+      const searchButton = await runSearch()
+      // Baseline sighting must not flash.
+      expect(screen.getByTestId('order-status')).not.toHaveAttribute('data-flashing')
+
+      fireEvent.click(searchButton)
+      await waitFor(() => expect(screen.getByTestId('order-status')).toHaveTextContent('CREATED'))
+      expect(screen.getByTestId('order-status')).toHaveAttribute('data-flashing')
+    })
+
+    it('does not flash when the status is unchanged', async () => {
+      vi.mocked(searchApi.vectorSearchOrders).mockResolvedValue(withStatus('DELIVERED') as never)
+
+      const searchButton = await runSearch()
+      fireEvent.click(searchButton)
+
+      await waitFor(() => expect(searchApi.vectorSearchOrders).toHaveBeenCalledTimes(2))
+      expect(screen.getByTestId('order-status')).not.toHaveAttribute('data-flashing')
+    })
+
+    it('keeps the status colour while flashing', async () => {
+      vi.mocked(searchApi.vectorSearchOrders)
+        .mockResolvedValueOnce(withStatus('DELIVERED') as never)
+        .mockResolvedValue(withStatus('CREATED') as never)
+
+      const searchButton = await runSearch()
+      fireEvent.click(searchButton)
+      await waitFor(() => expect(screen.getByTestId('order-status')).toHaveAttribute('data-flashing'))
+
+      // The ring is layered on top of the per-status classes, not instead of them
+      const badge = screen.getByTestId('order-status')
+      expect(badge.className).toMatch(/ring-yellow-400/)
+      expect(badge.className).toMatch(/bg-/)
+    })
+  })
 })

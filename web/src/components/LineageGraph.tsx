@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react';
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
+import vectorDbImage from '../assets/vector-db.png';
 
 type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic' | 'destination_systems';
 
@@ -387,6 +388,38 @@ const DestinationSystemsNode = () => (
   </div>
 );
 
+// Vector DB destination node — replaces the generic destinations column in the
+// triple-store architecture, where the served context lands in a vector store.
+const VectorDbNode = () => (
+  <div
+    style={{
+      width: '100%',
+      height: '100%',
+      background: '#f8fafc',
+      border: '1.5px solid #94a3b8',
+      borderRadius: '10px',
+      padding: '8px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '4px',
+      boxSizing: 'border-box',
+      userSelect: 'none',
+    }}
+  >
+    <Handle type="target" position={Position.Left} id="left" style={{ opacity: 0 }} />
+    {/* Recall path back to the agent, routed up and over the top of the graph */}
+    <Handle type="source" position={Position.Top} id="top" style={{ opacity: 0 }} />
+    {/* Unlabelled on purpose: the swim-lane band above already reads "Vector DB" */}
+    <img
+      src={vectorDbImage}
+      alt="Vector DB"
+      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+    />
+  </div>
+);
+
 // Agent node
 const AgentNode = () => (
   <div
@@ -411,6 +444,8 @@ const AgentNode = () => (
     <Handle type="source" position={Position.Right} id="right" style={{ opacity: 0 }} />
     <Handle type="target" position={Position.Right} id="right-in" style={{ opacity: 0 }} />
     <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    {/* Recall from the vector store arrives over the top, clearing the MCP node */}
+    <Handle type="target" position={Position.Top} id="top-in" style={{ opacity: 0 }} />
   </div>
 );
 
@@ -449,6 +484,7 @@ const nodeTypes: NodeTypes = {
   source_wrapper_band: SourceWrapperBandNode,
   source_systems_node: SourceSystemsNode,
   destination_systems_node: DestinationSystemsNode,
+  vector_db_node: VectorDbNode,
   agent_node: AgentNode,
   mcp_node: McpNode,
 };
@@ -467,6 +503,13 @@ const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false
   cursor: 'pointer',
   boxShadow: isSelected ? '0 0 12px rgba(251, 191, 36, 0.6)' : undefined,
 });
+
+/** Which architecture the graph draws.
+ *  - materialize:         live medallion stack, three per-system sources
+ *  - materialize_triples: same stack, but agent writes land in one triple store
+ *  - batch:               periodic OLAP refresh
+ *  - postgres:            reactive query offload */
+export type LineageScenario = 'materialize' | 'materialize_triples' | 'postgres' | 'batch';
 
 // Lineage node definitions (positions computed by dagre)
 const nodeDefinitions: Array<{
@@ -547,11 +590,18 @@ function getLayoutedElements(
   nodeDefs: typeof nodeDefinitions,
   edgeDefs: typeof edgeDefinitions,
   selectedNodeId: string | null | undefined,
-  scenario: 'materialize' | 'postgres' | 'batch' = 'materialize'
+  scenario: LineageScenario = 'materialize'
 ): { nodes: Node[]; edges: Edge[] } {
-  const isMaterialize = scenario === 'materialize';
+  // 'materialize_triples' is the Materialize reference architecture (medallion
+  // bands, FGAC wrapper, destination systems) drawn over the query-offload
+  // source shape, where agent writes land directly in the triple store.
+  const isMaterialize = scenario === 'materialize' || scenario === 'materialize_triples';
   const isPostgres = scenario === 'postgres';
   const isBatch = scenario === 'batch';
+  // One OLTP triple store as the source, rather than three per-system sources
+  const isTripleSource = scenario === 'postgres' || scenario === 'materialize_triples';
+  // Serves a vector DB and draws the two-step RAG retrieval loop
+  const isRagArchitecture = isMaterialize && isTripleSource;
 
   // Map triples → X edges to the correct named source in materialize/batch mode
   const tripleSourceMap: Record<string, string> = {
@@ -565,6 +615,7 @@ function getLayoutedElements(
   };
 
   // Postgres: triples stays in bronze ("Base Tables"), all other content nodes remapped to biz_logic.
+  // Materialize+triples: triples is the sole source feeding an unchanged medallion stack.
   // Materialize/Batch: hide triples, show src_* nodes with remapped edges.
   const effectiveNodeDefs = isPostgres
     ? nodeDefs
@@ -575,9 +626,15 @@ function getLayoutedElements(
             return { ...n, medallionLayer: 'biz_logic' as MedallionLayer };
           return n;
         })
-    : nodeDefs.filter((n) => n.id !== 'triples');
+    : isTripleSource
+      ? nodeDefs
+          .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
+          .map((n) => (n.id === 'triples' ? { ...n, label: 'Agent Writes & Memories' } : n))
+      : nodeDefs.filter((n) => n.id !== 'triples');
 
-  const effectiveEdgeDefs = isPostgres
+  // Triple-store scenarios keep the original triples → X edges; the others fan
+  // them out to the per-system sources.
+  const effectiveEdgeDefs = isTripleSource
     ? edgeDefs
     : edgeDefs.map((e) =>
         e.source === 'triples'
@@ -598,7 +655,7 @@ function getLayoutedElements(
   });
   dagreGraph.setNode('source_systems_box', { width: SS_W, height: SS_H });
   // Anchor source_systems_box to source nodes so they all end up at the same dagre rank
-  if (isPostgres) {
+  if (isTripleSource) {
     dagreGraph.setEdge('source_systems_box', 'triples');
   } else {
     dagreGraph.setEdge('source_systems_box', 'src_customers');
@@ -620,7 +677,7 @@ function getLayoutedElements(
   // Pin source nodes to be evenly distributed within the source_systems_box vertical span,
   // and aligned to the same x column. This makes the layout identical across all scenarios.
   const ssPos = dagreGraph.node('source_systems_box');
-  if (!isPostgres) {
+  if (!isTripleSource) {
     const orderedSourceIds = ['src_customers', 'src_operations', 'src_courier'];
     const minX = Math.min(...orderedSourceIds.map(id => dagreGraph.node(id).x));
     const spacing = (SS_H - NODE_HEIGHT) / (orderedSourceIds.length - 1);
@@ -683,7 +740,12 @@ function getLayoutedElements(
     .map((layer) => {
       const b = layerBounds[layer];
       const colors = medallionColors[layer];
-      const overrideLabel = isPostgres && layer === 'bronze' ? 'Base Tables' : undefined;
+      const overrideLabel =
+        isPostgres && layer === 'bronze'
+          ? 'Base Tables'
+          : isTripleSource && layer === 'destination_systems'
+            ? 'Vector DB'
+            : undefined;
       return {
         id: `__band__${layer}`,
         type: 'band',
@@ -788,10 +850,11 @@ function getLayoutedElements(
     focusable: false,
   };
 
-  // Destination Systems box node (Materialize only)
+  // Destination box node (Materialize only). The triple-store architecture
+  // serves a vector DB, so it swaps the generic destinations column for that.
   const destinationSysNode: Node | null = (isMaterialize && dsPos) ? {
     id: 'destination_systems_box',
-    type: 'destination_systems_node',
+    type: isTripleSource ? 'vector_db_node' : 'destination_systems_node',
     position: { x: dsPos.x - DS_W / 2, y: dsPos.y - DS_H / 2 },
     width: DS_W,
     height: DS_H,
@@ -857,13 +920,13 @@ function getLayoutedElements(
     {
       id: 'e-src-triples',
       source: 'source_systems_box',
-      target: isPostgres ? 'triples' : 'src_operations',
+      target: isTripleSource ? 'triples' : 'src_operations',
       sourceHandle: 'right',
       style: edgeStyle,
       animated: true,
       zIndex: 1,
     },
-    ...(!isPostgres ? [
+    ...(!isTripleSource ? [
       {
         id: 'e-src-customers',
         source: 'source_systems_box',
@@ -883,15 +946,37 @@ function getLayoutedElements(
         zIndex: 1,
       },
     ] : []),
+    // RAG retrieval, step ①: candidates recalled from the vector store. Both
+    // endpoints are Top handles, so smoothstep routes it up and over the graph
+    // rather than cutting across the medallion stack. The agent and MCP tops sit
+    // at the same y, so the default 20px extension clears the MCP node.
+    ...(isRagArchitecture ? [
+      {
+        id: 'e-vectordb-agent',
+        source: 'destination_systems_box',
+        target: '__agent__',
+        sourceHandle: 'top',
+        targetHandle: 'top-in',
+        type: 'smoothstep',
+        label: '① kNN recall',
+        style: { stroke: '#6b7280', strokeWidth: 1.5 },
+        labelStyle: { fontSize: '14px', fill: '#6b7280', fontWeight: 700 },
+        labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
+        animated: true,
+        zIndex: 3,
+      },
+    ] : []),
     {
       id: 'e-agent-mcp',
       source: '__mcp__',
       target: '__agent__',
       sourceHandle: 'left-out',
       targetHandle: 'right-in',
-      label: 'Observe',
+      // Step ②: the recalled candidates are enriched and rescored against live
+      // Materialize. Other scenarios keep the generic observe/act framing.
+      label: isRagArchitecture ? '② Features from MZ + rerank' : 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
-      labelStyle: { fontSize: '15px', fill: '#6b7280', fontWeight: 700 },
+      labelStyle: { fontSize: isRagArchitecture ? '14px' : '15px', fill: '#6b7280', fontWeight: 700 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },
       animated: true,
       zIndex: 3,
@@ -960,10 +1045,23 @@ function getLayoutedElements(
   };
 }
 
+/** The nodes and edges <LineageGraph> renders for a scenario.
+ *
+ *  Exported for tests: ReactFlow only draws edges once its nodes have been
+ *  measured, which never happens under jsdom, so scenario wiring (which edges
+ *  exist, where they attach, how they're labelled) can't be asserted from the
+ *  DOM. */
+export function buildLineageLayout(
+  scenario: LineageScenario = 'materialize',
+  selectedNodeId: string | null = null
+) {
+  return getLayoutedElements(nodeDefinitions, edgeDefinitions, selectedNodeId, scenario);
+}
+
 interface LineageGraphProps {
   selectedNodeId?: string | null;
   onNodeClick?: (nodeId: string) => void;
-  scenario?: 'materialize' | 'postgres' | 'batch';
+  scenario?: LineageScenario;
 }
 
 export function LineageGraph({ selectedNodeId, onNodeClick, scenario = 'materialize' }: LineageGraphProps) {

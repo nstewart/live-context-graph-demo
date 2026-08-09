@@ -90,7 +90,7 @@ export const WhatAreTriplesCard = ({
             <ChevronRight className="h-5 w-5 text-gray-500" />
           )}
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">Agent Memory Writing</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Agent Writes and Memories</h3>
             <p className="text-xs text-gray-500">
               Using "triples" as the atomic unit of knowledge recorded by agents. This forms the
               foundation that will ultimately create their world model.
