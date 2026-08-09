@@ -137,6 +137,8 @@ TAG_OUTPUT=$(source "${SCRIPT_DIR}/tags.sh" 2>&1 && \
 }
 pass "Required resource tags resolve"
 echo "$TAG_OUTPUT" | tr '|' '\n' | sed 's/^/      /'
+echo "      (deleteAfter is a preview computed from now; the value applied at"
+echo "       'make up-aws' time will be later unless DELETE_AFTER is set explicitly)"
 
 # Summary
 echo ""

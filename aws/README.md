@@ -123,7 +123,10 @@ Two things worth knowing:
   scratch account honors it, an instance left running past 24 hours may be terminated.
   For a longer-lived demo, raise it: `make up-agent-aws DELETE_AFTER_HOURS=72`.
 
-Run `make aws-debug` to see the exact tag values that will be applied before deploying.
+Run `make aws-debug` to preview the tag values before deploying. `owner`, `reason`, and
+`team` will be exact, but `deleteAfter` is computed relative to *now* unless you set
+`DELETE_AFTER` explicitly — the value actually applied at `make up-aws` time will be
+later by however long you wait in between.
 
 [scp]: https://github.com/MaterializeInc/i2/pull/3620
 
