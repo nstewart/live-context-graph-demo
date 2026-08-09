@@ -630,17 +630,11 @@ function getLayoutedElements(
     delivery_tasks_flat:'src_courier',
   };
 
-  // The sink views are RAG-only, so drop them once here rather than in each
-  // branch below — mirrors withoutSinkEdges, which does the same for their edges.
-  const scopedNodeDefs = isRagArchitecture
-    ? nodeDefs
-    : nodeDefs.filter((n) => !SINK_VIEW_IDS.includes(n.id));
-
   // Postgres: triples stays in bronze ("Base Tables"), all other content nodes remapped to biz_logic.
   // Materialize+triples: triples is the sole source feeding an unchanged medallion stack.
   // Materialize/Batch: hide triples, show src_* nodes with remapped edges.
   const effectiveNodeDefs = isPostgres
-    ? scopedNodeDefs
+    ? nodeDefs
         .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
         .map((n) => {
           if (n.id === 'triples') return { ...n, label: 'triples', medallionLayer: 'bronze' as MedallionLayer };
@@ -649,7 +643,7 @@ function getLayoutedElements(
           return n;
         })
     : isRagArchitecture
-      ? scopedNodeDefs
+      ? nodeDefs
           .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
           .map((n) => {
             if (n.id === 'triples') return { ...n, label: 'Agent Writes & Memories' };
@@ -660,10 +654,13 @@ function getLayoutedElements(
             return n;
           })
       : isTripleSource
-        ? scopedNodeDefs
+        ? nodeDefs
             .filter((n) => !['src_customers', 'src_operations', 'src_courier'].includes(n.id))
+            .filter((n) => !SINK_VIEW_IDS.includes(n.id))
             .map((n) => (n.id === 'triples' ? { ...n, label: 'Agent Writes & Memories' } : n))
-        : scopedNodeDefs.filter((n) => n.id !== 'triples');
+        : nodeDefs
+            .filter((n) => n.id !== 'triples')
+            .filter((n) => !SINK_VIEW_IDS.includes(n.id));
 
   // Triple-store scenarios keep the original triples → X edges; the others fan
   // them out to the per-system sources. Sink-view edges are RAG-only.
@@ -1060,7 +1057,7 @@ function getLayoutedElements(
       targetHandle: 'right-in',
       // Step ②: the recalled candidates are enriched and rescored against live
       // Materialize. Other scenarios keep the generic observe/act framing.
-      label: isRagArchitecture ? '② Enrich and rerank with MZ outputs' : 'Observe',
+      label: isRagArchitecture ? '② Features from MZ + rerank' : 'Observe',
       style: { stroke: '#6b7280', strokeWidth: 1.5 },
       labelStyle: { fontSize: isRagArchitecture ? '14px' : '15px', fill: '#6b7280', fontWeight: 700 },
       labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.85 },

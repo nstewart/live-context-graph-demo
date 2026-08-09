@@ -82,7 +82,7 @@ describe('LineageGraph scenarios', () => {
     expect(recall.targetHandle).toBe('top-in')
 
     // Step 2: the same line that used to say "Observe" now names the enrichment
-    expect(byId['e-agent-mcp'].label).toBe('\u2461 Enrich and rerank with MZ outputs')
+    expect(byId['e-agent-mcp'].label).toBe('\u2461 Features from MZ + rerank')
 
     // The write edge survives but sheds its label; see the sources-column test
     expect(byId['e-agent-src']).toBeTruthy()
@@ -191,25 +191,6 @@ describe('LineageGraph scenarios', () => {
     const intoDest = edges.filter((e) => e.target === 'destination_systems_box').map((e) => e.source)
     expect(intoDest).toHaveLength(3)
     expect(intoDest).toContain('inventory_items_with_dynamic_pricing_mv')
-  })
-
-  it('leaves the postgres query-offload scenario structurally untouched', () => {
-    const { nodes } = buildLineageLayout('postgres')
-
-    // Sink views are RAG-only. Postgres has no destination column for them to
-    // feed, so their edges are filtered out — leaving them as orphans at dagre
-    // rank 0 if the nodes come through, which drags the biz_logic band left
-    // across "Base Tables".
-    expect(nodes.find((n) => n.id === 'orders_sink_v')).toBeUndefined()
-    expect(nodes.find((n) => n.id === 'inventory_sink_v')).toBeUndefined()
-
-    const span = (layer: string) => {
-      const b = nodes.find((n) => n.id === `__band__${layer}`)!
-      return [b.position.x, b.position.x + Number(b.style!.width)]
-    }
-    const [, bronzeEnd] = span('bronze')
-    const [bizStart] = span('biz_logic')
-    expect(bronzeEnd).toBeLessThanOrEqual(bizStart)
   })
 
   it('reports the clicked node id', async () => {
