@@ -44,6 +44,25 @@ import { WriteTripleForm } from "../components/WriteTripleForm";
 import { ViewDefinitionModal } from "../components/ViewDefinitionModal";
 import { usePropagation } from "../contexts/PropagationContext";
 import { useViewDefinitionSelection } from "../hooks/useViewDefinitions";
+import { aliasColumn, aliasView, pageText } from "../label";
+
+// Columns shown in the read-path SQL preview. Rendered through the active
+// label's display aliases; the query the API actually runs is untouched.
+const SQL_PREVIEW_ROWS: string[][] = [
+  ["o.order_id", "o.order_number", "o.order_status"],
+  ["o.store_id", "o.customer_id"],
+  ["o.delivery_window_start", "o.delivery_window_end"],
+  ["o.order_total_amount"],
+  ["o.customer_name", "o.customer_email", "o.customer_address"],
+  ["o.store_name", "o.store_zone", "o.store_address"],
+  ["o.assigned_courier_id", "o.delivery_task_status"],
+  ["o.delivery_eta", "o.effective_updated_at"],
+  ["p.base_price", "p.live_price", "p.price_change"],
+  ["p.zone_adjustment", "p.perishable_adjustment"],
+  ["p.local_stock_adjustment", "p.popularity_adjustment"],
+  ["p.scarcity_adjustment", "p.demand_multiplier"],
+  ["p.demand_premium", "p.stock_level"],
+];
 
 interface ChartDataPoint {
   time: number;
@@ -491,7 +510,7 @@ export default function QueryStatisticsPage() {
   const [useLogScaleResponseTime, setUseLogScaleResponseTime] = useState(false);
   const [lineageGraphOpen, setLineageGraphOpen] = useState(true);
   const [contextReactiveOpen, setContextReactiveOpen] = useState(false);
-  const [freshmartUIOpen, setFreshmartUIOpen] = useState(false);
+  const [opsUIOpen, setOpsUIOpen] = useState(false);
   const [trustedActionOpen, setTrustedActionOpen] = useState(true);
   const [responseChartOpen, setResponseChartOpen] = useState(true);
   const [reactionChartOpen, setReactionChartOpen] = useState(false);
@@ -885,7 +904,7 @@ export default function QueryStatisticsPage() {
       <div className="mb-6 sticky top-0 z-10 bg-gray-50 -mx-6 px-6 py-4 -mt-6">
         {/* Top row: Title and Controls */}
         <div className="flex justify-between items-start">
-          <h1 className="text-2xl font-bold text-gray-900">Freshmart: Live Context Layer + Agent Memory Demo</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{pageText("home", "title")}</h1>
 
           {/* Controls group */}
           <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
@@ -895,7 +914,7 @@ export default function QueryStatisticsPage() {
                 <button
                   onClick={handleStartPolling}
                   disabled={!selectedOrderId}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
                 >
                   <Play className="h-3.5 w-3.5" />
                   Start
@@ -1036,21 +1055,14 @@ export default function QueryStatisticsPage() {
                   </div>
                   <div className="flex-1 overflow-auto px-4 py-3 font-mono text-xs text-gray-400 leading-relaxed">
                     <div><span className="text-purple-400">SELECT</span></div>
-                    <div className="pl-4">o.order_id, o.order_number, o.order_status,</div>
-                    <div className="pl-4">o.store_id, o.customer_id,</div>
-                    <div className="pl-4">o.delivery_window_start, o.delivery_window_end,</div>
-                    <div className="pl-4">o.order_total_amount,</div>
-                    <div className="pl-4">o.customer_name, o.customer_email, o.customer_address,</div>
-                    <div className="pl-4">o.store_name, o.store_zone, o.store_address,</div>
-                    <div className="pl-4">o.assigned_courier_id, o.delivery_task_status,</div>
-                    <div className="pl-4">o.delivery_eta, o.effective_updated_at,</div>
-                    <div className="pl-4">p.base_price, p.live_price, p.price_change,</div>
-                    <div className="pl-4">p.zone_adjustment, p.perishable_adjustment,</div>
-                    <div className="pl-4">p.local_stock_adjustment, p.popularity_adjustment,</div>
-                    <div className="pl-4">p.scarcity_adjustment, p.demand_multiplier,</div>
-                    <div className="pl-4">p.demand_premium, p.stock_level</div>
-                    <div className="mt-1"><span className="text-purple-400">FROM</span> orders_with_lines_mv o</div>
-                    <div><span className="text-purple-400">LEFT JOIN</span> inventory_items_with_dynamic_pricing_mv p</div>
+                    {SQL_PREVIEW_ROWS.map((row, idx) => (
+                      <div className="pl-4" key={idx}>
+                        {row.map((c) => `${c.split(".")[0]}.${aliasColumn(c.split(".")[1])}`).join(", ")}
+                        {idx < SQL_PREVIEW_ROWS.length - 1 ? "," : ""}
+                      </div>
+                    ))}
+                    <div className="mt-1"><span className="text-purple-400">FROM</span> {aliasView("orders_with_lines_mv")} o</div>
+                    <div><span className="text-purple-400">LEFT JOIN</span> {aliasView("inventory_items_with_dynamic_pricing_mv")} p</div>
                     <div className="pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id</div>
                     <div className="pl-4"><span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
                     <div className="mt-1"><span className="text-purple-400">WHERE</span> o.order_id = <span className="text-green-400">:order_id</span></div>
@@ -1521,14 +1533,14 @@ export default function QueryStatisticsPage() {
         onClose={closeViewDefinition}
       />
 
-      {/* Freshmart UI Components (Collapsible) */}
+      {/* Operational UI components (collapsible) */}
       <div className="bg-white rounded-lg shadow mb-6">
         <button
-          onClick={() => setFreshmartUIOpen(!freshmartUIOpen)}
+          onClick={() => setOpsUIOpen(!opsUIOpen)}
           className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
         >
           <div className="flex items-center gap-2">
-            {freshmartUIOpen ? (
+            {opsUIOpen ? (
               <ChevronDown className="h-5 w-5 text-gray-500" />
             ) : (
               <ChevronRight className="h-5 w-5 text-gray-500" />
@@ -1536,7 +1548,7 @@ export default function QueryStatisticsPage() {
             <h3 className="text-lg font-semibold text-gray-900">Context Assembly</h3>
           </div>
         </button>
-        {freshmartUIOpen && (
+        {opsUIOpen && (
           <div className="p-6 pt-0">
             <div className="grid grid-cols-3 gap-4 mb-6">
               <OrderCard

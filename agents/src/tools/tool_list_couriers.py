@@ -9,7 +9,7 @@ from src.config import get_settings
 @tool
 async def list_couriers(store_id: str = None, status: str = None) -> list[dict]:
     """
-    List FreshMart couriers with their current status and task information.
+    List couriers with their current status and task information.
 
     Use this tool to find couriers, check their availability, or see their delivery schedules.
     Can filter by home store or current status.

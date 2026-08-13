@@ -3,6 +3,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { StoreInventory } from '../api/client'
 import { X } from 'lucide-react'
+import { placeholder } from '../label'
 
 export interface InventoryFormData {
   inventory_id: string
@@ -83,8 +84,8 @@ export function InventoryFormModal({
                 required
                 value={formData.inventory_id}
                 onChange={e => setFormData({ ...formData, inventory_id: e.target.value })}
-                placeholder="INV-BK01-001"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                placeholder={placeholder("inventory_code")}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             </div>
           )}
@@ -94,7 +95,7 @@ export function InventoryFormModal({
               required
               value={formData.product_id}
               onChange={e => setFormData({ ...formData, product_id: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             >
               <option value="">Select a product...</option>
               {products.map(p => (
@@ -112,7 +113,7 @@ export function InventoryFormModal({
               value={formData.stock_level}
               onChange={e => setFormData({ ...formData, stock_level: e.target.value })}
               placeholder="100"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div>
@@ -121,7 +122,7 @@ export function InventoryFormModal({
               type="datetime-local"
               value={formData.replenishment_eta}
               onChange={e => setFormData({ ...formData, replenishment_eta: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div className="flex justify-end gap-2 pt-4">
@@ -131,7 +132,7 @@ export function InventoryFormModal({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {isLoading ? 'Saving...' : inventory ? 'Update' : 'Add'}
             </button>

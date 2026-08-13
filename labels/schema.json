@@ -1,0 +1,426 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://materialize.com/live-context-graph-demo/labels/schema.json",
+  "title": "Demo label",
+  "description": "Shape of a RESOLVED label (after deep-merge over freshmart.yaml). An individual label file may omit anything it inherits; the resolved result may not. Validated by tools/resolve_label.py when the jsonschema package is available.",
+  "type": "object",
+  "required": [
+    "label",
+    "brand",
+    "vocabulary",
+    "enums",
+    "aliases",
+    "nav",
+    "pages",
+    "copy",
+    "placeholders",
+    "examples",
+    "seed",
+    "search",
+    "agent"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "label": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Must match the filename stem. Set by the resolver, not authored."
+    },
+    "brand": {
+      "type": "object",
+      "required": [
+        "name",
+        "tagline",
+        "tab_title",
+        "theme",
+        "favicon"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tagline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tab_title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "theme": {
+          "type": "object",
+          "required": [
+            "primary",
+            "accent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "primary": {
+              "$ref": "#/$defs/tailwindColor"
+            },
+            "accent": {
+              "$ref": "#/$defs/tailwindColor"
+            }
+          }
+        },
+        "favicon": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Filename under web/public/."
+        },
+        "qr": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "cta": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "vocabulary": {
+      "type": "object",
+      "description": "Display words per entity type. Internal subject prefixes never change.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "order": {
+          "type": "object",
+          "required": [
+            "one",
+            "many",
+            "id_prefix"
+          ],
+          "properties": {
+            "one": {
+              "type": "string",
+              "minLength": 1
+            },
+            "many": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id_prefix": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Order-number prefix, e.g. 'FM-'. Used by the seeder, load generator, and agent order-creation tool."
+            }
+          }
+        }
+      }
+    },
+    "enums": {
+      "type": "object",
+      "description": "Internal enum value -> display label. Keys are FIXED by the SQL; only values are label-driven.",
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "aliases": {
+      "type": "object",
+      "description": "DISPLAY-ONLY renaming of identifiers surfaced in the SQL preview, lineage graph, predicate dropdown, raw JSON, and OpenSearch examples. Never affects the wire format, SQL, or database.",
+      "required": [
+        "columns",
+        "views",
+        "predicates"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "views": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "predicates": {
+          "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "nav": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "label"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "pages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "copy": {
+      "type": "object",
+      "description": "Narrative copy blocks, grouped by component.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "placeholders": {
+      "$ref": "#/$defs/stringMap"
+    },
+    "examples": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "search_queries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "predicate_values": {
+          "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "seed": {
+      "type": "object",
+      "required": [
+        "store_name_template",
+        "locations",
+        "catalog"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "store_name_template": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Supports {zone_name} and {n}."
+        },
+        "address_state": {
+          "type": "string",
+          "minLength": 2
+        },
+        "locations": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Zone CODES are join keys in the pricing SQL and must not change; only names and streets are label-driven.",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "streets": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "catalog": {
+          "type": "object",
+          "required": [
+            "expand_to",
+            "categories",
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "expand_to": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Total catalog size after variant expansion. Must be >= the number of authored items. Keep at 760 so index size and kNN behavior match across labels."
+            },
+            "categories": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "perishable_default": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Rows of [name, category, price, weight_grams, perishable]. weight_grams and perishable are mandatory in every vertical because the dynamic-pricing and bundling SQL key on them.",
+              "items": {
+                "type": "array",
+                "minItems": 5,
+                "maxItems": 5,
+                "prefixItems": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              }
+            },
+            "variant_suffixes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Suffixes used to generate catalog variants when expand_to exceeds the number of authored items. Required whenever expand_to > len(items)."
+            }
+          }
+        }
+      }
+    },
+    "search": {
+      "type": "object",
+      "required": [
+        "synonyms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "synonyms": {
+          "type": "array",
+          "description": "OpenSearch synonym-filter rules, comma-separated terms per entry. An empty list disables expansion.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "persona"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "persona": {
+          "type": "string",
+          "minLength": 1
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "empty_state": {
+          "type": "string"
+        },
+        "default_store": {
+          "type": "string",
+          "pattern": "^store:",
+          "description": "Must be a store subject id that the seeder actually creates."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Full LLM system prompt. Restates the dynamic-pricing rules in prose -- see docs/WHITE_LABELING.md; it must track db/materialize/init.sh."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tailwindColor": {
+      "type": "string",
+      "enum": [
+        "slate",
+        "gray",
+        "zinc",
+        "neutral",
+        "stone",
+        "red",
+        "orange",
+        "amber",
+        "yellow",
+        "lime",
+        "green",
+        "emerald",
+        "teal",
+        "cyan",
+        "sky",
+        "blue",
+        "indigo",
+        "violet",
+        "purple",
+        "fuchsia",
+        "pink",
+        "rose"
+      ],
+      "description": "A Tailwind palette name; the brand scale is generated from it."
+    }
+  }
+}

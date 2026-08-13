@@ -9,6 +9,8 @@ from langchain_core.tools import tool
 
 from src.config import get_settings
 
+from src.demo_label import order_prefix
+
 
 @tool
 async def create_order(
@@ -18,7 +20,7 @@ async def create_order(
     delivery_window_hours: int = 2,
 ) -> dict:
     """
-    Create a new order for a customer in FreshMart.
+    Create a new order for a customer.
 
     IMPORTANT:
     - Orders are ALWAYS created in the CREATED state initially.
@@ -159,8 +161,9 @@ async def create_order(
 
     # Generate unique order ID and number
     order_uuid = uuid4().hex[:8]
-    order_id = f"order:FM-{order_uuid}"
-    order_number = f"FM-{order_uuid.upper()}"
+    prefix = order_prefix()
+    order_id = f"order:{prefix}{order_uuid}"
+    order_number = f"{prefix}{order_uuid.upper()}"
 
     # Calculate total
     total_amount = sum(item["quantity"] * item["unit_price"] for item in items)

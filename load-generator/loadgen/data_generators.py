@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 from faker import Faker
 
+from .demo_label import order_prefix
+
 # Initialize Faker
 fake = Faker()
 
@@ -36,10 +38,10 @@ class DataGenerator:
         """Generate a unique order ID.
 
         Returns:
-            Order ID in format "order:FM-UUID"
+            Order ID in format "order:<prefix>UUID"
         """
         # Use first 8 chars of UUID for readability while maintaining uniqueness
-        return f"order:FM-{str(uuid.uuid4())[:8]}"
+        return f"order:{order_prefix()}{str(uuid.uuid4())[:8]}"
 
     def generate_customer_name(self) -> str:
         """Generate a realistic customer name.

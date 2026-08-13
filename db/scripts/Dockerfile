@@ -28,7 +28,9 @@ RUN pip install --no-cache-dir \
     --retries 5 --timeout 60 \
     -r requirements.txt
 
-# Copy scripts
+# Copy scripts. demo_label.py reads the resolved white-label config that the
+# seeder uses for the catalog, locations, and order-number prefix.
+COPY demo_label.py .
 COPY generate_load_test_data.py .
 COPY seed_docker.sh /seed.sh
 RUN chmod +x /seed.sh

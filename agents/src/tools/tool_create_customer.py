@@ -17,7 +17,7 @@ async def create_customer(
     home_store_id: str = "store:BK-01",
 ) -> dict:
     """
-    Create a new customer account in FreshMart.
+    Create a new customer account.
 
     Use this tool to register new customers before they place their first order.
 

@@ -37,8 +37,13 @@ services:
       - PG_USER=${PG_USER:-postgres}
       - PG_PASSWORD=${PG_PASSWORD:-postgres}
       - PG_DATABASE=${PG_DATABASE:-freshmart}
+      # White-label config. Resolved on the host by `make label`; the seeder reads
+      # the catalog, locations, and order-number prefix from it.
+      - DEMO_LABEL=${DEMO_LABEL:-freshmart}
+      - DEMO_LABEL_FILE=/labels/active.json
     volumes:
       - ./db/seed:/seed:ro
+      - ./labels/.resolved:/labels:ro
     depends_on:
       db:
         condition: service_healthy
@@ -234,6 +239,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - USE_MATERIALIZE_FOR_READS=${USE_MATERIALIZE_FOR_READS:-true}
       - ENABLE_DELIVERY_BUNDLING=${ENABLE_DELIVERY_BUNDLING:-false}
+      - DEMO_LABEL=${DEMO_LABEL:-freshmart}
+      - DEMO_LABEL_FILE=/labels/active.json
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -250,6 +257,7 @@ services:
       retries: 5
     volumes:
       - ./api:/app:cached
+      - ./labels/.resolved:/labels:ro
     command: uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
 
   # ============== Embedding Pipeline (Kafka / Connect / SMT) ==============
@@ -352,7 +360,9 @@ services:
         condition: service_healthy
     environment:
       - OS_URL=http://opensearch:9200
-      - INDEX_DIR=/indices
+      # Index mappings are rendered per label (the synonym list is label-driven),
+      # so point at the resolver's output rather than the raw .tmpl sources.
+      - INDEX_DIR=/indices/rendered
     volumes:
       - ./os-bootstrap/create-indices.sh:/create-indices.sh:ro
       - ./os-bootstrap:/indices:ro
@@ -409,6 +419,11 @@ services:
       - VITE_API_URL=http://localhost:${API_PORT:-8080}
       - VITE_ZERO_URL=http://localhost:4848
       - VITE_AGENT_URL=http://localhost:${AGENT_PORT:-8081}
+      - VITE_MZ_CONSOLE_URL=http://localhost:${MZ_CONSOLE_PORT:-6874}/
+      # The label's content arrives via the committed web/src/generated/label.json
+      # that `make label` regenerates; this is here so the UI can display which
+      # label it thinks is active and warn if it disagrees with the seeded data.
+      - VITE_DEMO_LABEL=${DEMO_LABEL:-freshmart}
     ports:
       - "${WEB_PORT:-5173}:5173"
     depends_on:
@@ -426,6 +441,8 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      - DEMO_LABEL=${DEMO_LABEL:-freshmart}
+      - DEMO_LABEL_FILE=/labels/active.json
     ports:
       - "${LOADGEN_PORT:-8084}:8084"
     depends_on:
@@ -433,6 +450,7 @@ services:
         condition: service_healthy
     volumes:
       - ./load-generator:/app:cached
+      - ./labels/.resolved:/labels:ro
 
   # ============== Agent Service (Optional Profile) ==============
   agents:
@@ -455,6 +473,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      # The agent's persona and system prompt are label-driven.
+      - DEMO_LABEL=${DEMO_LABEL:-freshmart}
+      - DEMO_LABEL_FILE=/labels/active.json
     ports:
       - "${AGENT_PORT:-8081}:8081"
     depends_on:
@@ -468,6 +489,7 @@ services:
       - agent
     volumes:
       - ./agents:/app:cached
+      - ./labels/.resolved:/labels:ro
 
 volumes:
   postgres_data:

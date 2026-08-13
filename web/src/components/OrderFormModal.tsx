@@ -5,6 +5,7 @@ import { X, AlertTriangle } from "lucide-react";
 import { ProductSelector, ProductWithStock } from "./ProductSelector";
 import { ShoppingCart, CartLineItem } from "./ShoppingCart";
 import { OrderFlat } from "../api/client";
+import { placeholder } from "../label"
 
 const statusOrder = [
   "CREATED",
@@ -334,8 +335,8 @@ export function OrderFormModal({
                     setFormData({ ...formData, order_number: e.target.value });
                     if (order) setHasUnsavedChanges(true);
                   }}
-                  placeholder="FM-1001"
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+                  placeholder={placeholder("order_number")}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100"
                 />
               </div>
               <div>
@@ -349,7 +350,7 @@ export function OrderFormModal({
                     setFormData({ ...formData, order_status: e.target.value });
                     if (order) setHasUnsavedChanges(true);
                   }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
                   {statusOrder.map((status) => (
                     <option key={status} value={status}>
@@ -371,7 +372,7 @@ export function OrderFormModal({
                     setFormData({ ...formData, customer_id: e.target.value });
                     if (order) setHasUnsavedChanges(true);
                   }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">Select a customer...</option>
                   {customersData.map((customer) => (
@@ -393,7 +394,7 @@ export function OrderFormModal({
                   required
                   value={formData.store_id}
                   onChange={(e) => handleStoreChange(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">Select a store...</option>
                   {storesData.map((store) => (
@@ -454,7 +455,7 @@ export function OrderFormModal({
                     });
                     if (order) setHasUnsavedChanges(true);
                   }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 />
               </div>
               <div>
@@ -471,7 +472,7 @@ export function OrderFormModal({
                     });
                     if (order) setHasUnsavedChanges(true);
                   }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 />
               </div>
             </div>
@@ -496,7 +497,7 @@ export function OrderFormModal({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {isLoading ? "Saving..." : order ? "Update" : "Create"}
               </button>

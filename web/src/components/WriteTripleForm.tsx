@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { Edit3 } from "lucide-react";
 import { queryStatsApi } from "../api/client";
+import { aliasPredicate, copy, placeholder, predicateSample } from "../label";
 
 // Turn a thrown write error into a human-readable message. Previously every
 // failure surfaced a generic "Write failed", and a stalled request produced no
@@ -17,6 +18,8 @@ const describeWriteError = (err: unknown): string => {
   return "Write failed";
 };
 
+const wt = copy("write_triple");
+
 const predicatesBySubjectType: Record<string, string[]> = {
   order: ['order_status', 'order_number', 'delivery_window_start', 'delivery_window_end'],
   orderline: ['quantity', 'order_line_unit_price', 'line_sequence'],
@@ -26,19 +29,6 @@ const predicatesBySubjectType: Record<string, string[]> = {
   inventory: ['stock_level', 'replenishment_eta'],
   courier: ['courier_name', 'courier_phone', 'courier_status'],
   task: ['task_status', 'assigned_to', 'eta'],
-};
-
-const placeholdersByPredicate: Record<string, string> = {
-  order_status: 'DELIVERED', order_number: 'FM-1234',
-  delivery_window_start: '2025-01-15T10:00:00', delivery_window_end: '2025-01-15T12:00:00',
-  quantity: '5', order_line_unit_price: '12.99', line_sequence: '1',
-  customer_name: 'John Doe', customer_email: 'john@example.com', customer_address: '123 Main St',
-  store_name: 'Downtown Market', store_zone: 'MAN', store_address: '456 Broadway',
-  product_name: 'Organic Apples', category: 'Produce', unit_price: '4.99',
-  perishable: 'true', unit_weight_grams: '500',
-  stock_level: '100', replenishment_eta: '2025-01-16T08:00:00',
-  courier_name: 'Jane Smith', courier_phone: '555-1234', courier_status: 'ACTIVE',
-  task_status: 'COMPLETED', assigned_to: 'courier:C-001', eta: '2025-01-15T11:00:00',
 };
 
 interface WriteTripleFormProps {
@@ -102,8 +92,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten, onWriteComplet
     <div className="bg-gray-50 rounded-lg p-4">
       <div className="flex items-center gap-2 mb-3">
         <Edit3 className="h-4 w-4 text-purple-600" />
-        <span className="font-medium text-gray-900">Write a Triple</span>
-        <span className="text-xs text-gray-500">— Update an order property and observe propagation</span>
+        <span className="font-medium text-gray-900">{wt.heading}</span>
+        <span className="text-xs text-gray-500">{wt.subhead}</span>
       </div>
 
       <div className="flex items-end gap-3 flex-wrap">
@@ -113,8 +103,8 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten, onWriteComplet
             type="text"
             value={subject}
             onChange={e => setSubject(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-            placeholder="order:FM-1001"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-accent-500 focus:border-accent-500 bg-white"
+            placeholder={placeholder("subject")}
           />
         </div>
         <div className="flex-1 min-w-[120px]">
@@ -122,9 +112,11 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten, onWriteComplet
           <select
             value={predicate}
             onChange={e => setPredicate(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-accent-500 focus:border-accent-500 bg-white"
           >
-            {availablePredicates.map(p => <option key={p} value={p}>{p}</option>)}
+            {availablePredicates.map(p => (
+              <option key={p} value={p}>{aliasPredicate(p)}</option>
+            ))}
           </select>
         </div>
         <div className="flex-1 min-w-[120px]">
@@ -134,14 +126,14 @@ export const WriteTripleForm = ({ initialSubject = "", onWritten, onWriteComplet
             value={value}
             onChange={e => setValue(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleWrite(); }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 bg-white"
-            placeholder={placeholdersByPredicate[predicate] || 'value'}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-accent-500 focus:border-accent-500 bg-white"
+            placeholder={predicateSample(predicate)}
           />
         </div>
         <button
           onClick={handleWrite}
           disabled={!subject || !predicate || !value}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+          className="px-4 py-2 bg-accent-600 text-white rounded-md hover:bg-accent-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
         >
           Write
         </button>

@@ -307,7 +307,7 @@ export interface SourceStats {
   response_time: QueryStatsMetrics
   reaction_time: QueryStatsMetrics
   sample_count: number
-  qps: number  // Queries per second (Freshmart approach)
+  qps: number  // Queries per second (operational read path)
 }
 
 export interface QueryStatsResponse {

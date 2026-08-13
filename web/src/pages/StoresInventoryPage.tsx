@@ -5,6 +5,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package, Wifi, WifiOff } from 'lucide-react'
 import { InventoryFormModal, InventoryFormData } from '../components/InventoryFormModal'
+import { pageText, placeholder } from '../label'
 
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
 
@@ -85,8 +86,8 @@ function StoreFormModal({
                 disabled={!!store}
                 value={formData.store_id}
                 onChange={e => setFormData({ ...formData, store_id: e.target.value })}
-                placeholder="BK-01"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+                placeholder={placeholder("store_code")}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100"
               />
             </div>
             <div>
@@ -95,7 +96,7 @@ function StoreFormModal({
                 required
                 value={formData.store_status}
                 onChange={e => setFormData({ ...formData, store_status: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               >
                 {storeStatuses.map(status => (
                   <option key={status} value={status}>
@@ -112,8 +113,8 @@ function StoreFormModal({
               required
               value={formData.store_name}
               onChange={e => setFormData({ ...formData, store_name: e.target.value })}
-              placeholder="FreshMart Brooklyn"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              placeholder={placeholder("store_name")}
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div>
@@ -123,8 +124,8 @@ function StoreFormModal({
               required
               value={formData.store_address}
               onChange={e => setFormData({ ...formData, store_address: e.target.value })}
-              placeholder="123 Main St, Brooklyn, NY"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              placeholder={placeholder("store_address")}
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -135,8 +136,8 @@ function StoreFormModal({
                 required
                 value={formData.store_zone}
                 onChange={e => setFormData({ ...formData, store_zone: e.target.value })}
-                placeholder="BK"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                placeholder={placeholder("store_zone")}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <div>
@@ -146,7 +147,7 @@ function StoreFormModal({
                 value={formData.store_capacity_orders_per_hour}
                 onChange={e => setFormData({ ...formData, store_capacity_orders_per_hour: e.target.value })}
                 placeholder="50"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -157,7 +158,7 @@ function StoreFormModal({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {isLoading ? 'Saving...' : store ? 'Update' : 'Create'}
             </button>
@@ -356,7 +357,7 @@ export default function StoresInventoryPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Stores & Inventory</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{pageText("stores", "title")}</h1>
             {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -376,7 +377,7 @@ export default function StoresInventoryPage() {
             setEditingStore(undefined)
             setShowStoreModal(true)
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
           Add Store

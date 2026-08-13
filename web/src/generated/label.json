@@ -1,0 +1,300 @@
+{
+  "agent": {
+    "empty_state": "Ask me about orders, inventory, stores, or couriers.",
+    "persona": "Operations Assistant",
+    "placeholder": "Ask the operations assistant..."
+  },
+  "aliases": {
+    "columns": {},
+    "predicates": {},
+    "views": {}
+  },
+  "brand": {
+    "favicon": "freshmart.svg",
+    "name": "FreshMart",
+    "qr": {
+      "cta": "Schedule a demo",
+      "url": "https://materialize.com/demo/"
+    },
+    "tab_title": "FreshMart Digital Twin - Admin",
+    "tagline": "Digital Twin Admin",
+    "theme": {
+      "accent": "purple",
+      "primary": "green"
+    }
+  },
+  "copy": {
+    "knowledge_graph": {
+      "entity_examples": "Order, Customer, Product",
+      "heading": "Leveraging Context Graphs",
+      "subhead": "The relationships that give agents and humans understanding about what to do next and why"
+    },
+    "triples": {
+      "closing": "Click any row to pre-populate the Write Triple form below. This view shows only triples for the selected order and its line items—the full graph includes customers, stores, products, inventory, couriers, and delivery tasks.",
+      "empty": "No triples found for this order",
+      "explainer_lead": "Triples are the atomic unit of knowledge—each captures a single fact as",
+      "explainer_tail": "This structure lets AI agents update individual facts without needing complex schemas or full object structures.",
+      "heading": "Agent Writes and Memories",
+      "selector_label": "Select Order",
+      "subhead": "Using \"triples\" as the atomic unit of knowledge recorded by agents. This forms the foundation that will ultimately create their world model.",
+      "table_heading": "Triples for Order"
+    },
+    "vector_pipeline": {
+      "all_statuses": "All statuses",
+      "all_zones": "All zones",
+      "explainer": "The vector store finds which documents match semantically. Materialize provides live data for those documents — always fresh, never stale.",
+      "heading": "Vector Pipeline",
+      "search_heading": "Hybrid Search",
+      "subhead": "Semantic search + live data hydration from Materialize"
+    },
+    "write_triple": {
+      "heading": "Write a Triple",
+      "subhead": "— Update an order property and observe propagation"
+    }
+  },
+  "enums": {
+    "availability_status": {
+      "IN_STOCK": "In Stock",
+      "LOW_STOCK": "Low Stock",
+      "OUT_OF_STOCK": "Out of Stock"
+    },
+    "capacity_health": {
+      "CRITICAL": "Critical",
+      "HEALTHY": "Healthy",
+      "STRAINED": "Strained",
+      "UNDERUTILIZED": "Underutilized"
+    },
+    "courier_status": {
+      "ACTIVE": "Active",
+      "AVAILABLE": "Available",
+      "OFF_SHIFT": "Off Shift",
+      "ON_DELIVERY": "On Delivery"
+    },
+    "order_status": {
+      "CANCELLED": "Cancelled",
+      "CREATED": "Created",
+      "DELIVERED": "Delivered",
+      "OUT_FOR_DELIVERY": "Out for Delivery",
+      "PICKING": "Picking"
+    },
+    "recommended_action": {
+      "CLOSE_INTAKE": "Close Intake",
+      "MONITOR": "Monitor",
+      "PROMOTE_DEMAND": "Promote Demand",
+      "SURGE_PRICING": "Surge Pricing"
+    },
+    "store_status": {
+      "LIMITED": "Limited",
+      "OPEN": "Open"
+    },
+    "task_status": {
+      "COMPLETED": "Completed",
+      "FAILED": "Failed",
+      "IN_PROGRESS": "In Progress",
+      "PENDING": "Pending"
+    },
+    "vehicle_type": {
+      "BIKE": "Bike",
+      "CAR": "Car",
+      "SCOOTER": "Scooter",
+      "WALKING": "Walking"
+    },
+    "zone": {
+      "BK": "Brooklyn",
+      "BX": "Bronx",
+      "MAN": "Manhattan",
+      "QNS": "Queens",
+      "SI": "Staten Island"
+    }
+  },
+  "examples": {
+    "predicate_values": {
+      "assigned_to": "courier:C-001",
+      "category": "Produce",
+      "courier_name": "Jane Smith",
+      "courier_phone": "555-1234",
+      "courier_status": "ACTIVE",
+      "customer_address": "123 Main St",
+      "customer_email": "john@example.com",
+      "customer_name": "John Doe",
+      "delivery_window_end": "2025-01-15T12:00:00",
+      "delivery_window_start": "2025-01-15T10:00:00",
+      "eta": "2025-01-15T11:00:00",
+      "line_sequence": "1",
+      "order_line_unit_price": "12.99",
+      "order_number": "FM-1234",
+      "order_status": "DELIVERED",
+      "perishable": "true",
+      "product_name": "Organic Apples",
+      "quantity": "5",
+      "replenishment_eta": "2025-01-16T08:00:00",
+      "stock_level": "100",
+      "store_address": "456 Broadway",
+      "store_name": "Downtown Market",
+      "store_zone": "MAN",
+      "task_status": "COMPLETED",
+      "unit_price": "4.99",
+      "unit_weight_grams": "500"
+    },
+    "search_queries": [
+      "organic produce",
+      "dairy products",
+      "perishable delivery"
+    ]
+  },
+  "label": "freshmart",
+  "nav": [
+    {
+      "label": "Agent Ref. Architecture",
+      "path": "/"
+    },
+    {
+      "label": "Freshmart Agent Search Demo",
+      "path": "/vector-search"
+    },
+    {
+      "label": "Orders",
+      "path": "/orders"
+    },
+    {
+      "label": "Couriers",
+      "path": "/couriers"
+    },
+    {
+      "label": "Live Metrics",
+      "path": "/metrics"
+    },
+    {
+      "label": "Stores & Inventory",
+      "path": "/stores"
+    },
+    {
+      "label": "Knowledge Graph (Ontology)",
+      "path": "/ontology"
+    },
+    {
+      "label": "Triples Browser",
+      "path": "/triples"
+    },
+    {
+      "label": "Delivery Bundling",
+      "path": "/bundling"
+    },
+    {
+      "label": "Settings",
+      "path": "/settings"
+    }
+  ],
+  "pages": {
+    "bundling": {
+      "subtitle": "Mutually recursive constraint satisfaction",
+      "title": "Delivery Bundling"
+    },
+    "couriers": {
+      "search_placeholder": "Search by courier ID...",
+      "subtitle": "View courier status and assigned tasks",
+      "title": "Couriers & Schedule"
+    },
+    "home": {
+      "title": "Freshmart: Live Context Layer + Agent Memory Demo"
+    },
+    "metrics": {
+      "chart_demand_vs_capacity": "Store Demand vs Capacity",
+      "kpi_pricing_yield": "Dynamic Pricing Yield",
+      "kpi_revenue_at_risk": "Revenue at Risk",
+      "kpi_store_utilization": "Avg Store Utilization",
+      "subtitle": "Real-time business health indicators",
+      "title": "Live Metrics Dashboard"
+    },
+    "orders": {
+      "search_placeholder": "Search order",
+      "subtitle": "Monitor and manage FreshMart orders via WebSocket",
+      "title": "Orders Dashboard"
+    },
+    "stores": {
+      "all_inventory_title": "All Inventory Items",
+      "inventory_title": "Inventory",
+      "title": "Stores & Inventory"
+    },
+    "vector_search": {
+      "title": "Freshmart Agent Search Demo"
+    }
+  },
+  "placeholders": {
+    "courier_code": "CR-01",
+    "courier_name": "John Smith",
+    "inventory_code": "INV-BK01-001",
+    "order_number": "FM-1001",
+    "order_search": "Search orders...",
+    "product_search": "Search products...",
+    "semantic_search": "Search by meaning (e.g., dairy products)...",
+    "store_address": "123 Main St, Brooklyn, NY",
+    "store_code": "BK-01",
+    "store_name": "FreshMart Brooklyn",
+    "store_zone": "BK",
+    "subject": "order:FM-1001"
+  },
+  "vocabulary": {
+    "courier": {
+      "many": "couriers",
+      "one": "courier",
+      "title": "Courier",
+      "title_many": "Couriers"
+    },
+    "customer": {
+      "many": "customers",
+      "one": "customer",
+      "title": "Customer",
+      "title_many": "Customers"
+    },
+    "inventory": {
+      "many": "inventory items",
+      "one": "inventory item",
+      "title": "Inventory Item",
+      "title_many": "Inventory"
+    },
+    "order": {
+      "id_prefix": "FM-",
+      "many": "orders",
+      "one": "order",
+      "title": "Order",
+      "title_many": "Orders"
+    },
+    "orderline": {
+      "many": "line items",
+      "one": "line item",
+      "title": "Line Item",
+      "title_many": "Line Items"
+    },
+    "perishable": {
+      "adjective": "perishable",
+      "cart_note": "This order contains perishable items requiring cold chain delivery",
+      "note": "requires cold chain",
+      "tooltip": "Has perishable items"
+    },
+    "product": {
+      "many": "products",
+      "one": "product",
+      "title": "Product",
+      "title_many": "Products"
+    },
+    "store": {
+      "many": "stores",
+      "one": "store",
+      "title": "Store",
+      "title_many": "Stores"
+    },
+    "task": {
+      "many": "delivery tasks",
+      "one": "delivery task",
+      "title": "Delivery Task",
+      "title_many": "Delivery Tasks"
+    },
+    "zone": {
+      "many": "zones",
+      "one": "zone",
+      "title": "Zone",
+      "title_many": "Zones"
+    }
+  }
+}

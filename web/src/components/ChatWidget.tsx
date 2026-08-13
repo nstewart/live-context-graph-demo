@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, Trash2, X, Send, ChevronDown, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useChat, ChatMessage, ThinkingEvent } from '../contexts/ChatContext';
+import label from '../label';
 
 // Format timestamp for display
 function formatTime(timestamp: number): string {
@@ -82,7 +83,7 @@ function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStrea
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 ${
           isUser
-            ? 'bg-green-600 text-white'
+            ? 'bg-brand-600 text-white'
             : 'bg-gray-800 text-gray-100'
         }`}
       >
@@ -172,16 +173,16 @@ function ChatInput() {
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        placeholder="Ask the operations assistant..."
+        placeholder={label.agent.placeholder}
         disabled={isStreaming}
         rows={1}
-        className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 resize-none overflow-y-auto"
+        className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 resize-none overflow-y-auto"
         style={{ minHeight: '40px', maxHeight: '150px' }}
       />
       <button
         type="submit"
         disabled={!input.trim() || isStreaming}
-        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-1 shrink-0"
+        className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-1 shrink-0"
       >
         <Send className="h-4 w-4" />
       </button>
@@ -211,7 +212,7 @@ function ChatPanelContent({
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-5 w-5 text-green-500" />
-          <span className="font-medium text-white">Operations Assistant</span>
+          <span className="font-medium text-white">{label.agent.persona}</span>
           {isStreaming && (
             <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
           )}
@@ -257,8 +258,7 @@ function ChatPanelContent({
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
             <MessageCircle className="h-12 w-12 mb-2 opacity-50" />
-            <p>Ask me about orders, inventory,</p>
-            <p>stores, or couriers.</p>
+            <p className="text-center px-4">{label.agent.empty_state}</p>
           </div>
         ) : (
           <>
@@ -306,8 +306,8 @@ export default function ChatWidget() {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-16 right-6 h-14 w-14 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
-        title="Open Operations Assistant"
+        className="fixed bottom-16 right-6 h-14 w-14 bg-brand-600 hover:bg-brand-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50 hover:scale-105"
+        title={`Open ${label.agent.persona}`}
       >
         <MessageCircle className="h-6 w-6" />
         {messages.length > 0 && (

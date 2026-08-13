@@ -1,9 +1,14 @@
 -- demo_bundleable_orders.sql
 -- Seed data for demonstrating delivery bundling with mutually recursive views
 -- These orders are at the same store with overlapping delivery windows
+--
+-- WHITE-LABELING: the "FM-" order-number prefix below is rewritten at seed time
+-- to the active label's vocabulary.order.id_prefix (see db/scripts/seed_docker.sh).
+-- The store id and zone code (store:MAN-01) are NOT rewritten -- zone codes are
+-- join keys in the dynamic-pricing SQL and are identical for every label.
 
 -- =============================================================================
--- Bundleable Orders at FreshMart Manhattan 1 (store:MAN-01)
+-- Bundleable orders at the store:MAN-01 location
 -- 4 orders with overlapping delivery windows that will bundle together
 -- =============================================================================
 

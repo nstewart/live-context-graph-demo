@@ -33,6 +33,23 @@ for f in "${TEMPLATE_DIR}"/*.json; do
   fi
   echo "Installed index template '${name}_template'."
 
+  # 1b. Drop an index left over from a different white-label vertical.
+  #     The OpenSearch sink only upserts by key, so it never removes documents
+  #     whose keys no longer exist upstream. Re-seeding under a new label mints
+  #     new order ids, leaving the previous label's documents behind — a freight
+  #     demo would return life-insurance hits from semantic search. Each index is
+  #     stamped with the label that created it (mappings._meta.demo_label); a
+  #     mismatch means rebuild. The data is derived and the sink re-indexes it.
+  want_label=$(sed -n 's/.*"demo_label"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)
+  have_label=$(curl -s "${OS_URL}/${name}/_mapping?filter_path=${name}.mappings._meta.demo_label" 2>/dev/null \
+    | sed -n 's/.*"demo_label"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  if [ -n "${want_label}" ] && [ "${have_label}" != "${want_label}" ]; then
+    if curl -sf -o /dev/null "${OS_URL}/${name}"; then
+      echo "Index '${name}' was built for label '${have_label:-unknown}', want '${want_label}' — deleting so it rebuilds."
+      curl -s -o /dev/null -X DELETE "${OS_URL}/${name}"
+    fi
+  fi
+
   # 2. Pre-create the index so it picks up the template mapping.
   #    200 = created; 400 = already exists (resource_already_exists) — both fine.
   code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X PUT "${OS_URL}/${name}")

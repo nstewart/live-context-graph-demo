@@ -9,6 +9,9 @@ import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 import { SearchIndexUpdates } from "./SearchIndexUpdates";
 import { RerankComparison } from "./RerankComparison";
+import { copy, enumOptions, placeholder, searchQueries } from "../label";
+
+const vp = copy("vector_pipeline");
 
 // ── Embedding fingerprint ─────────────────────────────────────────────────────
 
@@ -369,8 +372,8 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
         <div className="flex items-center gap-2">
           {isExpanded ? <ChevronDown className="h-5 w-5 text-gray-500" /> : <ChevronRight className="h-5 w-5 text-gray-500" />}
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">Vector Pipeline</h3>
-            <p className="text-xs text-gray-500">Semantic search + live data hydration from Materialize</p>
+            <h3 className="text-lg font-semibold text-gray-900">{vp.heading}</h3>
+            <p className="text-xs text-gray-500">{vp.subhead}</p>
           </div>
         </div>
       </button>
@@ -378,17 +381,14 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
       {isExpanded && (
         <div className="px-6 pb-6">
           <div className="mb-4 text-sm text-gray-600 leading-relaxed">
-            <p>
-              The vector store finds <em>which</em> documents match semantically.
-              Materialize provides <em>live data</em> for those documents — always fresh, never stale.
-            </p>
+            <p>{vp.explainer}</p>
           </div>
 
           {/* Search box */}
           <div className="border rounded-lg overflow-hidden mb-4">
             <div className="bg-gray-50 px-4 py-2 border-b flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
-              <span className="text-sm font-medium text-gray-700">Hybrid Search</span>
+              <span className="text-sm font-medium text-gray-700">{vp.search_heading}</span>
             </div>
             <div className="p-4 space-y-3">
               <div className="flex gap-2">
@@ -397,13 +397,13 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Search by meaning (e.g., dairy products)..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder={placeholder("semantic_search")}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 />
                 <button
                   onClick={performSearch}
                   disabled={isSearching || !searchQuery.trim()}
-                  className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-4 py-2 bg-accent-600 text-white text-sm font-medium rounded-md hover:bg-accent-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <Search className="h-4 w-4" />
                   Search
@@ -414,30 +414,29 @@ export const VectorPipelineCard = ({ defaultExpanded = false }: { defaultExpande
                 <select
                   value={filterZone}
                   onChange={e => setFilterZone(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
-                  <option value="">All zones</option>
-                  <option value="MAN">MAN</option>
-                  <option value="BK">BK</option>
-                  <option value="QNS">QNS</option>
-                  <option value="BX">BX</option>
-                  <option value="SI">SI</option>
+                  <option value="">{vp.all_zones}</option>
+                  {enumOptions("zone").map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
                 </select>
                 <select
                   value={filterStatus}
                   onChange={e => setFilterStatus(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
-                  <option value="">All statuses</option>
-                  <option value="CREATED">CREATED</option>
-                  <option value="PICKING">PICKING</option>
-                  <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
-                  <option value="DELIVERED">DELIVERED</option>
+                  <option value="">{vp.all_statuses}</option>
+                  {enumOptions("order_status")
+                    .filter(o => o.value !== "CANCELLED")
+                    .map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                 </select>
               </div>
               <div className="text-xs text-gray-500">
                 Try:{" "}
-                {["organic produce", "dairy products", "perishable delivery"].map((q, i) => (
+                {searchQueries.map((q, i) => (
                   <span key={q}>
                     {i > 0 && ", "}
                     <button onClick={() => handleExampleClick(q)} className="text-purple-600 hover:underline">{q}</button>

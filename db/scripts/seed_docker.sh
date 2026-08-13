@@ -41,9 +41,15 @@ echo "Generating demo operational data (scale=0.01)..."
 python3 /app/generate_load_test_data.py --scale 0.01 --clear
 
 # Run bundleable orders seed AFTER Python generator creates stores/customers/products
+
+# The bundleable fixture hardcodes the default "FM-" order-number prefix. Rewrite
+# it to the active label's prefix so these 4 orders match the 500 generated ones.
+ORDER_PREFIX=$(python3 -c "import json,os; print(json.load(open(os.environ.get('DEMO_LABEL_FILE','/labels/active.json')))['vocabulary']['order']['id_prefix'])" 2>/dev/null || echo "FM-")
+echo "Using order-number prefix: ${ORDER_PREFIX}"
 if [ -f "/seed/demo_bundleable_orders.sql" ]; then
     echo "Running seed: demo_bundleable_orders.sql (bundleable order demo data)"
-    psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -f "/seed/demo_bundleable_orders.sql"
+    sed "s/FM-/${ORDER_PREFIX}/g" /seed/demo_bundleable_orders.sql \
+      | psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -f -
 fi
 
 echo "Seed complete!"

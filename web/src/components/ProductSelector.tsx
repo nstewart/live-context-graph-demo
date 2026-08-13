@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Search, Package, Snowflake } from 'lucide-react'
+import { placeholder } from '../label'
 
 export interface ProductWithStock {
   product_id: string
@@ -95,8 +96,8 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
           disabled={isDisabled}
-          placeholder="Search products..."
-          className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+          placeholder={placeholder("product_search")}
+          className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
       </div>
 

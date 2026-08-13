@@ -18,28 +18,13 @@
         "filter": {
           "ingredient_synonyms": {
             "type": "synonym",
-            "synonyms": [
-              "milk, whole milk, 2% milk, skim milk, dairy milk",
-              "eggs, egg, dozen eggs, large eggs",
-              "chicken, poultry, chicken breast, chicken thigh",
-              "beef, ground beef, steak, sirloin",
-              "bread, loaf, sourdough, whole wheat bread",
-              "pasta, penne, spaghetti, linguine, noodles",
-              "rice, white rice, brown rice, jasmine rice",
-              "cheese, cheddar, mozzarella, parmesan",
-              "tomato, tomatoes, cherry tomatoes",
-              "onion, onions, yellow onion, white onion",
-              "garlic, garlic cloves, minced garlic",
-              "olive oil, extra virgin olive oil, evoo",
-              "butter, unsalted butter, salted butter",
-              "salt, sea salt, kosher salt, table salt",
-              "pepper, black pepper, ground pepper"
-            ]
+            "synonyms": "__SYNONYMS__"
           }
         }
       }
     },
     "mappings": {
+      "_meta": { "demo_label": "__LABEL__" },
       "properties": {
         "inventory_id": { "type": "keyword" },
         "store_id": { "type": "keyword" },

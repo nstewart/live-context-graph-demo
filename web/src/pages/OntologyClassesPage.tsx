@@ -36,7 +36,7 @@ export default function OntologyClassesPage() {
         </div>
         <button
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
           Add Class
@@ -55,7 +55,7 @@ export default function OntologyClassesPage() {
                   type="text"
                   value={formData.class_name}
                   onChange={e => setFormData({ ...formData, class_name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                   placeholder="e.g., Customer"
                   required
                 />
@@ -66,7 +66,7 @@ export default function OntologyClassesPage() {
                   type="text"
                   value={formData.prefix}
                   onChange={e => setFormData({ ...formData, prefix: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                   placeholder="e.g., customer"
                   required
                 />
@@ -77,7 +77,7 @@ export default function OntologyClassesPage() {
               <textarea
                 value={formData.description}
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 rows={2}
               />
             </div>
@@ -85,7 +85,7 @@ export default function OntologyClassesPage() {
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Creating...' : 'Create Class'}
               </button>

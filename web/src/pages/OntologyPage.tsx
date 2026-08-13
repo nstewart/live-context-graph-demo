@@ -363,7 +363,7 @@ export default function OntologyPage() {
           <h2 className="text-lg font-semibold text-gray-900">Classes</h2>
           <button
             onClick={() => setShowClassForm(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+            className="flex items-center gap-2 px-3 py-1.5 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700"
           >
             <Plus className="h-4 w-4" />
             Add Class
@@ -382,7 +382,7 @@ export default function OntologyPage() {
                     type="text"
                     value={classFormData.class_name}
                     onChange={e => setClassFormData({ ...classFormData, class_name: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                     placeholder="e.g., Customer"
                     required
                   />
@@ -393,7 +393,7 @@ export default function OntologyPage() {
                     type="text"
                     value={classFormData.prefix}
                     onChange={e => setClassFormData({ ...classFormData, prefix: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                     placeholder="e.g., customer"
                     required
                   />
@@ -404,7 +404,7 @@ export default function OntologyPage() {
                 <textarea
                   value={classFormData.description}
                   onChange={e => setClassFormData({ ...classFormData, description: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                   rows={2}
                 />
               </div>
@@ -412,7 +412,7 @@ export default function OntologyPage() {
                 <button
                   type="submit"
                   disabled={createClassMutation.isPending}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
                 >
                   {createClassMutation.isPending ? 'Creating...' : 'Create Class'}
                 </button>
