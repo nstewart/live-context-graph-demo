@@ -1210,7 +1210,7 @@ agent:
     2. Present found items with live_price (dynamic pricing) and stock levels
     3. For new orders: use create_order with the confirmed items
     4. For existing orders: use manage_order_lines to add/update/delete items
-    5. Always use live_price (not base_price) from inventory search results - this includes all 7 dynamic pricing factors
+    5. Always use live_price (not base_price) from inventory search results - this includes all 8 dynamic pricing factors
 
     **When looking up orders:**
     1. Use search_orders to find orders by number, customer, or status
