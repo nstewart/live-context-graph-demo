@@ -34,6 +34,7 @@ import {
   OrderFormData,
 } from "../components/OrderFormModal";
 import { CartLineItem } from "../components/ShoppingCart";
+import { pageText } from "../label";
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: "bg-blue-100 text-blue-800", icon: Package },
@@ -781,7 +782,7 @@ export default function OrdersDashboardPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900">
-              Orders Dashboard
+              {pageText("orders", "title")}
             </h1>
             {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
@@ -798,16 +799,14 @@ export default function OrdersDashboardPage() {
               Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
             </span>
           </div>
-          <p className="text-gray-600">
-            Monitor and manage FreshMart orders via WebSocket
-          </p>
+          <p className="text-gray-600">{pageText("orders", "subtitle")}</p>
         </div>
         <button
           onClick={() => {
             setEditingOrder(undefined);
             setShowModal(true);
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
           Create Order
@@ -826,13 +825,13 @@ export default function OrdersDashboardPage() {
           <div className="flex-1 min-w-[200px] max-w-xs">
             <input
               type="text"
-              placeholder="Search order #..."
+              placeholder={pageText("orders", "search_placeholder")}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
 
@@ -843,7 +842,7 @@ export default function OrdersDashboardPage() {
               setStatusFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            className="px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
           >
             <option value="">All Statuses</option>
             {statusOrder.map((status) => (
@@ -860,7 +859,7 @@ export default function OrdersDashboardPage() {
               setStoreFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            className="px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
           >
             <option value="">All Stores</option>
             {storesData.map((store) => (
@@ -958,7 +957,7 @@ export default function OrdersDashboardPage() {
                       <button
                         key={page}
                         onClick={() => setCurrentPage(page)}
-                        className={`px-3 py-1 border rounded ${page === currentPage ? "bg-green-600 text-white" : "hover:bg-gray-50"}`}
+                        className={`px-3 py-1 border rounded ${page === currentPage ? "bg-brand-600 text-white" : "hover:bg-gray-50"}`}
                       >
                         {page}
                       </button>

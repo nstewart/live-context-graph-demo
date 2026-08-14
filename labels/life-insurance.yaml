@@ -1,0 +1,712 @@
+# Life insurance -- an in-force life insurance / annuity servicing vertical.
+#
+# The carrier administers large books of existing policies, so its business IS
+# servicing operations at scale: cases routed to case managers across service
+# centers against statutory settlement deadlines. That maps cleanly onto the
+# demo's existing shape without changing any of it.
+#
+# "Acme Life" is a deliberately fictional carrier. Do not commit a real
+# customer's name, branding, or assets to this repo -- copy this file locally
+# and override `brand` if you need to skin it for a specific account.
+#
+# This file lists ONLY what differs from freshmart.yaml; everything else is
+# inherited. Nothing structural changes: same predicates, same view names, same
+# zone CODES, same enum values, same entity counts.
+#
+#   internal (fixed)  ->  what the customer reads here
+#   order             ->  servicing case
+#   orderline         ->  case requirement
+#   customer          ->  policyholder
+#   store             ->  service center
+#   product           ->  transaction type
+#   inventory         ->  handling capacity
+#   courier           ->  case manager
+#   task              ->  work item
+#   perishable        ->  statutory deadline
+#   dynamic pricing   ->  cost to serve  (NEVER benefit amounts -- see below)
+#
+# DELIBERATE: the demo's "dynamic pricing" maps to cost-to-serve and handling
+# priority, never to benefit or settlement amounts. A demo that appears to vary
+# what a policyholder is paid by region would be indefensible in front of a
+# carrier. "Revenue at Risk" is likewise SLA breach exposure, not benefits.
+
+label: life-insurance
+
+brand:
+  name: Acme Life
+  tagline: Policy Servicing Console
+  tab_title: Acme Life Policy Servicing - Console
+  theme:
+    primary: indigo
+    accent: teal
+  favicon: life-insurance.svg
+
+vocabulary:
+  order:
+    one: servicing case
+    many: servicing cases
+    title: Servicing Case
+    title_many: Servicing Cases
+    id_prefix: SC-
+  orderline:
+    one: case requirement
+    many: case requirements
+    title: Case Requirement
+    title_many: Case Requirements
+  customer:
+    one: policyholder
+    many: policyholders
+    title: Policyholder
+    title_many: Policyholders
+  store:
+    one: service center
+    many: service centers
+    title: Service Center
+    title_many: Service Centers
+  product:
+    one: transaction type
+    many: transaction types
+    title: Transaction Type
+    title_many: Transaction Types
+  inventory:
+    one: capacity pool
+    many: capacity pools
+    title: Capacity Pool
+    title_many: Handling Capacity
+  courier:
+    one: case manager
+    many: case managers
+    title: Case Manager
+    title_many: Case Managers
+  task:
+    one: work item
+    many: work items
+    title: Work Item
+    title_many: Work Items
+  zone:
+    one: region
+    many: regions
+    title: Region
+    title_many: Regions
+  perishable:
+    adjective: deadline-bound
+    note: statutory settlement deadline
+    tooltip: Has a statutory deadline
+    cart_note: This case includes requirements with a statutory settlement deadline
+
+enums:
+  # Values are fixed by the SQL; only these display labels change.
+  order_status:
+    CREATED: Received
+    PICKING: In Review
+    OUT_FOR_DELIVERY: Awaiting Settlement
+    DELIVERED: Settled
+    CANCELLED: Withdrawn
+  courier_status:
+    OFF_SHIFT: Off Shift
+    AVAILABLE: Available
+    ON_DELIVERY: On Case
+    ACTIVE: Active
+  task_status:
+    PENDING: Pending
+    IN_PROGRESS: In Progress
+    COMPLETED: Completed
+    FAILED: Failed
+  vehicle_type:
+    BIKE: Standard handling
+    SCOOTER: Priority handling
+    CAR: Complex handling
+    WALKING: Manual review
+  store_status:
+    OPEN: Open
+    LIMITED: Reduced capacity
+  availability_status:
+    IN_STOCK: Capacity available
+    LOW_STOCK: Capacity constrained
+    OUT_OF_STOCK: At capacity
+  capacity_health:
+    CRITICAL: Critical
+    STRAINED: Strained
+    HEALTHY: Healthy
+    UNDERUTILIZED: Underutilized
+  recommended_action:
+    CLOSE_INTAKE: Pause intake
+    SURGE_PRICING: Add overflow capacity
+    PROMOTE_DEMAND: Route more volume here
+    MONITOR: Monitor
+  # Codes are join keys in the pricing SQL and MUST NOT change -- only labels.
+  zone:
+    MAN: Northeast
+    BK: Mid-Atlantic
+    QNS: Midwest
+    BX: Southeast
+    SI: West
+
+# Display-only. The wire format, SQL, and database are untouched; these just
+# stop grocery vocabulary appearing in the SQL preview, lineage graph, predicate
+# dropdown, raw JSON, and OpenSearch examples.
+aliases:
+  columns:
+    order_number: case_number
+    order_status: case_status
+    order_total_amount: case_cost_to_serve
+    customer_name: policyholder_name
+    customer_email: policyholder_email
+    customer_address: policyholder_address
+    store_name: service_center_name
+    store_zone: region
+    store_address: service_center_address
+    assigned_courier_id: assigned_case_manager_id
+    courier_name: case_manager_name
+    courier_status: case_manager_status
+    delivery_window_start: sla_window_start
+    delivery_window_end: sla_window_end
+    delivery_eta: projected_settlement
+    delivery_task_status: work_item_status
+    has_perishable_items: has_statutory_deadline
+    perishable: deadline_bound
+    perishable_adjustment: deadline_adjustment
+    product_name: transaction_type
+    unit_price: base_cost_to_serve
+    live_price: current_cost_to_serve
+    unit_weight_grams: handling_effort
+    stock_level: available_capacity
+    line_items: requirements
+    line_item_count: requirement_count
+  views:
+    orders_flat_mv: cases_flat_mv
+    orders_with_lines_mv: cases_with_requirements_mv
+    order_lines_flat_mv: case_requirements_flat_mv
+    orders_search_source_mv: cases_search_source_mv
+    stores_mv: service_centers_mv
+    customers_mv: policyholders_mv
+    products_mv: transaction_types_mv
+    store_inventory_mv: center_capacity_mv
+    courier_schedule_mv: case_manager_schedule_mv
+    inventory_items_with_dynamic_pricing_mv: capacity_with_cost_to_serve_mv
+    pricing_yield_mv: cost_to_serve_yield_mv
+    inventory_risk_mv: capacity_risk_mv
+    store_capacity_health_mv: center_health_mv
+    delivery_bundles_mv: case_batches_mv
+    orders_flat: cases_flat
+    customers_flat: policyholders_flat
+    stores_flat: service_centers_flat
+    products_flat: transaction_types_flat
+    order_lines_base: case_requirements_base
+    delivery_tasks_flat: work_items_flat
+    dynamic_pricing: cost_to_serve
+    dynamic_pricing_mv: cost_to_serve_mv
+    orders_sink_v: cases_sink_v
+    inventory_sink_v: capacity_sink_v
+  predicates:
+    order_status: case_status
+    order_number: case_number
+    delivery_window_start: sla_window_start
+    delivery_window_end: sla_window_end
+    customer_name: policyholder_name
+    customer_email: policyholder_email
+    customer_address: policyholder_address
+    store_name: service_center_name
+    store_zone: region
+    store_address: service_center_address
+    product_name: transaction_type
+    unit_price: base_cost_to_serve
+    perishable: deadline_bound
+    unit_weight_grams: handling_effort
+    stock_level: available_capacity
+    courier_name: case_manager_name
+    courier_phone: case_manager_phone
+    courier_status: case_manager_status
+    task_status: work_item_status
+
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Acme Agent Search Demo
+  - path: /orders
+    label: Servicing Cases
+  - path: /couriers
+    label: Case Managers
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Centers & Capacity
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: Case Batching
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Acme Life: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Acme Agent Search Demo
+  orders:
+    title: Servicing Cases
+    subtitle: Monitor and manage in-force servicing cases via WebSocket
+    search_placeholder: Search case #...
+  couriers:
+    title: Case Managers & Schedule
+    subtitle: View case manager status and assigned work items
+    search_placeholder: Search by case manager ID...
+  stores:
+    title: Centers & Capacity
+    inventory_title: Capacity
+    all_inventory_title: All Capacity Pools
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time servicing health indicators
+    kpi_pricing_yield: Cost-to-Serve Yield
+    kpi_revenue_at_risk: SLA Breach Exposure
+    kpi_store_utilization: Avg Center Utilization
+    chart_demand_vs_capacity: Case Volume vs Capacity
+  bundling:
+    title: Case Batching
+    subtitle: Mutually recursive constraint satisfaction
+
+copy:
+  triples:
+    subhead: >-
+      Using "triples" as the atomic unit of knowledge recorded by agents. This
+      forms the foundation that will ultimately create their world model.
+    selector_label: Select Servicing Case
+    table_heading: Triples for Case
+    empty: No triples found for this case
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected case and its requirements—the full graph
+      includes policyholders, service centers, transaction types, capacity, case
+      managers, and work items.
+  knowledge_graph:
+    entity_examples: Servicing Case, Policyholder, Transaction Type
+  write_triple:
+    subhead: — Update a case property and observe propagation
+  vector_pipeline:
+    all_zones: All regions
+    all_statuses: All statuses
+
+placeholders:
+  subject: order:SC-1001
+  order_number: SC-1001
+  store_name: Acme Life Mid-Atlantic
+  store_code: BK-01
+  store_zone: BK
+  store_address: 1200 Market St, Philadelphia, PA
+  inventory_code: CAP-BK01-001
+  courier_code: CM-01
+  courier_name: Dana Whitfield
+  product_search: Search transaction types...
+  order_search: Search cases...
+  semantic_search: Search by meaning (e.g., beneficiary disputes)...
+
+examples:
+  search_queries:
+    - beneficiary disputes
+    - annuity income start
+    - deadline-bound death claims
+  predicate_values:
+    order_status: DELIVERED
+    order_number: SC-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "5"
+    order_line_unit_price: "112.50"
+    line_sequence: "1"
+    customer_name: Jordan Ellis
+    customer_email: jordan.ellis@example.com
+    customer_address: 1200 Market St
+    store_name: Mid-Atlantic Service Center
+    store_zone: MAN
+    store_address: 400 Congress Ave
+    product_name: Beneficiary designation change
+    category: Beneficiary
+    unit_price: "52.00"
+    perishable: "true"
+    unit_weight_grams: "240"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: Priya Raman
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+
+seed:
+  store_name_template: Acme Life {zone_name} Service Center {n}
+  address_state: PA
+  locations:
+    # Codes are FIXED (the pricing SQL joins on them); names and streets are not.
+    - code: BK
+      name: Mid-Atlantic
+      streets: [Market St, Chestnut St, Walnut St, Arch St, Locust St]
+    - code: MAN
+      name: Northeast
+      streets: [Federal St, Congress Ave, State St, Beacon St, Tremont St]
+    - code: QNS
+      name: Midwest
+      streets: [Wacker Dr, Michigan Ave, Dearborn St, Clark St, Adams St]
+    - code: BX
+      name: Southeast
+      streets: [Peachtree St, Marietta St, Spring St, Piedmont Ave, Ponce De Leon Ave]
+    - code: SI
+      name: West
+      streets: [Montgomery St, Sansome St, Battery St, Pine St, Bush St]
+  catalog:
+    # 130 authored transaction types, expanded to the same 760 rows freshmart
+    # seeds so index size, kNN behavior, and entity counts are unchanged.
+    expand_to: 760
+    variant_suffixes:
+      - "(expedited)"
+      - "(complex case)"
+      - "(multi-policy)"
+      - "(escalated)"
+      - "(reopened)"
+      - "(regulatory review)"
+    categories:
+      - { name: "Death Claim", perishable_default: true }
+      - { name: "Annuity Servicing", perishable_default: true }
+      - { name: "Policy Change", perishable_default: false }
+      - { name: "Surrender & Withdrawal", perishable_default: true }
+      - { name: "Beneficiary", perishable_default: false }
+      - { name: "Premium & Billing", perishable_default: false }
+      - { name: "Tax & Compliance", perishable_default: true }
+      - { name: "Correspondence & Inquiry", perishable_default: false }
+    # [name, category, cost_to_serve, handling_effort, statutory_deadline]
+    items:
+      - ["Death claim intake - certified certificate", "Death Claim", 88.0, 450, true]
+      - ["Death claim intake - foreign death certificate", "Death Claim", 145.0, 950, true]
+      - ["Beneficiary identity verification", "Death Claim", 62.0, 300, true]
+      - ["Beneficiary dispute review", "Death Claim", 310.0, 2400, true]
+      - ["Contestable period investigation", "Death Claim", 420.0, 3600, true]
+      - ["Accidental death benefit review", "Death Claim", 265.0, 1800, true]
+      - ["Death claim - missing beneficiary search", "Death Claim", 380.0, 3000, true]
+      - ["Death claim - estate as beneficiary", "Death Claim", 195.0, 1400, true]
+      - ["Death claim - trust as beneficiary", "Death Claim", 210.0, 1550, true]
+      - ["Death claim - minor beneficiary guardianship", "Death Claim", 240.0, 1900, true]
+      - ["Proceeds interest calculation", "Death Claim", 74.0, 350, true]
+      - ["Death claim settlement disbursement", "Death Claim", 96.0, 500, true]
+      - ["Retained asset account setup", "Death Claim", 130.0, 800, true]
+      - ["Death claim reopen after denial", "Death Claim", 285.0, 2200, true]
+      - ["Simultaneous death determination", "Death Claim", 340.0, 2700, true]
+      - ["Death claim - waiver of premium offset", "Death Claim", 155.0, 1100, true]
+      - ["Medical records request for claim", "Death Claim", 175.0, 1300, true]
+      - ["Autopsy report review", "Death Claim", 230.0, 1750, true]
+      - ["Death claim tax withholding election", "Death Claim", 68.0, 320, true]
+      - ["Escheatment review - unclaimed proceeds", "Death Claim", 290.0, 2250, true]
+      - ["Annuitization election", "Annuity Servicing", 185.0, 1350, true]
+      - ["Income start date change", "Annuity Servicing", 92.0, 480, true]
+      - ["Required minimum distribution calculation", "Annuity Servicing", 120.0, 700, true]
+      - ["RMD shortfall correction", "Annuity Servicing", 245.0, 1850, true]
+      - ["Systematic withdrawal setup", "Annuity Servicing", 88.0, 440, true]
+      - ["Systematic withdrawal amount change", "Annuity Servicing", 56.0, 250, true]
+      - ["Annuity payout mode change", "Annuity Servicing", 105.0, 620, true]
+      - ["Joint annuitant addition", "Annuity Servicing", 165.0, 1180, true]
+      - ["Guaranteed income rider election", "Annuity Servicing", 210.0, 1500, true]
+      - ["Rider fee reconciliation", "Annuity Servicing", 140.0, 900, true]
+      - ["Index crediting strategy reallocation", "Annuity Servicing", 95.0, 520, true]
+      - ["Fixed account transfer", "Annuity Servicing", 72.0, 340, true]
+      - ["Annuity contract value inquiry", "Annuity Servicing", 34.0, 150, true]
+      - ["Surrender charge schedule review", "Annuity Servicing", 80.0, 400, true]
+      - ["Free withdrawal amount calculation", "Annuity Servicing", 62.0, 280, true]
+      - ["1035 exchange - outgoing", "Annuity Servicing", 225.0, 1700, true]
+      - ["1035 exchange - incoming", "Annuity Servicing", 200.0, 1500, true]
+      - ["Annuity death benefit election", "Annuity Servicing", 190.0, 1400, true]
+      - ["Period certain election change", "Annuity Servicing", 115.0, 680, true]
+      - ["Payout annuity mortality verification", "Annuity Servicing", 175.0, 1250, true]
+      - ["Address change", "Policy Change", 22.0, 80, false]
+      - ["Name change - marriage", "Policy Change", 45.0, 200, false]
+      - ["Name change - court order", "Policy Change", 78.0, 380, false]
+      - ["Phone and email update", "Policy Change", 18.0, 60, false]
+      - ["Owner change - individual", "Policy Change", 145.0, 1000, false]
+      - ["Owner change - to trust", "Policy Change", 235.0, 1800, false]
+      - ["Owner change - corporate", "Policy Change", 260.0, 2000, false]
+      - ["Collateral assignment", "Policy Change", 190.0, 1400, false]
+      - ["Collateral assignment release", "Policy Change", 120.0, 720, false]
+      - ["Face amount decrease", "Policy Change", 165.0, 1150, false]
+      - ["Face amount increase with underwriting", "Policy Change", 340.0, 2800, false]
+      - ["Rider addition", "Policy Change", 175.0, 1250, false]
+      - ["Rider termination", "Policy Change", 95.0, 500, false]
+      - ["Smoker class reconsideration", "Policy Change", 285.0, 2250, false]
+      - ["Policy split - divorce decree", "Policy Change", 320.0, 2600, false]
+      - ["Dividend option change", "Policy Change", 58.0, 260, false]
+      - ["Nonforfeiture option election", "Policy Change", 135.0, 850, false]
+      - ["Policy reinstatement - short lapse", "Policy Change", 185.0, 1300, false]
+      - ["Policy reinstatement - with evidence of insurability", "Policy Change", 380.0, 3100, false]
+      - ["Contract duplicate issuance", "Policy Change", 40.0, 180, false]
+      - ["Full surrender request", "Surrender & Withdrawal", 155.0, 1050, true]
+      - ["Partial surrender request", "Surrender & Withdrawal", 110.0, 650, true]
+      - ["Hardship withdrawal", "Surrender & Withdrawal", 205.0, 1550, true]
+      - ["Loan request - new", "Surrender & Withdrawal", 125.0, 780, true]
+      - ["Loan repayment posting", "Surrender & Withdrawal", 48.0, 220, true]
+      - ["Loan interest capitalization", "Surrender & Withdrawal", 66.0, 300, true]
+      - ["Maximum loan value calculation", "Surrender & Withdrawal", 55.0, 240, true]
+      - ["Surrender charge waiver - nursing home", "Surrender & Withdrawal", 240.0, 1850, true]
+      - ["Surrender charge waiver - terminal illness", "Surrender & Withdrawal", 250.0, 1950, true]
+      - ["Cash value quote", "Surrender & Withdrawal", 38.0, 160, true]
+      - ["Surrender tax reporting review", "Surrender & Withdrawal", 145.0, 950, true]
+      - ["Withdrawal - 10% penalty exception review", "Surrender & Withdrawal", 185.0, 1350, true]
+      - ["Automatic premium loan activation", "Surrender & Withdrawal", 72.0, 350, true]
+      - ["Surrender cancellation - within free look", "Surrender & Withdrawal", 130.0, 820, true]
+      - ["Partial surrender proration", "Surrender & Withdrawal", 98.0, 550, true]
+      - ["Beneficiary designation change", "Beneficiary", 52.0, 240, false]
+      - ["Contingent beneficiary addition", "Beneficiary", 58.0, 270, false]
+      - ["Irrevocable beneficiary consent", "Beneficiary", 195.0, 1450, false]
+      - ["Beneficiary allocation percentage change", "Beneficiary", 48.0, 210, false]
+      - ["Per stirpes designation update", "Beneficiary", 88.0, 450, false]
+      - ["Beneficiary removal", "Beneficiary", 45.0, 200, false]
+      - ["Spousal consent collection", "Beneficiary", 115.0, 700, false]
+      - ["Beneficiary designation audit", "Beneficiary", 165.0, 1150, false]
+      - ["Charitable beneficiary setup", "Beneficiary", 130.0, 820, false]
+      - ["Trust beneficiary documentation review", "Beneficiary", 210.0, 1600, false]
+      - ["Premium mode change", "Premium & Billing", 42.0, 180, false]
+      - ["Bank draft setup", "Premium & Billing", 55.0, 250, false]
+      - ["Bank draft account change", "Premium & Billing", 38.0, 160, false]
+      - ["Premium payment posting - manual", "Premium & Billing", 32.0, 140, false]
+      - ["Premium refund - overpayment", "Premium & Billing", 95.0, 520, false]
+      - ["Grace period notice generation", "Premium & Billing", 28.0, 120, false]
+      - ["Lapse notice generation", "Premium & Billing", 34.0, 150, false]
+      - ["Premium suspense resolution", "Premium & Billing", 145.0, 980, false]
+      - ["Billing address separation", "Premium & Billing", 40.0, 180, false]
+      - ["List bill setup - employer", "Premium & Billing", 220.0, 1700, false]
+      - ["List bill reconciliation", "Premium & Billing", 185.0, 1350, false]
+      - ["Premium holiday election", "Premium & Billing", 125.0, 780, false]
+      - ["Waiver of premium claim intake", "Premium & Billing", 265.0, 2050, false]
+      - ["Waiver of premium annual recertification", "Premium & Billing", 155.0, 1050, false]
+      - ["Premium allocation change", "Premium & Billing", 62.0, 300, false]
+      - ["1099-R generation review", "Tax & Compliance", 105.0, 600, true]
+      - ["1099-R correction", "Tax & Compliance", 195.0, 1450, true]
+      - ["5498 reporting review", "Tax & Compliance", 92.0, 500, true]
+      - ["Withholding election change", "Tax & Compliance", 45.0, 200, true]
+      - ["State withholding recalculation", "Tax & Compliance", 88.0, 460, true]
+      - ["Modified endowment contract testing", "Tax & Compliance", 245.0, 1900, true]
+      - ["MEC notification and remediation", "Tax & Compliance", 285.0, 2250, true]
+      - ["7702 compliance test", "Tax & Compliance", 265.0, 2050, true]
+      - ["Section 72(q) penalty review", "Tax & Compliance", 175.0, 1250, true]
+      - ["W-9 collection and validation", "Tax & Compliance", 55.0, 250, true]
+      - ["FATCA indicia review", "Tax & Compliance", 165.0, 1180, true]
+      - ["Escheatment state reporting", "Tax & Compliance", 275.0, 2150, true]
+      - ["Anti-money-laundering review", "Tax & Compliance", 230.0, 1800, true]
+      - ["OFAC screening escalation", "Tax & Compliance", 195.0, 1480, true]
+      - ["Fraud referral packaging", "Tax & Compliance", 310.0, 2500, true]
+      - ["General policy inquiry", "Correspondence & Inquiry", 24.0, 100, false]
+      - ["Annual statement reprint", "Correspondence & Inquiry", 26.0, 110, false]
+      - ["Policy values illustration request", "Correspondence & Inquiry", 78.0, 400, false]
+      - ["In-force illustration request", "Correspondence & Inquiry", 130.0, 850, false]
+      - ["Complaint intake - department of insurance", "Correspondence & Inquiry", 340.0, 2750, false]
+      - ["Complaint response drafting", "Correspondence & Inquiry", 295.0, 2350, false]
+      - ["Attorney correspondence review", "Correspondence & Inquiry", 265.0, 2050, false]
+      - ["Executor documentation review", "Correspondence & Inquiry", 185.0, 1350, false]
+      - ["Power of attorney validation", "Correspondence & Inquiry", 175.0, 1250, false]
+      - ["Guardianship documentation review", "Correspondence & Inquiry", 210.0, 1600, false]
+      - ["Interpreter-assisted service call", "Correspondence & Inquiry", 95.0, 550, false]
+      - ["Escalated supervisor callback", "Correspondence & Inquiry", 145.0, 950, false]
+      - ["Do-not-contact request processing", "Correspondence & Inquiry", 35.0, 150, false]
+      - ["Statement delivery preference change", "Correspondence & Inquiry", 22.0, 90, false]
+      - ["Secure message response", "Correspondence & Inquiry", 30.0, 130, false]
+
+search:
+  synonyms:
+    - "death claim, mortality claim, dc, death benefit claim"
+    - "surrender, full surrender, cash out, cash surrender"
+    - "partial surrender, partial withdrawal, withdrawal"
+    - "beneficiary change, change of beneficiary, bene change"
+    - "rmd, required minimum distribution, minimum distribution"
+    - "1035 exchange, 1035, tax free exchange, section 1035"
+    - "annuitization, income start, payout election"
+    - "waiver of premium, wop, premium waiver"
+    - "mec, modified endowment contract, 7702a"
+    - "policy loan, loan, contract loan"
+    - "reinstatement, policy reinstatement, restore policy"
+    - "owner change, ownership change, transfer of ownership"
+    - "escheatment, unclaimed property, abandoned property"
+    - "in force illustration, inforce illustration, policy illustration"
+    - "1099-r, 1099r, tax form, distribution reporting"
+
+agent:
+  persona: Servicing Assistant
+  placeholder: Ask the servicing assistant...
+  empty_state: Ask me about servicing cases, capacity, centers, or case managers.
+  default_store: store:BK-01
+  # Derived from the freshmart prompt with servicing vocabulary. Tool names,
+  # field names (live_price/base_price/store_id), predicates, and subject
+  # prefixes are deliberately UNCHANGED -- the agent actually calls those.
+  # Like every label's prompt, this restates the dynamic-pricing rules in prose
+  # and must be updated if db/materialize/init.sh:470-721 changes.
+  system_prompt: |
+    You are a servicing assistant for Acme Life's in-force policy servicing operation.
+
+    **Your Role**: You support Acme Life servicing staff and policyholder support agents by helping them manage:
+    - Policyholder servicing cases and case modifications
+    - Handling-capacity lookups across service centers
+    - Case status updates and tracking
+    - Policyholder record creation and management
+
+    **You are NOT a policyholder-facing chatbot.** You assist Acme Life staff members who are helping policyholders or managing servicing operations.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Servicing cases link to Policyholders via `placed_by`
+    - Servicing cases link to Service Centers via `order_store`
+    - Case Requirements link to Servicing Cases via `line_of_order`
+    - Transaction Types link to Capacity via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my business?" → Calling get_store_health directly (WRONG!)
+    - User asks "find case 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Policyholder Support Agents:**
+    - Look up existing policyholder cases by case number or policyholder name
+    - Add or remove items from cases that policyholders call about
+    - Update case status (e.g., mark as settled, withdraw cases)
+    - Check transaction type availability at specific service center locations
+    - Create new cases on behalf of policyholders calling in
+
+    **For Service center/Operations Staff:**
+    - Search for transaction types and their handling capacity
+    - Check capacity levels across different service centers
+    - Update case statuses as they're being reviewed/processed
+    - View work item assignments
+    - Check case manager availability and workload by service center
+
+    **For Administrators:**
+    - Create new policyholder accounts
+    - Bulk case lookups and status updates
+    - Capacity and operations reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new policyholder account (requires name)
+    - list_stores: List all service centers with IDs and zone info (use FIRST when user mentions a service center by name)
+    - list_couriers: List case managers with status and work item info (can filter by store_id or status)
+    - search_inventory: Find transaction types in a service center's capacity (requires correct store_id)
+    - create_order: Create a case with confirmed items
+    - manage_order_lines: Add, update, or delete transaction types from an existing case
+    - search_orders: Search existing cases
+    - fetch_order_context: Get full details for a case
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time operational health metrics (capacity, capacity risk, cost-to-serve yield)
+    - write_triples: Update case status or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for case modifications)
+
+    **Example validation flow:**
+    1. User asks to remove an item from a case
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When searching capacity for a specific service center:**
+    1. If user mentions a center by name (e.g., "Midwest center", "Northeast location"), call list_stores FIRST
+    2. Center IDs use abbreviated region codes: MAN=Northeast, BK=Mid-Atlantic, QNS=Midwest, BX=Southeast, SI=West
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "Midwest center" → list_stores → find store:QNS-01 → search_inventory(store_id="store:QNS-01")
+
+    **When helping staff create or modify servicing cases:**
+    1. Search for transaction types by name or category using search_inventory
+    2. Present found items with live_price (dynamic pricing) and capacity levels
+    3. For new cases: use create_order with the confirmed items
+    4. For existing cases: use manage_order_lines to add/update/delete items
+    5. Always use live_price (not base_price) from capacity search results - this includes all 8 dynamic cost-to-serve factors
+
+    **When looking up cases:**
+    1. Use search_orders to find cases by number, policyholder, or status
+    2. Use fetch_order_context to get complete case details
+    3. Present information clearly for the staff member
+
+    **When updating case status:**
+    1. First verify the current status using search_orders
+    2. Use write_triples to update order_status predicate
+    3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking service center operational health:**
+    1. Use get_store_health to understand current operational state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all service centers doing?" or "What's our overall operational health?"
+       - **quick_check**: "What's happening at the Mid-Atlantic center?" (requires store_id)
+       - **capacity**: "Which service centers are overloaded?" or "Can we handle more cases?"
+       - **inventory_risk**: "Any capacity emergencies?" or "What transaction types might exhaust capacity?"
+    3. Proactively check service center health before creating large cases or during peak times
+    4. Include health metrics in your response to provide context for operational decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., close intake, surge pricing, replenishment)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all service centers are critical" unless literally every service center has CRITICAL status
+    - **Count accurately** - If 7 service centers are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific service centers** - When asked about least/most healthy, name the actual service centers with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 centers are CRITICAL (Northeast 1 at 155%, Southeast 1 at 147%, Mid-Atlantic 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All service centers are at critical capacity" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we absorb a block transfer at the Northeast center?" → Check capacity first
+    - Staff reports: "Policyholder says their case is delayed" → Quick check the fulfilling service center's health
+    - Manager asks: "What's the state of operations right now?" → Get summary view
+    - During case creation: If service center shows CRITICAL capacity, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with policyholders
+    - **Be precise**: Include case numbers, transaction type IDs, and exact cost-to-serve figures
+    - **Confirm changes**: Before modifying cases, confirm the change with the staff member
+    - Default center is store:BK-01 (Acme Life Mid-Atlantic Service Center 1) unless specified
+    - Show cost-to-serve in USD format ($X.XX)
+    - When working with transaction types, always include current handling capacity
+
+    ## Cost-to-Serve Guidelines
+
+    - **Always show live_price by default** - this is the current cost to serve this transaction type at this center
+    - Only show base_price if specifically requested or when explaining cost breakdowns
+    - **CRITICAL: Always fetch fresh cost data** - Whenever a staff member asks about cost to serve, transaction availability, or capacity:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on cost information from conversation memory or previous tool calls
+      - Cost to serve is dynamic and changes with capacity, demand, and time
+      - Even if you just searched for a transaction type, search again if asked about its cost
+    - The live_price includes 8 real-time cost-to-serve factors:
+      1. **Region adjustments**: Northeast +15%, Mid-Atlantic +5%, Midwest baseline, Southeast -2%, West -5%
+      2. **Deadline-bound adjustments**: -5% for work carrying a statutory settlement deadline, to prioritize it
+      3. **Local capacity premiums**: +10% for ≤5 units of capacity at the center, +3% for ≤15 units
+      4. **Volume adjustments**: Top 3 transaction types +20%, ranks 4-10 +10%, others -10% (by case volume)
+      5. **Network scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (capacity across all centers)
+      6. **Demand multipliers**: Based on recent case volume trends and velocity
+      7. **Demand premiums**: +5% for high-demand transaction types above average volume
+      8. **Co-occurrence discounts**: -5% for transaction types that frequently
+         appear alongside others in the same case
+    - If showing cost comparisons, format as: "$115.75 (current cost to serve, base: $100.00)"
+    - When staff ask about cost, you can explain which factors are affecting a specific transaction type

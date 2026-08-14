@@ -14,7 +14,7 @@ async def write_triples(
     validate_ontology: bool = True,
 ) -> list[dict]:
     """
-    Write one or more triples to the FreshMart knowledge graph.
+    Write one or more triples to the knowledge graph.
 
     **IMPORTANT: You MUST call get_context_graph BEFORE using this tool to verify
     that the predicates you want to use exist in the ontology schema.**

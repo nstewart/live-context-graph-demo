@@ -15,19 +15,27 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { useLayout } from '../contexts/LayoutContext'
+import { brand, navItems as labelNav } from '../label'
 
-const navItems = [
-  { path: '/', icon: BarChart3, label: 'Agent Ref. Architecture' },
-  { path: '/vector-search', icon: Search, label: 'Freshmart Agent Search Demo' },
-  { path: '/orders', icon: ShoppingCart, label: 'Orders' },
-  { path: '/couriers', icon: Truck, label: 'Couriers' },
-  { path: '/metrics', icon: TrendingUp, label: 'Live Metrics' },
-  { path: '/stores', icon: Warehouse, label: 'Stores & Inventory' },
-  { path: '/ontology', icon: Database, label: 'Knowledge Graph (Ontology)' },
-  { path: '/triples', icon: Package, label: 'Triples Browser' },
-  { path: '/bundling', icon: Layers, label: 'Delivery Bundling' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
-]
+// Icons stay in code and are keyed by route; the labels and their order come
+// from the active label so a vertical can rename or reorder the demo's sections.
+const iconsByPath: Record<string, typeof BarChart3> = {
+  '/': BarChart3,
+  '/vector-search': Search,
+  '/orders': ShoppingCart,
+  '/couriers': Truck,
+  '/metrics': TrendingUp,
+  '/stores': Warehouse,
+  '/ontology': Database,
+  '/triples': Package,
+  '/bundling': Layers,
+  '/settings': Settings,
+}
+
+const navItems = labelNav.map((item) => ({
+  ...item,
+  icon: iconsByPath[item.path] ?? Package,
+}))
 
 export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar, setShowQr } = useLayout()
@@ -42,8 +50,8 @@ export default function Sidebar() {
       <div className={`p-4 flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
         {!sidebarCollapsed && (
           <div>
-            <h1 className="text-xl font-bold text-green-400">FreshMart</h1>
-            <p className="text-sm text-gray-400">Digital Twin Admin</p>
+            <h1 className="text-xl font-bold text-brand-400">{brand.name}</h1>
+            <p className="text-sm text-gray-400">{brand.tagline}</p>
           </div>
         )}
         <button
@@ -71,7 +79,7 @@ export default function Sidebar() {
                 sidebarCollapsed ? 'justify-center' : ''
               } ${
                 isActive
-                  ? 'bg-green-600 text-white'
+                  ? 'bg-brand-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800'
               }`
             }

@@ -1,4 +1,4 @@
-.PHONY: help setup up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
+.PHONY: help setup label labels label-check label-leaks label-lint label-ci up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -13,10 +13,32 @@ DELETE_AFTER_HOURS ?= 24
 AWS_TAG_ENV = OWNER_EMAIL="$(OWNER_EMAIL)" REASON="$(REASON)" TEAM="$(TEAM)" \
 	DELETE_AFTER_HOURS="$(DELETE_AFTER_HOURS)" DELETE_AFTER="$(DELETE_AFTER)"
 
+# White-label skin, e.g. `make up LABEL=life-insurance`. Optional; the demo
+# defaults to freshmart. See labels/ and docs/WHITE_LABELING.md.
+LABEL ?= freshmart
+LABEL_ENV = DEMO_LABEL="$(LABEL)"
+
+# The resolver needs PyYAML to parse labels and jsonschema to validate them against
+# labels/schema.json. Use the system interpreter only when it has BOTH -- otherwise
+# validation would silently skip -- and fall back to uv (a documented prerequisite).
+LABEL_PY := $(shell if python3 -c 'import yaml, jsonschema' >/dev/null 2>&1; then \
+		echo "python3"; \
+	else \
+		echo "uv run --no-project --quiet --with pyyaml --with jsonschema python3"; \
+	fi)
+
 # Default target
 help:
 	@echo "FreshMart Digital Twin - Available Commands"
 	@echo "============================================"
+	@echo ""
+	@echo "White-labeling:"
+	@echo "  make labels            - List available demo labels"
+	@echo "  make label             - Resolve + validate a label without starting anything"
+	@echo "  make label-ci          - All white-label CI guards (drift, leaks, lint)"
+	@echo "  Add LABEL=<name> to any up/seed/reset-db target, e.g."
+	@echo "    make up LABEL=life-insurance"
+	@echo "  Current: LABEL=$(LABEL)"
 	@echo ""
 	@echo "Setup & Run:"
 	@echo "  make setup             - Initial setup (copy .env, build containers)"
@@ -89,6 +111,31 @@ setup:
 	@echo ""
 	@echo "Setup complete! Run 'make up' or 'make up-agent' to start services."
 
+# White-labeling
+#
+# `label` resolves labels/$(LABEL).yaml into the artifacts every service reads
+# and validates it. Every up* target depends on it, so an unknown or malformed
+# label fails before Docker is touched.
+label:
+	@$(LABEL_PY) tools/resolve_label.py --label "$(LABEL)"
+
+labels:
+	@$(LABEL_PY) tools/resolve_label.py --list
+
+# CI guards for white-labeling. `label-check` catches a stale committed web
+# artifact, `label-leaks` catches a label that inherited the default vertical's
+# wording, and `label-lint` catches the brand being hardcoded back into source.
+label-check:
+	@$(LABEL_PY) tools/resolve_label.py --check
+
+label-leaks:
+	@$(LABEL_PY) tools/check_label_leaks.py
+
+label-lint:
+	@bash tools/label_lint.sh
+
+label-ci: label-check label-leaks label-lint
+
 # Initialize Materialize
 init-mz:
 	@echo "Initializing Materialize..."
@@ -101,21 +148,21 @@ init-checkpointer:
 	$(DOCKER_COMPOSE) exec agents env PYTHONPATH=/app python -m src.init_checkpointer
 
 # Start services
-up:
+up: label
 	@docker network create freshmart-network 2>/dev/null || true
-	$(DOCKER_COMPOSE) build web zero-permissions api
+	$(LABEL_ENV) $(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
-	$(DOCKER_COMPOSE) up -d --remove-orphans
+	$(LABEL_ENV) $(DOCKER_COMPOSE) up -d --remove-orphans
 	@echo ""
 	@echo "Waiting for databases to be ready..."
 	@sleep 5
 	@echo "Running migrations..."
 	@$(MAKE) migrate
 	@echo "Loading seed data..."
-	@$(MAKE) seed
+	@$(MAKE) seed LABEL="$(LABEL)"
 	@echo ""
-	@echo "Services starting..."
+	@echo "Services starting...  (label: $(LABEL))"
 	@echo "  - API:        http://localhost:$${API_PORT:-8080}"
 	@echo "  - Web UI:     http://localhost:$${WEB_PORT:-5173}"
 	@echo "  - PostgreSQL: localhost:$${PG_PORT:-5432}"
@@ -126,12 +173,12 @@ up:
 	@echo ""
 	@echo "All services ready! Run 'make logs' to see service output"
 
-up-agent:
+up-agent: label
 	@docker network create freshmart-network 2>/dev/null || true
-	$(DOCKER_COMPOSE) build web zero-permissions api
+	$(LABEL_ENV) $(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure views are updated based on ENABLE_DELIVERY_BUNDLING
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
-	$(DOCKER_COMPOSE) --profile agent up -d
+	$(LABEL_ENV) $(DOCKER_COMPOSE) --profile agent up -d
 	@echo ""
 	@echo "Waiting for databases to be ready..."
 	@sleep 5
@@ -142,7 +189,7 @@ up-agent:
 	@echo "      Run 'make init-mz' manually only if you need to re-initialize views."
 	@sleep 3
 	@echo "Loading seed data..."
-	@$(MAKE) seed
+	@$(MAKE) seed LABEL="$(LABEL)"
 	@echo ""
 	@echo "Waiting for agent services to be ready..."
 	@sleep 3
@@ -157,12 +204,12 @@ up-agent:
 	@echo ""
 	@echo "All services ready (including agents)!"
 
-up-agent-bundling:
+up-agent-bundling: label
 	@docker network create freshmart-network 2>/dev/null || true
-	ENABLE_DELIVERY_BUNDLING=true $(DOCKER_COMPOSE) build web zero-permissions api
+	ENABLE_DELIVERY_BUNDLING=true $(LABEL_ENV) $(DOCKER_COMPOSE) build web zero-permissions api
 	@# Force recreate materialize-init to ensure bundling views are created
 	$(DOCKER_COMPOSE) rm -f materialize-init 2>/dev/null || true
-	ENABLE_DELIVERY_BUNDLING=true $(DOCKER_COMPOSE) --profile agent up -d
+	ENABLE_DELIVERY_BUNDLING=true $(LABEL_ENV) $(DOCKER_COMPOSE) --profile agent up -d
 	@echo ""
 	@echo "Waiting for databases to be ready..."
 	@sleep 5
@@ -173,7 +220,7 @@ up-agent-bundling:
 	@echo "      Delivery bundling is ENABLED (CPU intensive recursive views)."
 	@sleep 3
 	@echo "Loading seed data..."
-	@$(MAKE) seed
+	@$(MAKE) seed LABEL="$(LABEL)"
 	@echo ""
 	@echo "Waiting for agent services to be ready..."
 	@sleep 3
@@ -213,25 +260,25 @@ logs-sync:
 migrate:
 	./db/scripts/run_migrations.sh
 
-seed:
-	@echo "Building and running database seeder..."
+seed: label
+	@echo "Building and running database seeder (label: $(LABEL))..."
 	$(DOCKER_COMPOSE) --profile seed build db-seed
-	$(DOCKER_COMPOSE) --profile seed run --rm db-seed
+	$(LABEL_ENV) $(DOCKER_COMPOSE) --profile seed run --rm db-seed
 
-reset-db:
+reset-db: label
 	@echo "WARNING: This will destroy all data!"
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ]
 	$(DOCKER_COMPOSE) down -v
 	docker volume rm freshmart-digital-twin-agent-starter_postgres_data || true
 	docker volume rm freshmart-digital-twin-agent-starter_materialize_data || true
-	$(DOCKER_COMPOSE) up -d db mz
+	$(LABEL_ENV) $(DOCKER_COMPOSE) up -d db mz
 	@echo "Waiting for databases to be ready..."
 	@sleep 5
 	$(MAKE) migrate
-	$(MAKE) seed
+	$(MAKE) seed LABEL="$(LABEL)"
 
 # Testing
-test: test-api test-web test-propagation
+test: label-ci test-api test-web test-propagation
 
 test-api:
 	$(DOCKER_COMPOSE) exec api pytest -v
@@ -335,14 +382,14 @@ test-load-gen: setup-load-gen
 aws-debug:
 	@$(AWS_TAG_ENV) bash aws/debug.sh
 
-up-aws:
-	@$(AWS_TAG_ENV) bash aws/deploy.sh "docker compose up -d --remove-orphans"
+up-aws: label
+	@$(AWS_TAG_ENV) $(LABEL_ENV) bash aws/deploy.sh "docker compose up -d --remove-orphans"
 
-up-agent-aws:
-	@$(AWS_TAG_ENV) bash aws/deploy.sh "docker compose --profile agent up -d --remove-orphans"
+up-agent-aws: label
+	@$(AWS_TAG_ENV) $(LABEL_ENV) bash aws/deploy.sh "docker compose --profile agent up -d --remove-orphans"
 
-up-agent-bundling-aws:
-	@$(AWS_TAG_ENV) ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d --remove-orphans"
+up-agent-bundling-aws: label
+	@$(AWS_TAG_ENV) $(LABEL_ENV) ENABLE_DELIVERY_BUNDLING=true bash aws/deploy.sh "ENABLE_DELIVERY_BUNDLING=true docker compose --profile agent up -d --remove-orphans"
 
 down-aws:
 	@bash aws/teardown.sh

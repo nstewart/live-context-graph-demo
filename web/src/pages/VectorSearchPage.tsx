@@ -5,6 +5,7 @@ import { ReferenceArchitectureCard } from "../components/ReferenceArchitectureCa
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { searchApi, queryStatsApi, QueryStatsOrder } from "../api/client";
 import { Schema } from "../schema";
+import { pageText } from "../label";
 
 // Must never match a real order_id — parks the Zero query until one is picked
 const EMPTY_QUERY_SENTINEL = "$$EMPTY_QUERY$$";
@@ -59,7 +60,7 @@ export default function VectorSearchPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Freshmart Agent Search Demo</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{pageText("vector_search", "title")}</h1>
         <p className="text-sm text-gray-500 mt-1">
           Semantic vector search with live data hydration from Materialize
         </p>

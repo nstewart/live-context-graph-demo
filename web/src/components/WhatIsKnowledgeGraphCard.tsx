@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { OntologyGraph } from "./OntologyGraph";
+import { copy } from "../label";
 
 export const WhatIsKnowledgeGraphCard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const t = copy("knowledge_graph");
 
   return (
     <div className="bg-white rounded-lg shadow mb-6">
@@ -18,10 +20,8 @@ export const WhatIsKnowledgeGraphCard = () => {
             <ChevronRight className="h-5 w-5 text-gray-500" />
           )}
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">Leveraging Context Graphs</h3>
-            <p className="text-xs text-gray-500">
-              The relationships that give agents and humans understanding about what to do next and why
-            </p>
+            <h3 className="text-lg font-semibold text-gray-900">{t.heading}</h3>
+            <p className="text-xs text-gray-500">{t.subhead}</p>
           </div>
         </div>
       </button>
@@ -33,7 +33,7 @@ export const WhatIsKnowledgeGraphCard = () => {
             <p>
               A <span className="font-medium">knowledge graph</span> (or ontology) defines the
               structure that sits on top of raw triples. It specifies which{" "}
-              <span className="font-medium">entity types</span> exist (Order, Customer, Product),
+              <span className="font-medium">entity types</span> exist ({t.entity_examples}),
               what <span className="font-medium">properties</span> each type can have, and how
               entities <span className="font-medium">relate</span> to one another.
             </p>

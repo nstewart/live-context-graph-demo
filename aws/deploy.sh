@@ -15,6 +15,10 @@ STATE_DIR="${SCRIPT_DIR}/.state"
 INSTANCE_TYPE="${INSTANCE_TYPE:-c5.4xlarge}"
 COMPOSE_CMD="${1:?Usage: deploy.sh <compose-command>}"
 BUNDLING_ENV="${ENABLE_DELIVERY_BUNDLING:-false}"
+# White-label skin. The resolved artifacts under labels/.resolved and
+# os-bootstrap/rendered are rsynced along with the rest of the project, so the
+# remote side only needs to know which label is active.
+DEMO_LABEL="${DEMO_LABEL:-freshmart}"
 
 # Trap SIGINT to print cleanup instructions
 trap 'echo ""; echo "Interrupted. To clean up AWS resources: make down-aws"; exit 130' INT
@@ -315,6 +319,10 @@ REMOTE_CMD="${REMOTE_CMD} && docker network create freshmart-network 2>/dev/null
 if [[ "$BUNDLING_ENV" == "true" ]]; then
   REMOTE_CMD="${REMOTE_CMD} && export ENABLE_DELIVERY_BUNDLING=true"
 fi
+
+# Every subsequent compose invocation needs the label, including the ones this
+# script builds itself and the caller-supplied ${COMPOSE_CMD} at the end.
+REMOTE_CMD="${REMOTE_CMD} && export DEMO_LABEL=${DEMO_LABEL}"
 
 # Build web and zero-permissions first
 if [[ "$BUNDLING_ENV" == "true" ]]; then

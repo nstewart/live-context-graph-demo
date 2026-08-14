@@ -74,3 +74,9 @@ api/.fastembed_cache/
 
 # Installer downloads (e.g. AWSCLIV2.pkg fetched while setting up deploys)
 *.pkg
+
+# Resolved label artifacts (regenerate with `make label`).
+# NOTE: web/src/generated/label.json is deliberately NOT ignored -- it is
+# committed so a bare `npm run dev` / `vitest` works without Python.
+labels/.resolved/
+os-bootstrap/rendered/

@@ -38,7 +38,25 @@ make up-agent
 - Materialize Console: http://localhost:6874
 - OpenSearch: http://localhost:9200
 
-The system seeds demo data automatically: 5 stores, 15 products, 15 customers, 20 orders.
+The system seeds demo data automatically: 10 stores, 760 products, 100 customers,
+500 orders, and 7,600 inventory rows (~45k triples).
+
+### White-labeling
+
+The demo ships as FreshMart, but the branding, copy, vocabulary, seed data, search
+synonyms, and agent persona are all driven by a YAML file under `labels/`:
+
+```bash
+make up                          # freshmart (default)
+make up LABEL=life-insurance     # in-force life insurance / annuity servicing
+make up LABEL=logistics          # LTL freight and final-mile carrier
+make labels                      # list available labels
+```
+
+A label changes words and data; it never changes shape — same predicates, view
+names, enum values, and entity counts, so the demo behaves identically whichever
+label is loaded. See [docs/WHITE_LABELING.md](docs/WHITE_LABELING.md) to author
+one.
 
 ## Demo Walkthrough
 

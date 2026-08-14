@@ -15,12 +15,12 @@ async def search_orders(
     limit: int = 10,
 ) -> list[dict]:
     """
-    Search for FreshMart orders using natural language.
+    Search for orders using natural language.
 
     Use this tool to find orders by:
     - Customer name (e.g., "Alex Thompson")
     - Customer address (partial match)
-    - Order number (e.g., "FM-1001")
+    - Order number (e.g., the seeded order-number prefix + digits)
     - Store name or zone
     - Promotion code (e.g., "SUMMER25")
 

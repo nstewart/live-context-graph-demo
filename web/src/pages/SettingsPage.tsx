@@ -484,7 +484,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => startSupplyMutation.mutate()}
                   disabled={startSupplyMutation.isPending}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium rounded-lg transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-green-400 text-white font-medium rounded-lg transition-colors"
                 >
                   {startSupplyMutation.isPending ? (
                     <>

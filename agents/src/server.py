@@ -1,4 +1,4 @@
-"""FastAPI server for the FreshMart Operations Agent with SSE streaming."""
+"""FastAPI server for the operations agent with SSE streaming."""
 
 import json
 import logging
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
-    title="FreshMart Operations Agent",
+    title="Operations Agent",
     description="AI-powered operations assistant with SSE streaming",
     lifespan=lifespan,
 )

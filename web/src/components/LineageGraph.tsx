@@ -13,6 +13,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 import vectorDbImage from '../assets/vector-db.png';
+import { aliasView } from "../label";
 
 type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic' | 'destination_systems';
 
@@ -511,8 +512,10 @@ const getNodeStyle = (type: keyof typeof nodeColors, isSelected: boolean = false
  *  - postgres:            reactive query offload */
 export type LineageScenario = 'materialize' | 'materialize_triples' | 'postgres' | 'batch';
 
-// Lineage node definitions (positions computed by dagre)
-const nodeDefinitions: Array<{
+// Lineage node definitions (positions computed by dagre).
+// Node ids are structural -- edges reference them, so they never change. Only
+// the rendered label passes through the active label's display aliases.
+const rawNodeDefinitions: Array<{
   id: string;
   label: string;
   type: keyof typeof nodeColors;
@@ -539,6 +542,11 @@ const nodeDefinitions: Array<{
   { id: 'orders_sink_v', label: 'orders_sink_v', type: 'mv', highlighted: true, medallionLayer: 'gold' },
   { id: 'inventory_sink_v', label: 'inventory_sink_v', type: 'mv', highlighted: true, medallionLayer: 'gold' },
 ];
+
+const nodeDefinitions = rawNodeDefinitions.map((n) => ({
+  ...n,
+  label: aliasView(n.label),
+}));
 
 // Nodes that exist only in the RAG architecture
 const SINK_VIEW_IDS = ['orders_sink_v', 'inventory_sink_v'];

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronRight, ArrowRight, ShoppingCart } from "lucide-react";
 import { triplesApi, Triple } from "../api/client";
+import { copy } from "../label";
 
 interface Order {
   order_id: string;
@@ -36,6 +37,7 @@ export const WhatAreTriplesCard = ({
   const [triples, setTriples] = useState<Triple[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = copy("triples");
 
   const fetchTriples = useCallback(async () => {
     if (!selectedOrderId) {
@@ -90,11 +92,8 @@ export const WhatAreTriplesCard = ({
             <ChevronRight className="h-5 w-5 text-gray-500" />
           )}
           <div className="text-left">
-            <h3 className="text-lg font-semibold text-gray-900">Agent Writes and Memories</h3>
-            <p className="text-xs text-gray-500">
-              Using "triples" as the atomic unit of knowledge recorded by agents. This forms the
-              foundation that will ultimately create their world model.
-            </p>
+            <h3 className="text-lg font-semibold text-gray-900">{t.heading}</h3>
+            <p className="text-xs text-gray-500">{t.subhead}</p>
           </div>
         </div>
         {triples.length > 0 && (
@@ -106,15 +105,15 @@ export const WhatAreTriplesCard = ({
         <div className="px-6 pb-6">
           {/* Explainer text */}
           <div className="mb-4 text-sm text-gray-600 leading-relaxed">
+            {/* Subject/Predicate/Value are RDF terms, not domain vocabulary, so
+                they stay put; only the prose around them is label-driven. */}
             <p>
-              Triples are the atomic unit of knowledge&mdash;each captures a single fact as{" "}
+              {t.explainer_lead}{" "}
               <span className="font-mono text-purple-600">Subject</span>{" "}
               <ArrowRight className="inline h-3 w-3 text-gray-400" />{" "}
               <span className="font-mono text-purple-600">Predicate</span>{" "}
               <ArrowRight className="inline h-3 w-3 text-gray-400" />{" "}
-              <span className="font-mono text-purple-600">Value</span>. This structure lets AI
-              agents update individual facts without needing complex schemas or full object
-              structures.
+              <span className="font-mono text-purple-600">Value</span>. {t.explainer_tail}
             </p>
           </div>
 
@@ -122,7 +121,7 @@ export const WhatAreTriplesCard = ({
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <ShoppingCart className="h-4 w-4 inline mr-1" />
-              Select Order
+              {t.selector_label}
             </label>
             <select
               value={selectedOrderId}
@@ -142,7 +141,7 @@ export const WhatAreTriplesCard = ({
           <div className="border rounded-lg overflow-hidden">
             <div className="bg-gray-50 px-4 py-2 border-b flex justify-between items-center">
               <span className="text-sm font-medium text-gray-700">
-                Triples for Order {orderNumber || selectedOrderId}
+                {t.table_heading} {orderNumber || selectedOrderId}
               </span>
               <span className="text-xs text-gray-500">
                 {triples.length} triples
@@ -155,7 +154,7 @@ export const WhatAreTriplesCard = ({
               </div>
             ) : triples.length === 0 && !isLoading ? (
               <div className="p-4 text-center text-gray-500 text-sm">
-                No triples found for this order
+                {t.empty}
               </div>
             ) : (
               <div className="max-h-[300px] overflow-y-auto">
@@ -211,11 +210,7 @@ export const WhatAreTriplesCard = ({
             )}
           </div>
 
-          <p className="mt-3 text-xs text-gray-500">
-            Click any row to pre-populate the Write Triple form below. This view shows only
-            triples for the selected order and its line items&mdash;the full graph includes
-            customers, stores, products, inventory, couriers, and delivery tasks.
-          </p>
+          <p className="mt-3 text-xs text-gray-500">{t.closing}</p>
         </div>
       )}
     </div>

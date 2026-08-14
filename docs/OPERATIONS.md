@@ -42,7 +42,7 @@ make up-agent
 The system will automatically:
 - Create persistent Docker network
 - Run database migrations
-- Seed demo data (5 stores, 15 products, 15 customers, 20 orders)
+- Seed demo data (10 stores, 760 products, 100 customers, 500 orders, 7,600 inventory rows)
 - Initialize Materialize (sources, views, indexes)
 - Sync orders and inventory to OpenSearch
 

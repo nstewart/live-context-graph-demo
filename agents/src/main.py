@@ -11,6 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.config import get_settings
+from src.demo_label import persona
 
 # Lazy import for heavy graph module - only import when actually needed
 # This avoids loading langchain/langgraph on every CLI invocation
@@ -50,7 +51,7 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("anthropic").setLevel(logging.WARNING)
 
-app = typer.Typer(help="FreshMart Operations Assistant CLI")
+app = typer.Typer(help="Operations assistant CLI")
 console = Console()
 
 
@@ -60,7 +61,7 @@ def chat(
     thread_id: str = typer.Option(None, "--thread-id", "-t", help="Conversation thread ID for memory persistence"),
 ):
     """
-    Chat with the FreshMart Operations Assistant.
+    Chat with the operations assistant.
 
     Examples:
         python -m src.main "Show all OUT_FOR_DELIVERY orders"
@@ -77,7 +78,7 @@ def chat(
         session_thread_id = thread_id or f"session-{uuid.uuid4().hex[:8]}"
 
         console.print(Panel.fit(
-            "[bold green]FreshMart Operations Assistant[/bold green]\n"
+            f"[bold green]{persona()}[/bold green]\n"
             "Type your questions about orders, stores, and couriers.\n"
             f"Session ID: [cyan]{session_thread_id}[/cyan]\n"
             "Type 'quit' or 'exit' to leave.",

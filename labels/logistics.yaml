@@ -1,0 +1,716 @@
+# Logistics -- a regional LTL freight and final-mile carrier vertical.
+#
+# The carrier moves freight between cross-dock terminals and out to consignees,
+# so its business IS operations at scale: shipments booked against dock capacity,
+# assigned to drivers, moving across lanes under appointment windows. That maps
+# onto the demo's existing shape without changing any of it.
+#
+# "Meridian Freight" is a deliberately fictional carrier. Do not commit a real
+# customer's name, branding, or assets to this repo -- copy this file locally
+# and override `brand` if you need to skin it for a specific account.
+#
+# This file lists ONLY what differs from freshmart.yaml; everything else is
+# inherited. Nothing structural changes: same predicates, same view names, same
+# zone CODES, same enum values, same entity counts.
+#
+#   internal (fixed)  ->  what the customer reads here
+#   order             ->  shipment
+#   orderline         ->  freight line
+#   customer          ->  shipper
+#   store             ->  terminal
+#   product           ->  commodity
+#   inventory         ->  dock capacity
+#   courier           ->  driver
+#   task              ->  dispatch leg
+#   zone              ->  lane
+#   perishable        ->  temperature-controlled
+#   dynamic pricing   ->  live freight rate (linehaul + accessorial)
+#
+# DELIBERATE: catalog weights stay in the freshmart magnitude (20-1,000) even
+# though a real pallet is far heavier. The bundling SQL keys on fixed gram
+# thresholds (5kg / 20kg / 50kg in db/materialize/init.sh:1459-1483), so authoring
+# realistic pallet weights would push every pair over the limit and the Load
+# Consolidation page would go empty. Read the column as billable handling weight
+# in carrier units, not grams; the relative ordering is what the demo shows.
+
+label: logistics
+
+brand:
+  name: Meridian Freight
+  tagline: Freight Operations Console
+  tab_title: Meridian Freight Operations - Console
+  theme:
+    primary: blue
+    accent: orange
+  favicon: logistics.svg
+
+vocabulary:
+  order:
+    one: shipment
+    many: shipments
+    title: Shipment
+    title_many: Shipments
+    id_prefix: SH-
+  orderline:
+    one: freight line
+    many: freight lines
+    title: Freight Line
+    title_many: Freight Lines
+  customer:
+    one: shipper
+    many: shippers
+    title: Shipper
+    title_many: Shippers
+  store:
+    one: terminal
+    many: terminals
+    title: Terminal
+    title_many: Terminals
+  product:
+    one: commodity
+    many: commodities
+    title: Commodity
+    title_many: Commodities
+  inventory:
+    one: dock capacity slot
+    many: dock capacity slots
+    title: Dock Capacity Slot
+    title_many: Dock Capacity
+  courier:
+    one: driver
+    many: drivers
+    title: Driver
+    title_many: Drivers
+  task:
+    one: dispatch leg
+    many: dispatch legs
+    title: Dispatch Leg
+    title_many: Dispatch Legs
+  zone:
+    one: lane
+    many: lanes
+    title: Lane
+    title_many: Lanes
+  perishable:
+    adjective: temperature-controlled
+    note: requires reefer equipment
+    tooltip: Has temperature-controlled freight
+    cart_note: This shipment includes temperature-controlled freight requiring reefer equipment
+
+enums:
+  # Values are fixed by the SQL; only these display labels change.
+  order_status:
+    CREATED: Booked
+    PICKING: At Dock
+    OUT_FOR_DELIVERY: In Transit
+    DELIVERED: Arrived
+    CANCELLED: Cancelled
+  courier_status:
+    OFF_SHIFT: Off Duty
+    AVAILABLE: Available
+    ON_DELIVERY: On Route
+    ACTIVE: Active
+  task_status:
+    PENDING: Pending
+    IN_PROGRESS: In Progress
+    COMPLETED: Completed
+    FAILED: Failed
+  vehicle_type:
+    BIKE: Cargo van
+    SCOOTER: Box truck
+    CAR: Tractor-trailer
+    WALKING: Yard hostler
+  store_status:
+    OPEN: Open
+    LIMITED: Dock constrained
+  availability_status:
+    IN_STOCK: Capacity available
+    LOW_STOCK: Capacity tight
+    OUT_OF_STOCK: Dock full
+  capacity_health:
+    CRITICAL: Critical
+    STRAINED: Strained
+    HEALTHY: Healthy
+    UNDERUTILIZED: Underutilized
+  recommended_action:
+    CLOSE_INTAKE: Embargo intake
+    SURGE_PRICING: Apply surge rate
+    PROMOTE_DEMAND: Route more freight here
+    MONITOR: Monitor
+  # Codes are join keys in the pricing SQL and MUST NOT change -- only labels.
+  zone:
+    MAN: Northeast Corridor
+    BK: Mid-Atlantic
+    QNS: Great Lakes
+    BX: Southeast
+    SI: Pacific
+
+# Display-only. The wire format, SQL, and database are untouched; these just
+# stop grocery vocabulary appearing in the SQL preview, lineage graph, predicate
+# dropdown, raw JSON, and OpenSearch examples.
+aliases:
+  columns:
+    order_number: pro_number
+    order_status: shipment_status
+    order_total_amount: shipment_charges
+    customer_name: shipper_name
+    customer_email: shipper_email
+    customer_address: shipper_address
+    store_name: terminal_name
+    store_zone: lane
+    store_address: terminal_address
+    assigned_courier_id: assigned_driver_id
+    courier_name: driver_name
+    courier_status: driver_status
+    delivery_window_start: appointment_window_start
+    delivery_window_end: appointment_window_end
+    delivery_eta: projected_arrival
+    delivery_task_status: dispatch_leg_status
+    has_perishable_items: has_temp_controlled_freight
+    perishable: temp_controlled
+    perishable_adjustment: temp_controlled_adjustment
+    product_name: commodity
+    unit_price: base_rate
+    live_price: current_rate
+    unit_weight_grams: billable_weight
+    stock_level: available_dock_capacity
+    line_items: freight_lines
+    line_item_count: freight_line_count
+  views:
+    orders_flat_mv: shipments_flat_mv
+    orders_with_lines_mv: shipments_with_lines_mv
+    order_lines_flat_mv: freight_lines_flat_mv
+    orders_search_source_mv: shipments_search_source_mv
+    stores_mv: terminals_mv
+    customers_mv: shippers_mv
+    products_mv: commodities_mv
+    store_inventory_mv: terminal_dock_capacity_mv
+    courier_schedule_mv: driver_schedule_mv
+    inventory_items_with_dynamic_pricing_mv: dock_capacity_with_live_rates_mv
+    pricing_yield_mv: rate_yield_mv
+    inventory_risk_mv: dock_capacity_risk_mv
+    store_capacity_health_mv: terminal_health_mv
+    delivery_bundles_mv: load_consolidations_mv
+    orders_flat: shipments_flat
+    customers_flat: shippers_flat
+    stores_flat: terminals_flat
+    products_flat: commodities_flat
+    order_lines_base: freight_lines_base
+    delivery_tasks_flat: dispatch_legs_flat
+    dynamic_pricing: live_rating
+    dynamic_pricing_mv: live_rating_mv
+    orders_sink_v: shipments_sink_v
+    inventory_sink_v: dock_capacity_sink_v
+  predicates:
+    order_status: shipment_status
+    order_number: pro_number
+    delivery_window_start: appointment_window_start
+    delivery_window_end: appointment_window_end
+    customer_name: shipper_name
+    customer_email: shipper_email
+    customer_address: shipper_address
+    store_name: terminal_name
+    store_zone: lane
+    store_address: terminal_address
+    product_name: commodity
+    unit_price: base_rate
+    perishable: temp_controlled
+    unit_weight_grams: billable_weight
+    stock_level: available_dock_capacity
+    courier_name: driver_name
+    courier_phone: driver_phone
+    courier_status: driver_status
+    task_status: dispatch_leg_status
+
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Meridian Agent Search Demo
+  - path: /orders
+    label: Shipments
+  - path: /couriers
+    label: Drivers
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Terminals & Dock Capacity
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: Load Consolidation
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Meridian Freight: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Meridian Agent Search Demo
+  orders:
+    title: Shipments
+    subtitle: Monitor and manage in-transit shipments via WebSocket
+    search_placeholder: Search PRO #...
+  couriers:
+    title: Drivers & Schedule
+    subtitle: View driver status and assigned dispatch legs
+    search_placeholder: Search by driver ID...
+  stores:
+    title: Terminals & Dock Capacity
+    inventory_title: Dock Capacity
+    all_inventory_title: All Dock Capacity Slots
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time freight network health indicators
+    kpi_pricing_yield: Live Rate Yield
+    kpi_revenue_at_risk: Revenue at Risk from Missed Appointments
+    kpi_store_utilization: Avg Terminal Utilization
+    chart_demand_vs_capacity: Freight Volume vs Dock Capacity
+  bundling:
+    title: Load Consolidation
+    subtitle: Mutually recursive constraint satisfaction
+
+copy:
+  triples:
+    subhead: >-
+      Using "triples" as the atomic unit of knowledge recorded by agents. This
+      forms the foundation that will ultimately create their world model.
+    selector_label: Select Shipment
+    table_heading: Triples for Shipment
+    empty: No triples found for this shipment
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected shipment and its freight lines—the full graph
+      includes shippers, terminals, commodities, dock capacity, drivers, and
+      dispatch legs.
+  knowledge_graph:
+    entity_examples: Shipment, Shipper, Commodity
+  write_triple:
+    subhead: — Update a shipment property and observe propagation
+  vector_pipeline:
+    all_zones: All lanes
+    all_statuses: All statuses
+
+placeholders:
+  subject: order:SH-1001
+  order_number: SH-1001
+  store_name: Meridian Mid-Atlantic
+  store_code: BK-01
+  store_zone: BK
+  store_address: 4200 Industrial Hwy, Bristol, PA
+  inventory_code: DOCK-BK01-001
+  courier_code: DRV-01
+  courier_name: Marcus Riley
+  product_search: Search commodities...
+  order_search: Search shipments...
+  semantic_search: Search by meaning (e.g., temperature-controlled pallets)...
+
+examples:
+  search_queries:
+    - temperature-controlled pallets
+    - hazmat placarded freight
+    - liftgate residential handoff
+  predicate_values:
+    order_status: DELIVERED
+    order_number: SH-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "5"
+    order_line_unit_price: "145.00"
+    line_sequence: "1"
+    customer_name: Northline Manufacturing
+    customer_email: dispatch@northline.example.com
+    customer_address: 4200 Industrial Hwy
+    store_name: Mid-Atlantic Terminal
+    store_zone: MAN
+    store_address: 1500 Raritan Center Pkwy
+    product_name: Standard 48x40 pallet - dry goods
+    category: Dry Freight
+    unit_price: "145.00"
+    perishable: "true"
+    unit_weight_grams: "1200"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: Dana Whitfield
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+
+seed:
+  store_name_template: Meridian {zone_name} Terminal {n}
+  address_state: PA
+  locations:
+    # Codes are FIXED (the pricing SQL joins on them); names and streets are not.
+    - code: BK
+      name: Mid-Atlantic
+      streets: [Industrial Hwy, Cabot Blvd, Bristol Pike, Commerce Dr, Airport Rd]
+    - code: MAN
+      name: Northeast Corridor
+      streets: [Raritan Center Pkwy, Cranbury Rd, Port Reading Ave, Turnpike Rd, Distribution Blvd]
+    - code: QNS
+      name: Great Lakes
+      streets: [S Cicero Ave, Archer Ave, Willow Rd, Lombard Rd, Central Ave]
+    - code: BX
+      name: Southeast
+      streets: [Fulton Industrial Blvd, Bolton Rd, Riverside Pkwy, Camp Creek Pkwy, Great SW Pkwy]
+    - code: SI
+      name: Pacific
+      streets: [Alameda St, Sepulveda Blvd, Wilmington Ave, Terminal Island Fwy, Carson St]
+  catalog:
+    # 130 authored commodities, expanded to the same 760 rows freshmart seeds so
+    # index size, kNN behavior, and entity counts are unchanged.
+    expand_to: 760
+    variant_suffixes:
+      - "(expedited)"
+      - "(guaranteed AM)"
+      - "(liftgate)"
+      - "(appointment required)"
+      - "(inside handoff)"
+      - "(limited access site)"
+    categories:
+      - { name: "Dry Freight", perishable_default: false }
+      - { name: "Temperature Controlled", perishable_default: true }
+      - { name: "Pharma & Life Sciences", perishable_default: true }
+      - { name: "Hazmat & Regulated", perishable_default: false }
+      - { name: "Flatbed & Oversize", perishable_default: false }
+      - { name: "Final Mile", perishable_default: false }
+      - { name: "High Value & Secure", perishable_default: false }
+      - { name: "Accessorials", perishable_default: false }
+    # [name, category, rate, billable_weight, temp_controlled]
+    items:
+      - ["Standard 48x40 pallet - dry goods", "Dry Freight", 145.0, 300, false]
+      - ["Double-stacked 48x40 pallet - dry goods", "Dry Freight", 195.0, 600, false]
+      - ["Half pallet - dry goods", "Dry Freight", 95.0, 155, false]
+      - ["Gaylord box - bulk dry goods", "Dry Freight", 175.0, 450, false]
+      - ["Carton freight - 10 to 25 cartons", "Dry Freight", 88.0, 225, false]
+      - ["Carton freight - 26 to 60 cartons", "Dry Freight", 132.0, 475, false]
+      - ["Loose-loaded floor freight", "Dry Freight", 210.0, 650, false]
+      - ["Shrink-wrapped skid - paper goods", "Dry Freight", 118.0, 350, false]
+      - ["Banded bundle - building materials", "Dry Freight", 165.0, 725, false]
+      - ["Drum freight - non-regulated, 4 drums", "Dry Freight", 155.0, 550, false]
+      - ["Crated machinery part", "Dry Freight", 340.0, 850, false]
+      - ["Palletized canned goods", "Dry Freight", 128.0, 750, false]
+      - ["Furniture carton - flat pack", "Dry Freight", 112.0, 400, false]
+      - ["Rolled goods - carpet or textile", "Dry Freight", 185.0, 525, false]
+      - ["Tire freight - stacked bundle", "Dry Freight", 142.0, 440, false]
+      - ["Retail floor-ready display pallet", "Dry Freight", 168.0, 340, false]
+      - ["Empty pallet return - stacked", "Dry Freight", 62.0, 200, false]
+      - ["Bagged goods - palletized", "Dry Freight", 122.0, 700, false]
+      - ["Chilled pallet - 34F to 38F", "Temperature Controlled", 285.0, 350, true]
+      - ["Frozen pallet - 0F and below", "Temperature Controlled", 320.0, 375, true]
+      - ["Deep frozen pallet - minus 20F", "Temperature Controlled", 385.0, 390, true]
+      - ["Controlled ambient pallet - 59F to 77F", "Temperature Controlled", 240.0, 325, true]
+      - ["Reefer partial - 4 pallet positions", "Temperature Controlled", 640.0, 950, true]
+      - ["Reefer partial - 2 pallet positions", "Temperature Controlled", 420.0, 600, true]
+      - ["Chilled tote - insulated, single", "Temperature Controlled", 96.0, 80, true]
+      - ["Frozen tote - dry ice packed", "Temperature Controlled", 128.0, 95, true]
+      - ["Cut flowers - chilled transit", "Temperature Controlled", 265.0, 225, true]
+      - ["Live plant material - climate held", "Temperature Controlled", 275.0, 275, true]
+      - ["Confection freight - heat sensitive", "Temperature Controlled", 230.0, 310, true]
+      - ["Chilled beverage load - partial", "Temperature Controlled", 310.0, 800, true]
+      - ["Temperature-logged pallet with data logger", "Temperature Controlled", 335.0, 360, true]
+      - ["Reefer load with continuous temp telemetry", "Temperature Controlled", 460.0, 650, true]
+      - ["Chilled multi-stop consolidation", "Temperature Controlled", 395.0, 725, true]
+      - ["Frozen cross-dock transfer", "Temperature Controlled", 275.0, 400, true]
+      - ["Insulated pallet shipper - passive", "Temperature Controlled", 205.0, 290, true]
+      - ["Reefer pre-cool and set-point verification", "Temperature Controlled", 150.0, 50, true]
+      - ["Validated pharma pallet - 2C to 8C", "Pharma & Life Sciences", 620.0, 350, true]
+      - ["Controlled room temperature pharma pallet", "Pharma & Life Sciences", 480.0, 340, true]
+      - ["Clinical trial kit - temp monitored", "Pharma & Life Sciences", 340.0, 105, true]
+      - ["Diagnostic specimen tote - chilled", "Pharma & Life Sciences", 285.0, 75, true]
+      - ["Vaccine shipper - dry ice replenished", "Pharma & Life Sciences", 720.0, 225, true]
+      - ["Biologics tote - cryogenic dry vapor", "Pharma & Life Sciences", 850.0, 275, true]
+      - ["Controlled substance - Schedule II secured", "Pharma & Life Sciences", 780.0, 150, true]
+      - ["Medical device kit - sterile barrier", "Pharma & Life Sciences", 295.0, 210, true]
+      - ["Pharmacy replenishment tote", "Pharma & Life Sciences", 165.0, 100, true]
+      - ["Lab reagent pallet - temp controlled", "Pharma & Life Sciences", 425.0, 375, true]
+      - ["Blood component transport - validated", "Pharma & Life Sciences", 690.0, 90, true]
+      - ["Pharma returns - quarantined handling", "Pharma & Life Sciences", 380.0, 240, true]
+      - ["Hazmat Class 3 flammable liquid - 4 drums", "Hazmat & Regulated", 480.0, 800, false]
+      - ["Hazmat Class 8 corrosive - palletized", "Hazmat & Regulated", 465.0, 750, false]
+      - ["Hazmat Class 9 lithium batteries - UN3480", "Hazmat & Regulated", 520.0, 450, false]
+      - ["Lithium batteries in equipment - UN3481", "Hazmat & Regulated", 410.0, 525, false]
+      - ["Hazmat Class 2 compressed gas cylinders", "Hazmat & Regulated", 545.0, 700, false]
+      - ["Hazmat Class 5 oxidizer - drum freight", "Hazmat & Regulated", 500.0, 650, false]
+      - ["Limited quantity hazmat cartons", "Hazmat & Regulated", 235.0, 225, false]
+      - ["Placarded load - single class", "Hazmat & Regulated", 610.0, 900, false]
+      - ["Placarded load - mixed class segregation", "Hazmat & Regulated", 720.0, 950, false]
+      - ["Aerosol freight - ORM-D palletized", "Hazmat & Regulated", 245.0, 375, false]
+      - ["Paint and coatings - flammable pallet", "Hazmat & Regulated", 395.0, 725, false]
+      - ["Pesticide freight - regulated pallet", "Hazmat & Regulated", 430.0, 675, false]
+      - ["Dry ice resupply service - UN1845", "Hazmat & Regulated", 175.0, 125, false]
+      - ["Hazardous waste manifest freight", "Hazmat & Regulated", 660.0, 825, false]
+      - ["Marine pollutant freight - documented", "Hazmat & Regulated", 480.0, 625, false]
+      - ["Emergency response documentation packet", "Hazmat & Regulated", 145.0, 25, false]
+      - ["Flatbed pallet - tarped", "Flatbed & Oversize", 385.0, 950, false]
+      - ["Steel coil - single, cradled", "Flatbed & Oversize", 740.0, 1000, false]
+      - ["Structural steel bundle", "Flatbed & Oversize", 620.0, 975, false]
+      - ["Lumber bundle - banded", "Flatbed & Oversize", 340.0, 925, false]
+      - ["Precast concrete section", "Flatbed & Oversize", 810.0, 1000, false]
+      - ["Machinery skid - crated, forklift required", "Flatbed & Oversize", 560.0, 875, false]
+      - ["Over-length freight - 12ft to 20ft", "Flatbed & Oversize", 470.0, 725, false]
+      - ["Over-length freight - beyond 20ft", "Flatbed & Oversize", 690.0, 850, false]
+      - ["Over-width freight - permit required", "Flatbed & Oversize", 780.0, 900, false]
+      - ["Step deck load - low clearance", "Flatbed & Oversize", 650.0, 875, false]
+      - ["Pipe and conduit bundle", "Flatbed & Oversize", 405.0, 825, false]
+      - ["Roll-off container transfer", "Flatbed & Oversize", 590.0, 975, false]
+      - ["Generator set - skidded", "Flatbed & Oversize", 720.0, 950, false]
+      - ["Agricultural implement - partial disassembly", "Flatbed & Oversize", 685.0, 925, false]
+      - ["Threshold handoff - single carton", "Final Mile", 78.0, 100, false]
+      - ["Threshold handoff - multi carton", "Final Mile", 118.0, 225, false]
+      - ["Curbside handoff - large appliance", "Final Mile", 155.0, 550, false]
+      - ["Room of choice placement - appliance", "Final Mile", 245.0, 600, false]
+      - ["Two-person handling - oversized carton", "Final Mile", 285.0, 650, false]
+      - ["Stair carry - per flight", "Final Mile", 95.0, 300, false]
+      - ["Appliance haul-away and disposal", "Final Mile", 165.0, 500, false]
+      - ["On-site assembly - furniture", "Final Mile", 220.0, 375, false]
+      - ["Uncrate and debris removal", "Final Mile", 175.0, 275, false]
+      - ["Exchange handoff - swap unit", "Final Mile", 195.0, 450, false]
+      - ["Scheduled window handoff - 2 hour", "Final Mile", 130.0, 175, false]
+      - ["Same-day metro handoff", "Final Mile", 210.0, 150, false]
+      - ["Return pickup from consignee", "Final Mile", 145.0, 200, false]
+      - ["Reattempt after failed handoff", "Final Mile", 110.0, 175, false]
+      - ["Signature required handoff", "Final Mile", 68.0, 75, false]
+      - ["Photo confirmation handoff", "Final Mile", 52.0, 60, false]
+      - ["High value freight - sealed trailer", "High Value & Secure", 640.0, 600, false]
+      - ["Electronics pallet - serialized", "High Value & Secure", 480.0, 400, false]
+      - ["Precious metals - dual custody", "High Value & Secure", 890.0, 100, false]
+      - ["Fine art crate - climate stable", "High Value & Secure", 820.0, 475, false]
+      - ["Firearms freight - ATF documented", "High Value & Secure", 700.0, 225, false]
+      - ["Currency and negotiables transfer", "High Value & Secure", 950.0, 75, false]
+      - ["Tobacco and excise-taxed freight", "High Value & Secure", 560.0, 500, false]
+      - ["Wine and spirits - licensed handling", "High Value & Secure", 420.0, 775, false]
+      - ["Data center hardware - shock monitored", "High Value & Secure", 730.0, 700, false]
+      - ["Jewelry consignment - insured transit", "High Value & Secure", 780.0, 50, false]
+      - ["Sealed evidence transfer - chain of custody", "High Value & Secure", 610.0, 125, false]
+      - ["Prototype unit - non-disclosure handling", "High Value & Secure", 690.0, 350, false]
+      - ["Liftgate service at pickup", "Accessorials", 95.0, 25, false]
+      - ["Liftgate service at handoff", "Accessorials", 95.0, 25, false]
+      - ["Inside pickup", "Accessorials", 125.0, 40, false]
+      - ["Inside placement", "Accessorials", 135.0, 40, false]
+      - ["Residential pickup surcharge", "Accessorials", 88.0, 25, false]
+      - ["Residential handoff surcharge", "Accessorials", 88.0, 25, false]
+      - ["Appointment scheduling fee", "Accessorials", 62.0, 20, false]
+      - ["Limited access site fee", "Accessorials", 105.0, 25, false]
+      - ["Detention - per hour after free time", "Accessorials", 85.0, 20, false]
+      - ["Sort and segregate service", "Accessorials", 145.0, 50, false]
+      - ["Palletizing service at dock", "Accessorials", 130.0, 75, false]
+      - ["Shrink wrap and stretch banding", "Accessorials", 78.0, 50, false]
+      - ["Blind shipment handling", "Accessorials", 115.0, 25, false]
+      - ["Freight protection - excess valuation", "Accessorials", 165.0, 20, false]
+      - ["Terminal storage - per pallet per day", "Accessorials", 45.0, 100, false]
+      - ["Cross-dock transfer fee", "Accessorials", 92.0, 60, false]
+      - ["Notify before arrival service", "Accessorials", 40.0, 20, false]
+      - ["Weekend or after-hours handling", "Accessorials", 175.0, 40, false]
+      - ["Overlength surcharge", "Accessorials", 155.0, 50, false]
+      - ["Single shipment minimum charge", "Accessorials", 135.0, 25, false]
+      - ["Fuel surcharge assessment", "Accessorials", 70.0, 20, false]
+      - ["Reconsignment - address change in transit", "Accessorials", 185.0, 30, false]
+      - ["Arrival receipt copy request", "Accessorials", 35.0, 20, false]
+
+search:
+  synonyms:
+    - "pallet, skid, pallets, unit load"
+    - "ltl, less than truckload, partial truckload"
+    - "ftl, truckload, full truckload, tl"
+    - "reefer, temp controlled, temperature controlled, chilled"
+    - "hazmat, dangerous goods, dg, hazardous materials"
+    - "liftgate, lift gate, tailgate"
+    - "bol, bill of lading, lading"
+    - "pro number, pro, tracking number, waybill"
+    - "accessorial, surcharge, extra service"
+    - "linehaul, line haul, over the road, otr"
+    - "cross dock, crossdock, transload, dock transfer"
+    - "flatbed, step deck, open deck"
+    - "oversize, over dimensional, over length"
+    - "appointment, appt, dock appointment, scheduled window"
+    - "detention, waiting time, demurrage"
+    - "consignee, receiver, ship to"
+    - "white glove, inside placement, room of choice"
+
+agent:
+  persona: Freight Operations Assistant
+  placeholder: Ask the freight operations assistant...
+  empty_state: Ask me about shipments, dock capacity, terminals, or drivers.
+  default_store: store:BK-01
+  # Derived from the freshmart prompt with freight vocabulary. Tool names,
+  # field names (live_price/base_price/store_id), predicates, and subject
+  # prefixes are deliberately UNCHANGED -- the agent actually calls those.
+  # Like every label's prompt, this restates the dynamic-pricing rules in prose
+  # and must be updated if db/materialize/init.sh:470-721 changes.
+  system_prompt: |
+    You are a freight operations assistant for Meridian Freight's LTL and final-mile network.
+
+    **Your Role**: You support Meridian Freight dispatchers and shipper support agents by helping them manage:
+    - Shipper bookings and shipment modifications
+    - Dock-capacity lookups across terminals
+    - Shipment status updates and tracking
+    - Shipper account creation and management
+
+    **You are NOT a shipper-facing chatbot.** You assist Meridian Freight staff members who are helping shippers or running the network.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Shipments link to Shippers via `placed_by`
+    - Shipments link to Terminals via `order_store`
+    - Freight Lines link to Shipments via `line_of_order`
+    - Commodities link to Dock Capacity via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my business?" → Calling get_store_health directly (WRONG!)
+    - User asks "find shipment 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Shipper Support Agents:**
+    - Look up existing shipments by PRO number or shipper name
+    - Add or remove freight lines from shipments that shippers call about
+    - Update shipment status (e.g., mark as arrived, cancel shipments)
+    - Check commodity handling availability at specific terminals
+    - Book new shipments on behalf of shippers calling in
+
+    **For Terminal/Dispatch Staff:**
+    - Search for commodities and their available dock capacity
+    - Check dock capacity across different terminals
+    - Update shipment statuses as freight moves through the network
+    - View dispatch leg assignments
+    - Check driver availability and workload by terminal
+
+    **For Administrators:**
+    - Create new shipper accounts
+    - Bulk shipment lookups and status updates
+    - Dock capacity and network operations reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new shipper account (requires name)
+    - list_stores: List all terminals with IDs and zone info (use FIRST when user mentions a terminal by name)
+    - list_couriers: List drivers with status and dispatch leg info (can filter by store_id or status)
+    - search_inventory: Find commodities in a terminal's dock capacity (requires correct store_id)
+    - create_order: Book a shipment with confirmed freight lines
+    - manage_order_lines: Add, update, or delete freight lines on an existing shipment
+    - search_orders: Search existing shipments
+    - fetch_order_context: Get full details for a shipment
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time operational health metrics (dock capacity, capacity risk, rate yield)
+    - write_triples: Update shipment status or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for shipment modifications)
+
+    **Example validation flow:**
+    1. User asks to remove a freight line from a shipment
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When searching dock capacity for a specific terminal:**
+    1. If user mentions a terminal by name (e.g., "Great Lakes terminal", "Northeast hub"), call list_stores FIRST
+    2. Terminal IDs use abbreviated lane codes: MAN=Northeast Corridor, BK=Mid-Atlantic, QNS=Great Lakes, BX=Southeast, SI=Pacific
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "Great Lakes terminal" → list_stores → find store:QNS-01 → search_inventory(store_id="store:QNS-01")
+
+    **When helping staff book or modify shipments:**
+    1. Search for commodities by name or category using search_inventory
+    2. Present found commodities with live_price (the current rate) and available capacity
+    3. For new shipments: use create_order with the confirmed freight lines
+    4. For existing shipments: use manage_order_lines to add/update/delete freight lines
+    5. Always use live_price (not base_price) from capacity search results - this includes all 8 dynamic rating factors
+
+    **When looking up shipments:**
+    1. Use search_orders to find shipments by PRO number, shipper, or status
+    2. Use fetch_order_context to get complete shipment details
+    3. Present information clearly for the staff member
+
+    **When updating shipment status:**
+    1. First verify the current status using search_orders
+    2. Use write_triples to update order_status predicate
+    3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking terminal operational health:**
+    1. Use get_store_health to understand current operational state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all terminals doing?" or "What's our overall network health?"
+       - **quick_check**: "What's happening at the Mid-Atlantic terminal?" (requires store_id)
+       - **capacity**: "Which terminals are overloaded?" or "Can we accept more freight?"
+       - **inventory_risk**: "Any dock emergencies?" or "Which commodities might exhaust capacity?"
+    3. Proactively check terminal health before booking large shipments or during peak season
+    4. Include health metrics in your response to provide context for operational decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., embargo intake, surge rates, capacity rebalancing)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all terminals are critical" unless literally every terminal has CRITICAL status
+    - **Count accurately** - If 7 terminals are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific terminals** - When asked about least/most healthy, name the actual terminals with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 terminals are CRITICAL (Northeast Corridor 1 at 155%, Southeast 1 at 147%, Mid-Atlantic 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All terminals are at critical capacity" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we absorb a 20-pallet tender at the Northeast Corridor terminal?" → Check capacity first
+    - Staff reports: "Shipper says their freight is running late" → Quick check the handling terminal's health
+    - Manager asks: "What's the state of the network right now?" → Get summary view
+    - During booking: If a terminal shows CRITICAL capacity, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with shippers
+    - **Be precise**: Include PRO numbers, commodity IDs, and exact rate figures
+    - **Confirm changes**: Before modifying shipments, confirm the change with the staff member
+    - Default terminal is store:BK-01 (Meridian Mid-Atlantic Terminal 1) unless specified
+    - Show rates in USD format ($X.XX)
+    - When working with commodities, always include current available dock capacity
+
+    ## Rating Guidelines
+
+    - **Always show live_price by default** - this is the current rate to move this commodity through this terminal
+    - Only show base_price if specifically requested or when explaining rate breakdowns
+    - **CRITICAL: Always fetch fresh rate data** - Whenever a staff member asks about rates, commodity availability, or dock capacity:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on rate information from conversation memory or previous tool calls
+      - Rates are dynamic and change with capacity, demand, and time of day
+      - Even if you just searched for a commodity, search again if asked about its rate
+    - The live_price includes 8 real-time rating factors:
+      1. **Lane adjustments**: Northeast Corridor +15%, Mid-Atlantic +5%, Great Lakes baseline, Southeast -2%, Pacific -5%
+      2. **Temperature-controlled adjustments**: -5% for freight requiring reefer equipment, to keep it moving first
+      3. **Local capacity premiums**: +10% for ≤5 open dock slots at the terminal, +3% for ≤15 slots
+      4. **Volume adjustments**: Top 3 commodities +20%, ranks 4-10 +10%, others -10% (by shipment volume)
+      5. **Network scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (dock capacity across all terminals)
+      6. **Demand multipliers**: Based on recent booking volume trends and velocity
+      7. **Demand premiums**: +5% for high-demand commodities above average volume
+      8. **Co-occurrence discounts**: -5% for commodities that frequently move together on the
+         same shipment
+    - If showing rate comparisons, format as: "$166.75 (current rate, base: $145.00)"
+    - When staff ask about rates, you can explain which factors are affecting a specific commodity

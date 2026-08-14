@@ -132,7 +132,7 @@ function TripleFormModal({
                     const id = formData.subject_id.split(':')[1] || ''
                     setFormData({ ...formData, subject_id: prefix ? `${prefix}:${id}` : id, predicate: '' })
                   }}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">Prefix...</option>
                   {classPrefixes.map(prefix => (
@@ -148,7 +148,7 @@ function TripleFormModal({
                     setFormData({ ...formData, subject_id: prefix ? `${prefix}:${e.target.value}` : e.target.value })
                   }}
                   placeholder="entity-id"
-                  className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 />
               </div>
             )}
@@ -169,7 +169,7 @@ function TripleFormModal({
                 required
                 value={formData.predicate}
                 onChange={e => setFormData({ ...formData, predicate: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Select a predicate...</option>
                 {availableProperties.map(prop => (
@@ -190,7 +190,7 @@ function TripleFormModal({
                 required
                 value={formData.object_value}
                 onChange={e => setFormData({ ...formData, object_value: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Select an entity...</option>
                 {entityRefSubjects.map(s => (
@@ -202,7 +202,7 @@ function TripleFormModal({
                 required
                 value={formData.object_value}
                 onChange={e => setFormData({ ...formData, object_value: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Select...</option>
                 <option value="true">true</option>
@@ -214,7 +214,7 @@ function TripleFormModal({
                 required
                 value={formData.object_value ? formData.object_value.slice(0, 16) : ''}
                 onChange={e => setFormData({ ...formData, object_value: e.target.value ? new Date(e.target.value).toISOString() : '' })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             ) : (
               <input
@@ -224,7 +224,7 @@ function TripleFormModal({
                 value={formData.object_value}
                 onChange={e => setFormData({ ...formData, object_value: e.target.value })}
                 placeholder="Enter value..."
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             )}
           </div>
@@ -236,7 +236,7 @@ function TripleFormModal({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {isLoading ? 'Saving...' : isEdit ? 'Update' : 'Create'}
             </button>
@@ -405,7 +405,7 @@ export default function TriplesBrowserPage() {
             setEditingTriple(undefined)
             setShowModal(true)
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
           Add Triple
@@ -423,7 +423,7 @@ export default function TriplesBrowserPage() {
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
                 placeholder="Search subject ID..."
-                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <div className="relative">
@@ -431,7 +431,7 @@ export default function TriplesBrowserPage() {
               <select
                 value={entityTypeFilter}
                 onChange={e => setEntityTypeFilter(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 appearance-none bg-white"
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 appearance-none bg-white"
               >
                 <option value="">All entity types ({entityTypes.length})</option>
                 {entityTypes.map(type => (

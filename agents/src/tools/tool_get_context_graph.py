@@ -12,7 +12,7 @@ async def get_context_graph() -> dict:
     Get the complete context graph schema (classes and properties).
 
     Use this tool to understand what entities and relationships exist
-    in the FreshMart knowledge graph. Returns:
+    in the knowledge graph. Returns:
     - Classes: Entity types (Customer, Order, Store, Courier, etc.)
     - Properties: Attributes and relationships for each class
 

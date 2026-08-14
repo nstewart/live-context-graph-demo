@@ -9,7 +9,7 @@ from src.config import get_settings
 @tool
 async def list_stores(zone: str = None) -> list[dict]:
     """
-    List all FreshMart store locations with their IDs and details.
+    List all store locations with their IDs and details.
 
     Use this tool FIRST when a user mentions a store by name or zone to find the correct store_id.
     Store IDs use abbreviated zone codes (e.g., QNS for Queens, MAN for Manhattan).
@@ -20,7 +20,7 @@ async def list_stores(zone: str = None) -> list[dict]:
     Returns:
         List of stores with:
         - store_id: The unique store identifier (e.g., "store:QNS-01", "store:MAN-01")
-        - store_name: Full store name (e.g., "FreshMart Queens 1")
+        - store_name: Full store name, as seeded by the active label
         - zone: Zone abbreviation (MAN, BK, QNS, BX, SI)
         - address: Store address
 

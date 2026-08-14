@@ -1,4 +1,6 @@
-"""FreshMart Digital Twin API - Main Application."""
+"""Digital Twin API - Main Application.
+
+User-facing metadata (title, description) follows the active label."""
 
 import asyncio
 import logging
@@ -12,6 +14,7 @@ from src.config import get_settings
 from src.db.client import close_connections, get_query_stats
 from src.routes import audit_router, features_router, freshmart_router, loadgen_router, metrics_router, ontology_router, query_stats_router, search_router, triples_router
 from src.routes.query_stats import start_heartbeat_generator, stop_heartbeat_generator
+from src.demo_label import api_title, brand_name, label_name
 
 # Configure logging
 settings = get_settings()
@@ -37,7 +40,7 @@ logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    logger.info("Starting FreshMart Digital Twin API...")
+    logger.info("Starting %s (label: %s)...", api_title(), label_name())
     start_heartbeat_generator()
 
     # Pre-warm the fastembed model in the background so the first vector search
@@ -63,17 +66,20 @@ async def lifespan(app: FastAPI):
 
 
 # Create application
+# The docs page is linked from the README and shown during demos, so its title
+# follows the active label. Route paths and model names deliberately do not --
+# they are data-model shape. See docs/WHITE_LABELING.md.
 app = FastAPI(
-    title="FreshMart Digital Twin API",
-    description="""
-    API for managing the FreshMart digital twin - a knowledge graph representing
-    same-day delivery operations.
+    title=api_title(),
+    description=f"""
+    API for the {brand_name()} digital twin - a knowledge graph representing
+    live operations.
 
     ## Features
 
     - **Ontology Management**: Define and manage entity classes and their properties
     - **Triple Store**: Create, read, update, and delete knowledge graph triples
-    - **FreshMart Operations**: Query flattened views for orders, inventory, and couriers
+    - **Operations**: Query flattened views for orders, inventory, and couriers
 
     ## Data Model
 
@@ -81,11 +87,13 @@ app = FastAPI(
     with an ontology schema for validation. Entity types include:
 
     - **Customer**: People who place orders
-    - **Store**: FreshMart store locations
+    - **Store**: Store / service center locations
     - **Product**: Items available for sale
     - **Order**: Customer orders
     - **Courier**: Delivery couriers
     - **DeliveryTask**: Tasks assigned to couriers
+
+    Active label: `{label_name()}`
     """,
     version="1.0.0",
     lifespan=lifespan,
@@ -196,7 +204,8 @@ async def query_stats():
 async def root():
     """API root - returns basic info."""
     return {
-        "name": "FreshMart Digital Twin API",
+        "name": api_title(),
+        "label": label_name(),
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",

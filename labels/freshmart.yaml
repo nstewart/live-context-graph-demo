@@ -1,0 +1,1279 @@
+# FreshMart -- the default label and the complete reference for every other label.
+#
+# Other labels specify ONLY the keys they change and inherit the rest (dicts
+# merge recursively; lists are replaced wholesale). Because this file is the
+# base, it must stay exhaustive: a key that exists nowhere here cannot be
+# overridden anywhere else.
+#
+# What a label may NOT change -- these are data-model shape, and the demo must
+# behave identically for whoever is driving it:
+#   * predicate names, view names, subject prefixes ("order:", "store:")
+#   * enum VALUES (CREATED, MAN, BIKE ...) -- only their display labels
+#   * JSON field names on the wire, SQL, and entity counts
+# See docs/WHITE_LABELING.md.
+
+label: freshmart
+
+brand:
+  name: FreshMart
+  tagline: Digital Twin Admin
+  tab_title: FreshMart Digital Twin - Admin
+  # Tailwind color scale names. `primary` is the brand color (buttons, active
+  # nav, wordmark); `accent` is the semantic/vector-search accent.
+  theme:
+    primary: green
+    accent: purple
+  favicon: freshmart.svg
+  qr:
+    url: https://materialize.com/demo/
+    cta: Schedule a demo
+
+# Display words for each entity type. The internal subject prefixes never change.
+vocabulary:
+  order:
+    one: order
+    many: orders
+    title: Order
+    title_many: Orders
+    id_prefix: FM-
+  orderline:
+    one: line item
+    many: line items
+    title: Line Item
+    title_many: Line Items
+  customer:
+    one: customer
+    many: customers
+    title: Customer
+    title_many: Customers
+  store:
+    one: store
+    many: stores
+    title: Store
+    title_many: Stores
+  product:
+    one: product
+    many: products
+    title: Product
+    title_many: Products
+  inventory:
+    one: inventory item
+    many: inventory items
+    title: Inventory Item
+    title_many: Inventory
+  courier:
+    one: courier
+    many: couriers
+    title: Courier
+    title_many: Couriers
+  task:
+    one: delivery task
+    many: delivery tasks
+    title: Delivery Task
+    title_many: Delivery Tasks
+  zone:
+    one: zone
+    many: zones
+    title: Zone
+    title_many: Zones
+  perishable:
+    adjective: perishable
+    note: requires cold chain
+    tooltip: Has perishable items
+    cart_note: This order contains perishable items requiring cold chain delivery
+
+# Internal enum value -> display label. VALUES ARE FIXED (the SQL joins on them);
+# only the right-hand side is label-driven.
+enums:
+  order_status:
+    CREATED: Created
+    PICKING: Picking
+    OUT_FOR_DELIVERY: Out for Delivery
+    DELIVERED: Delivered
+    CANCELLED: Cancelled
+  courier_status:
+    OFF_SHIFT: Off Shift
+    AVAILABLE: Available
+    ON_DELIVERY: On Delivery
+    ACTIVE: Active
+  task_status:
+    PENDING: Pending
+    IN_PROGRESS: In Progress
+    COMPLETED: Completed
+    FAILED: Failed
+  vehicle_type:
+    BIKE: Bike
+    SCOOTER: Scooter
+    CAR: Car
+    WALKING: Walking
+  store_status:
+    OPEN: Open
+    LIMITED: Limited
+  availability_status:
+    IN_STOCK: In Stock
+    LOW_STOCK: Low Stock
+    OUT_OF_STOCK: Out of Stock
+  capacity_health:
+    CRITICAL: Critical
+    STRAINED: Strained
+    HEALTHY: Healthy
+    UNDERUTILIZED: Underutilized
+  recommended_action:
+    CLOSE_INTAKE: Close Intake
+    SURGE_PRICING: Surge Pricing
+    PROMOTE_DEMAND: Promote Demand
+    MONITOR: Monitor
+  zone:
+    MAN: Manhattan
+    BK: Brooklyn
+    QNS: Queens
+    BX: Bronx
+    SI: Staten Island
+
+# DISPLAY-ONLY aliases. Applied at render time in the panels that surface raw
+# identifiers (the SQL preview, lineage graph, predicate dropdown, Context &
+# Lineage JSON, OpenSearch examples). The wire format, SQL, and database are
+# never affected. For freshmart these are identity mappings.
+aliases:
+  columns: {}
+  views: {}
+  predicates: {}
+
+# Sidebar navigation. Icons stay in code, keyed by path.
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Freshmart Agent Search Demo
+  - path: /orders
+    label: Orders
+  - path: /couriers
+    label: Couriers
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Stores & Inventory
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: Delivery Bundling
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Freshmart: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Freshmart Agent Search Demo
+  orders:
+    title: Orders Dashboard
+    subtitle: Monitor and manage FreshMart orders via WebSocket
+    search_placeholder: Search order #...
+  couriers:
+    title: Couriers & Schedule
+    subtitle: View courier status and assigned tasks
+    search_placeholder: Search by courier ID...
+  stores:
+    title: Stores & Inventory
+    inventory_title: Inventory
+    all_inventory_title: All Inventory Items
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time business health indicators
+    kpi_pricing_yield: Dynamic Pricing Yield
+    kpi_revenue_at_risk: Revenue at Risk
+    kpi_store_utilization: Avg Store Utilization
+    chart_demand_vs_capacity: Store Demand vs Capacity
+  bundling:
+    title: Delivery Bundling
+    subtitle: Mutually recursive constraint satisfaction
+
+copy:
+  triples:
+    heading: Agent Writes and Memories
+    subhead: >-
+      Using "triples" as the atomic unit of knowledge recorded by agents. This
+      forms the foundation that will ultimately create their world model.
+    # Rendered around the styled "Subject → Predicate → Value" chips, which are
+    # RDF terms and stay fixed.
+    explainer_lead: >-
+      Triples are the atomic unit of knowledge—each captures a single fact as
+    explainer_tail: >-
+      This structure lets AI agents update individual facts without needing
+      complex schemas or full object structures.
+    selector_label: Select Order
+    table_heading: Triples for Order
+    empty: No triples found for this order
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected order and its line items—the full graph
+      includes customers, stores, products, inventory, couriers, and delivery
+      tasks.
+  knowledge_graph:
+    heading: Leveraging Context Graphs
+    subhead: >-
+      The relationships that give agents and humans understanding about what to
+      do next and why
+    entity_examples: Order, Customer, Product
+  write_triple:
+    heading: Write a Triple
+    subhead: — Update an order property and observe propagation
+  vector_pipeline:
+    heading: Vector Pipeline
+    subhead: Semantic search + live data hydration from Materialize
+    explainer: >-
+      The vector store finds which documents match semantically. Materialize
+      provides live data for those documents — always fresh, never stale.
+    search_heading: Hybrid Search
+    all_zones: All zones
+    all_statuses: All statuses
+
+placeholders:
+  subject: order:FM-1001
+  order_number: FM-1001
+  store_name: FreshMart Brooklyn
+  store_code: BK-01
+  store_zone: BK
+  store_address: 123 Main St, Brooklyn, NY
+  inventory_code: INV-BK01-001
+  courier_code: CR-01
+  courier_name: John Smith
+  product_search: Search products...
+  order_search: Search orders...
+  semantic_search: Search by meaning (e.g., dairy products)...
+
+examples:
+  search_queries:
+    - organic produce
+    - dairy products
+    - perishable delivery
+  # Sample values for the "Write a Triple" form, keyed by predicate. Predicate
+  # names themselves are fixed by the ontology.
+  predicate_values:
+    order_status: DELIVERED
+    order_number: FM-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "5"
+    order_line_unit_price: "12.99"
+    line_sequence: "1"
+    customer_name: John Doe
+    customer_email: john@example.com
+    customer_address: 123 Main St
+    store_name: Downtown Market
+    store_zone: MAN
+    store_address: 456 Broadway
+    product_name: Organic Apples
+    category: Produce
+    unit_price: "4.99"
+    perishable: "true"
+    unit_weight_grams: "500"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: Jane Smith
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+
+seed:
+  # {zone_name} and {n} are substituted per store.
+  store_name_template: FreshMart {zone_name} {n}
+  locations:
+    - code: BK
+      name: Brooklyn
+      streets: [Atlantic Ave, Court St, Flatbush Ave, Smith St, Bedford Ave]
+    - code: MAN
+      name: Manhattan
+      streets: [Broadway, 5th Ave, Madison Ave, Park Ave, Lexington Ave]
+    - code: QNS
+      name: Queens
+      streets: [Steinway St, Queens Blvd, Jamaica Ave, Roosevelt Ave, Northern Blvd]
+    - code: BX
+      name: Bronx
+      streets: [Grand Concourse, Fordham Rd, E Tremont Ave, Webster Ave, 3rd Ave]
+    - code: SI
+      name: Staten Island
+      streets: [Victory Blvd, Forest Ave, Hylan Blvd, Richmond Ave, Bay St]
+  # State/region code used for generated postal codes.
+  address_state: NY
+  catalog:
+    # freshmart authors the full catalog, so no variants are generated and the
+    # seeded data is byte-identical to the pre-white-labeling demo. Other labels
+    # author a compact list and let the generator expand to this count.
+    expand_to: 760
+    categories:
+      - { name: Dairy, perishable_default: true }
+      - { name: Produce, perishable_default: true }
+      - { name: Meat, perishable_default: true }
+      - { name: Seafood, perishable_default: true }
+      - { name: Frozen, perishable_default: true }
+      - { name: Snacks, perishable_default: false }
+      - { name: Personal Care, perishable_default: false }
+    # [name, category, price, weight_grams, perishable]
+    items:
+      - ["Organic Whole Milk 1 Gallon", "Dairy", 5.99, 3785, true]
+      - ["Organic 2% Milk 1 Gallon", "Dairy", 5.79, 3785, true]
+      - ["Organic 1% Milk 1 Gallon", "Dairy", 5.69, 3785, true]
+      - ["Organic Skim Milk 1 Gallon", "Dairy", 5.59, 3785, true]
+      - ["Lactose-Free Whole Milk Half Gallon", "Dairy", 4.49, 1893, true]
+      - ["Lactose-Free 2% Milk Half Gallon", "Dairy", 4.29, 1893, true]
+      - ["Whole Milk Half Gallon", "Dairy", 3.49, 1893, true]
+      - ["2% Reduced Fat Milk Half Gallon", "Dairy", 3.29, 1893, true]
+      - ["1% Low Fat Milk Half Gallon", "Dairy", 3.19, 1893, true]
+      - ["Skim Milk Half Gallon", "Dairy", 3.09, 1893, true]
+      - ["Whole Milk Quart", "Dairy", 2.49, 946, true]
+      - ["Chocolate Milk Half Gallon", "Dairy", 3.99, 1893, true]
+      - ["Strawberry Milk Half Gallon", "Dairy", 3.99, 1893, true]
+      - ["Buttermilk Quart", "Dairy", 2.99, 946, true]
+      - ["Heavy Whipping Cream Pint", "Dairy", 4.49, 473, true]
+      - ["Heavy Cream Half Pint", "Dairy", 2.99, 237, true]
+      - ["Half and Half Pint", "Dairy", 2.49, 473, true]
+      - ["Half and Half Quart", "Dairy", 3.99, 946, true]
+      - ["Sour Cream 16oz", "Dairy", 2.99, 454, true]
+      - ["Sour Cream 8oz", "Dairy", 1.99, 227, true]
+      - ["Greek Yogurt Plain 32oz", "Dairy", 5.99, 907, true]
+      - ["Greek Yogurt Vanilla 32oz", "Dairy", 5.99, 907, true]
+      - ["Greek Yogurt Plain 5.3oz", "Dairy", 1.29, 150, true]
+      - ["Greek Yogurt Strawberry 5.3oz", "Dairy", 1.29, 150, true]
+      - ["Greek Yogurt Blueberry 5.3oz", "Dairy", 1.29, 150, true]
+      - ["Greek Yogurt Peach 5.3oz", "Dairy", 1.29, 150, true]
+      - ["Greek Yogurt Honey 5.3oz", "Dairy", 1.29, 150, true]
+      - ["Low-Fat Yogurt Strawberry 6oz", "Dairy", 0.99, 170, true]
+      - ["Low-Fat Yogurt Blueberry 6oz", "Dairy", 0.99, 170, true]
+      - ["Low-Fat Yogurt Peach 6oz", "Dairy", 0.99, 170, true]
+      - ["Low-Fat Yogurt Vanilla 6oz", "Dairy", 0.99, 170, true]
+      - ["Low-Fat Yogurt Cherry 6oz", "Dairy", 0.99, 170, true]
+      - ["Whole Milk Yogurt Plain 32oz", "Dairy", 4.99, 907, true]
+      - ["Skyr Icelandic Yogurt Plain 5.3oz", "Dairy", 1.79, 150, true]
+      - ["Skyr Icelandic Yogurt Vanilla 5.3oz", "Dairy", 1.79, 150, true]
+      - ["Cottage Cheese 16oz", "Dairy", 3.49, 454, true]
+      - ["Cottage Cheese Low-Fat 16oz", "Dairy", 3.29, 454, true]
+      - ["Ricotta Cheese 15oz", "Dairy", 4.49, 425, true]
+      - ["Cream Cheese 8oz", "Dairy", 2.99, 227, true]
+      - ["Cream Cheese Whipped 8oz", "Dairy", 3.29, 227, true]
+      - ["Neufchatel Cheese 8oz", "Dairy", 2.79, 227, true]
+      - ["Sharp Cheddar Cheese Block 8oz", "Dairy", 4.99, 227, true]
+      - ["Mild Cheddar Cheese Block 8oz", "Dairy", 4.79, 227, true]
+      - ["Extra Sharp Cheddar Block 8oz", "Dairy", 5.49, 227, true]
+      - ["Monterey Jack Cheese Block 8oz", "Dairy", 4.99, 227, true]
+      - ["Pepper Jack Cheese Block 8oz", "Dairy", 5.29, 227, true]
+      - ["Colby Jack Cheese Block 8oz", "Dairy", 4.99, 227, true]
+      - ["Swiss Cheese Block 8oz", "Dairy", 5.99, 227, true]
+      - ["Provolone Cheese Block 8oz", "Dairy", 5.49, 227, true]
+      - ["Mozzarella Cheese Block 8oz", "Dairy", 4.49, 227, true]
+      - ["Fresh Mozzarella Ball 8oz", "Dairy", 4.99, 227, true]
+      - ["Shredded Mozzarella 8oz", "Dairy", 3.99, 227, true]
+      - ["Shredded Cheddar 8oz", "Dairy", 3.99, 227, true]
+      - ["Shredded Mexican Blend 8oz", "Dairy", 3.99, 227, true]
+      - ["Shredded Italian Blend 8oz", "Dairy", 3.99, 227, true]
+      - ["Shredded Parmesan 8oz", "Dairy", 4.99, 227, true]
+      - ["Grated Parmesan 8oz", "Dairy", 4.49, 227, true]
+      - ["Parmesan Wedge 8oz", "Dairy", 7.99, 227, true]
+      - ["Feta Cheese Crumbles 6oz", "Dairy", 4.99, 170, true]
+      - ["Goat Cheese Log 4oz", "Dairy", 4.99, 113, true]
+      - ["Blue Cheese Crumbles 5oz", "Dairy", 4.99, 142, true]
+      - ["Brie Cheese Wheel 8oz", "Dairy", 6.99, 227, true]
+      - ["Camembert Cheese 8oz", "Dairy", 6.99, 227, true]
+      - ["String Cheese 12oz", "Dairy", 4.99, 340, true]
+      - ["String Cheese Mozzarella Singles", "Dairy", 3.99, 283, true]
+      - ["Babybel Mini Cheese 6ct", "Dairy", 4.49, 113, true]
+      - ["Cheese Slices American 12oz", "Dairy", 3.99, 340, true]
+      - ["Cheese Slices Cheddar 8oz", "Dairy", 3.99, 227, true]
+      - ["Cheese Slices Swiss 8oz", "Dairy", 4.49, 227, true]
+      - ["Cheese Slices Provolone 8oz", "Dairy", 4.29, 227, true]
+      - ["Unsalted Butter 1lb", "Dairy", 5.99, 454, true]
+      - ["Salted Butter 1lb", "Dairy", 5.99, 454, true]
+      - ["European Style Butter 8oz", "Dairy", 4.99, 227, true]
+      - ["Organic Butter 1lb", "Dairy", 7.99, 454, true]
+      - ["Whipped Butter 8oz", "Dairy", 3.99, 227, true]
+      - ["Butter Sticks 1lb", "Dairy", 5.99, 454, true]
+      - ["Margarine Spread 15oz", "Dairy", 2.99, 425, true]
+      - ["Plant Butter 13oz", "Dairy", 4.99, 369, true]
+      - ["Large Eggs Grade A 12ct", "Dairy", 3.99, 680, true]
+      - ["Large Eggs Grade AA 12ct", "Dairy", 4.49, 680, true]
+      - ["Extra Large Eggs 12ct", "Dairy", 4.99, 750, true]
+      - ["Medium Eggs 12ct", "Dairy", 3.49, 600, true]
+      - ["Organic Eggs Large 12ct", "Dairy", 6.99, 680, true]
+      - ["Free Range Eggs Large 12ct", "Dairy", 5.99, 680, true]
+      - ["Cage Free Eggs Large 12ct", "Dairy", 4.99, 680, true]
+      - ["Brown Eggs Large 12ct", "Dairy", 4.49, 680, true]
+      - ["Omega-3 Eggs Large 12ct", "Dairy", 5.49, 680, true]
+      - ["Large Eggs 18ct", "Dairy", 5.99, 1020, true]
+      - ["Egg Whites Liquid 16oz", "Dairy", 4.99, 454, true]
+      - ["Half Dozen Eggs", "Dairy", 2.49, 340, true]
+      - ["Almond Milk Original 64oz", "Dairy", 3.99, 1893, false]
+      - ["Almond Milk Vanilla 64oz", "Dairy", 3.99, 1893, false]
+      - ["Almond Milk Unsweetened 64oz", "Dairy", 3.99, 1893, false]
+      - ["Oat Milk Original 64oz", "Dairy", 4.49, 1893, false]
+      - ["Oat Milk Vanilla 64oz", "Dairy", 4.49, 1893, false]
+      - ["Soy Milk Original 64oz", "Dairy", 3.49, 1893, false]
+      - ["Coconut Milk Beverage 64oz", "Dairy", 3.99, 1893, false]
+      - ["Bananas", "Produce", 0.59, 118, true]
+      - ["Apples Gala", "Produce", 1.99, 182, true]
+      - ["Apples Fuji", "Produce", 1.99, 182, true]
+      - ["Apples Honeycrisp", "Produce", 2.49, 182, true]
+      - ["Apples Granny Smith", "Produce", 1.79, 182, true]
+      - ["Apples Red Delicious", "Produce", 1.69, 182, true]
+      - ["Oranges Navel", "Produce", 1.29, 140, true]
+      - ["Oranges Valencia", "Produce", 1.19, 131, true]
+      - ["Clementines 3lb Bag", "Produce", 5.99, 1361, true]
+      - ["Grapefruit Ruby Red", "Produce", 1.49, 246, true]
+      - ["Lemons", "Produce", 0.79, 58, true]
+      - ["Limes", "Produce", 0.69, 67, true]
+      - ["Strawberries 1lb", "Produce", 4.99, 454, true]
+      - ["Blueberries 6oz", "Produce", 3.99, 170, true]
+      - ["Raspberries 6oz", "Produce", 4.49, 170, true]
+      - ["Blackberries 6oz", "Produce", 4.49, 170, true]
+      - ["Grapes Red Seedless", "Produce", 2.99, 454, true]
+      - ["Grapes Green Seedless", "Produce", 2.99, 454, true]
+      - ["Watermelon Seedless", "Produce", 5.99, 4536, true]
+      - ["Cantaloupe", "Produce", 3.49, 850, true]
+      - ["Honeydew Melon", "Produce", 3.99, 1814, true]
+      - ["Pineapple", "Produce", 3.99, 905, true]
+      - ["Mango", "Produce", 1.49, 336, true]
+      - ["Avocado Hass", "Produce", 1.99, 201, true]
+      - ["Avocado Bag 4ct", "Produce", 6.99, 804, true]
+      - ["Pears Bartlett", "Produce", 1.79, 178, true]
+      - ["Pears Anjou", "Produce", 1.89, 230, true]
+      - ["Pears Bosc", "Produce", 1.99, 200, true]
+      - ["Peaches", "Produce", 1.99, 150, true]
+      - ["Nectarines", "Produce", 1.99, 142, true]
+      - ["Plums", "Produce", 1.79, 66, true]
+      - ["Cherries", "Produce", 5.99, 454, true]
+      - ["Kiwi Each", "Produce", 0.79, 76, true]
+      - ["Papaya", "Produce", 2.99, 500, true]
+      - ["Pomegranate", "Produce", 2.99, 282, true]
+      - ["Figs Fresh 8oz", "Produce", 4.99, 227, true]
+      - ["Dates Fresh 8oz", "Produce", 5.99, 227, true]
+      - ["Tomatoes On The Vine", "Produce", 2.49, 454, true]
+      - ["Tomatoes Roma", "Produce", 1.99, 454, true]
+      - ["Cherry Tomatoes Pint", "Produce", 2.99, 284, true]
+      - ["Grape Tomatoes Pint", "Produce", 2.99, 284, true]
+      - ["Heirloom Tomatoes", "Produce", 3.99, 454, true]
+      - ["Cucumbers English", "Produce", 1.49, 400, true]
+      - ["Cucumbers Persian 1lb", "Produce", 2.99, 454, true]
+      - ["Cucumbers Regular", "Produce", 0.99, 301, true]
+      - ["Bell Peppers Green", "Produce", 1.29, 164, true]
+      - ["Bell Peppers Red", "Produce", 1.99, 164, true]
+      - ["Bell Peppers Yellow", "Produce", 1.99, 164, true]
+      - ["Bell Peppers Orange", "Produce", 1.99, 164, true]
+      - ["Jalape\u00f1o Peppers", "Produce", 0.49, 14, true]
+      - ["Serrano Peppers", "Produce", 0.59, 6, true]
+      - ["Poblano Peppers", "Produce", 0.99, 17, true]
+      - ["Mini Bell Peppers 1lb", "Produce", 3.99, 454, true]
+      - ["Lettuce Iceberg", "Produce", 1.99, 539, true]
+      - ["Lettuce Romaine", "Produce", 2.49, 626, true]
+      - ["Lettuce Butter", "Produce", 2.99, 163, true]
+      - ["Lettuce Red Leaf", "Produce", 2.49, 163, true]
+      - ["Lettuce Green Leaf", "Produce", 2.49, 163, true]
+      - ["Spring Mix 5oz", "Produce", 3.99, 142, true]
+      - ["Baby Spinach 5oz", "Produce", 2.99, 142, true]
+      - ["Arugula 5oz", "Produce", 3.49, 142, true]
+      - ["Kale Bunch", "Produce", 2.49, 227, true]
+      - ["Collard Greens Bunch", "Produce", 2.49, 340, true]
+      - ["Swiss Chard Bunch", "Produce", 2.99, 227, true]
+      - ["Cabbage Green", "Produce", 1.99, 908, true]
+      - ["Cabbage Red", "Produce", 2.49, 794, true]
+      - ["Cabbage Napa", "Produce", 2.99, 1000, true]
+      - ["Broccoli Crown", "Produce", 2.49, 454, true]
+      - ["Cauliflower Head", "Produce", 2.99, 575, true]
+      - ["Brussels Sprouts 1lb", "Produce", 3.49, 454, true]
+      - ["Asparagus Bunch", "Produce", 3.99, 454, true]
+      - ["Green Beans 1lb", "Produce", 2.99, 454, true]
+      - ["Snap Peas 8oz", "Produce", 3.49, 227, true]
+      - ["Snow Peas 8oz", "Produce", 3.49, 227, true]
+      - ["Carrots 1lb", "Produce", 0.99, 454, true]
+      - ["Carrots Baby 1lb", "Produce", 1.99, 454, true]
+      - ["Carrots Organic Bunch", "Produce", 2.49, 454, true]
+      - ["Celery Bunch", "Produce", 1.99, 680, true]
+      - ["Celery Hearts", "Produce", 3.49, 454, true]
+      - ["Onions Yellow", "Produce", 0.99, 150, true]
+      - ["Onions White", "Produce", 0.99, 150, true]
+      - ["Onions Red", "Produce", 1.29, 150, true]
+      - ["Onions Sweet", "Produce", 1.49, 241, true]
+      - ["Shallots", "Produce", 1.99, 100, true]
+      - ["Scallions Bunch", "Produce", 0.99, 100, true]
+      - ["Leeks", "Produce", 2.49, 227, true]
+      - ["Garlic Bulb", "Produce", 0.69, 34, true]
+      - ["Garlic Peeled 6oz", "Produce", 3.99, 170, true]
+      - ["Ginger Root", "Produce", 2.99, 114, true]
+      - ["Potatoes Russet 5lb", "Produce", 3.99, 2268, true]
+      - ["Potatoes Red 3lb", "Produce", 3.49, 1361, true]
+      - ["Potatoes Yukon Gold 3lb", "Produce", 4.49, 1361, true]
+      - ["Potatoes Baby", "Produce", 3.99, 680, true]
+      - ["Sweet Potatoes", "Produce", 1.49, 130, true]
+      - ["Yams", "Produce", 1.49, 136, true]
+      - ["Beets Bunch", "Produce", 2.49, 454, true]
+      - ["Turnips", "Produce", 1.99, 156, true]
+      - ["Radishes Bunch", "Produce", 1.49, 227, true]
+      - ["Parsnips", "Produce", 2.49, 454, true]
+      - ["Rutabaga", "Produce", 1.99, 454, true]
+      - ["Jicama", "Produce", 1.99, 454, true]
+      - ["Squash Yellow", "Produce", 1.49, 196, true]
+      - ["Squash Zucchini", "Produce", 1.49, 196, true]
+      - ["Squash Butternut", "Produce", 2.49, 900, true]
+      - ["Squash Acorn", "Produce", 1.99, 450, true]
+      - ["Squash Spaghetti", "Produce", 3.99, 900, true]
+      - ["Pumpkin", "Produce", 4.99, 2000, true]
+      - ["Eggplant", "Produce", 1.99, 458, true]
+      - ["Eggplant Japanese", "Produce", 2.49, 227, true]
+      - ["Corn On The Cob Each", "Produce", 0.79, 250, true]
+      - ["Mushrooms White 8oz", "Produce", 2.49, 227, true]
+      - ["Mushrooms Crimini 8oz", "Produce", 2.99, 227, true]
+      - ["Mushrooms Portobello", "Produce", 3.99, 227, true]
+      - ["Mushrooms Shiitake 4oz", "Produce", 4.99, 113, true]
+      - ["Mushrooms Mixed 8oz", "Produce", 4.99, 227, true]
+      - ["Herbs Basil Fresh", "Produce", 2.49, 28, true]
+      - ["Herbs Cilantro Fresh", "Produce", 0.99, 28, true]
+      - ["Herbs Parsley Fresh", "Produce", 0.99, 28, true]
+      - ["Herbs Mint Fresh", "Produce", 2.49, 28, true]
+      - ["Herbs Dill Fresh", "Produce", 2.49, 28, true]
+      - ["Herbs Rosemary Fresh", "Produce", 2.99, 28, true]
+      - ["Herbs Thyme Fresh", "Produce", 2.99, 28, true]
+      - ["Herbs Oregano Fresh", "Produce", 2.99, 28, true]
+      - ["Herbs Sage Fresh", "Produce", 2.99, 28, true]
+      - ["Herbs Chives Fresh", "Produce", 2.49, 28, true]
+      - ["Bok Choy", "Produce", 2.49, 340, true]
+      - ["Watercress Bunch", "Produce", 2.99, 113, true]
+      - ["Radicchio", "Produce", 2.99, 227, true]
+      - ["Endive", "Produce", 2.99, 200, true]
+      - ["Fennel Bulb", "Produce", 2.99, 234, true]
+      - ["Artichokes", "Produce", 2.49, 128, true]
+      - ["Okra 1lb", "Produce", 3.99, 454, true]
+      - ["Rhubarb 1lb", "Produce", 3.49, 454, true]
+      - ["Kohlrabi", "Produce", 1.99, 140, true]
+      - ["Daikon Radish", "Produce", 1.99, 340, true]
+      - ["Lemongrass Stalk", "Produce", 1.49, 15, true]
+      - ["Salad Kit Caesar", "Produce", 3.99, 312, true]
+      - ["Salad Kit Asian", "Produce", 3.99, 340, true]
+      - ["Salad Kit Southwest", "Produce", 3.99, 340, true]
+      - ["Coleslaw Mix 14oz", "Produce", 1.99, 397, true]
+      - ["Stir Fry Vegetables 12oz", "Produce", 2.99, 340, true]
+      - ["Mixed Vegetables Cut 16oz", "Produce", 3.49, 454, true]
+      - ["Vegetable Tray with Dip", "Produce", 5.99, 454, true]
+      - ["Fruit Tray Mixed", "Produce", 7.99, 680, true]
+      - ["Guacamole Fresh 8oz", "Produce", 4.99, 227, true]
+      - ["Salsa Fresh Mild 16oz", "Produce", 3.99, 454, true]
+      - ["Hummus Original 10oz", "Produce", 3.99, 283, true]
+      - ["Hummus Roasted Red Pepper 10oz", "Produce", 3.99, 283, true]
+      - ["Hummus Garlic 10oz", "Produce", 3.99, 283, true]
+      - ["Pico de Gallo Fresh 16oz", "Produce", 3.99, 454, true]
+      - ["Bean Sprouts 8oz", "Produce", 1.99, 227, true]
+      - ["Alfalfa Sprouts 4oz", "Produce", 2.49, 113, true]
+      - ["Microgreens 2oz", "Produce", 3.99, 57, true]
+      - ["Edamame in Pod 12oz", "Produce", 2.99, 340, true]
+      - ["Tofu Firm 14oz", "Produce", 2.49, 397, true]
+      - ["Tofu Extra Firm 14oz", "Produce", 2.49, 397, true]
+      - ["Tofu Silken 14oz", "Produce", 2.49, 397, true]
+      - ["Tempeh 8oz", "Produce", 3.99, 227, true]
+      - ["Jackfruit Young Green 14oz", "Produce", 3.99, 397, true]
+      - ["Dragon Fruit", "Produce", 4.99, 400, true]
+      - ["Star Fruit", "Produce", 2.99, 91, true]
+      - ["Persimmon Fuyu", "Produce", 1.99, 168, true]
+      - ["Lychee 1lb", "Produce", 5.99, 454, true]
+      - ["Rambutan 1lb", "Produce", 5.99, 454, true]
+      - ["Passion Fruit Each", "Produce", 1.99, 18, true]
+      - ["Guava", "Produce", 1.99, 55, true]
+      - ["Plantains", "Produce", 0.99, 179, true]
+      - ["Coconut Whole", "Produce", 2.99, 397, true]
+      - ["Coconut Young Drinking", "Produce", 3.99, 450, true]
+      - ["Fresh Herbs 4pk", "Produce", 4.99, 112, true]
+      - ["Ground Beef 80/20 1lb", "Meat", 4.99, 454, true]
+      - ["Ground Beef 85/15 1lb", "Meat", 5.49, 454, true]
+      - ["Ground Beef 90/10 1lb", "Meat", 5.99, 454, true]
+      - ["Ground Beef 93/7 1lb", "Meat", 6.49, 454, true]
+      - ["Ground Turkey 1lb", "Meat", 4.49, 454, true]
+      - ["Ground Chicken 1lb", "Meat", 4.99, 454, true]
+      - ["Ground Pork 1lb", "Meat", 3.99, 454, true]
+      - ["Ground Lamb 1lb", "Meat", 7.99, 454, true]
+      - ["Beef Chuck Roast 2lb", "Meat", 12.99, 907, true]
+      - ["Beef Sirloin Steak 1lb", "Meat", 8.99, 454, true]
+      - ["Beef Ribeye Steak 1lb", "Meat", 12.99, 454, true]
+      - ["Beef T-Bone Steak 1lb", "Meat", 11.99, 454, true]
+      - ["Beef Filet Mignon 8oz", "Meat", 14.99, 227, true]
+      - ["Beef New York Strip 1lb", "Meat", 13.99, 454, true]
+      - ["Beef Flank Steak 1lb", "Meat", 9.99, 454, true]
+      - ["Beef Skirt Steak 1lb", "Meat", 10.99, 454, true]
+      - ["Beef Short Ribs 2lb", "Meat", 14.99, 907, true]
+      - ["Beef Stew Meat 1lb", "Meat", 6.99, 454, true]
+      - ["Beef Brisket 3lb", "Meat", 18.99, 1361, true]
+      - ["Beef Oxtail 2lb", "Meat", 12.99, 907, true]
+      - ["Chicken Breast Boneless 1lb", "Meat", 5.99, 454, true]
+      - ["Chicken Breast Bone-In 2lb", "Meat", 7.99, 907, true]
+      - ["Chicken Thighs Boneless 1lb", "Meat", 4.99, 454, true]
+      - ["Chicken Thighs Bone-In 2lb", "Meat", 5.99, 907, true]
+      - ["Chicken Drumsticks 2lb", "Meat", 4.99, 907, true]
+      - ["Chicken Wings 2lb", "Meat", 6.99, 907, true]
+      - ["Chicken Whole 4lb", "Meat", 7.99, 1814, true]
+      - ["Chicken Tenders 1lb", "Meat", 6.99, 454, true]
+      - ["Chicken Leg Quarters 3lb", "Meat", 5.99, 1361, true]
+      - ["Turkey Breast Boneless 2lb", "Meat", 11.99, 907, true]
+      - ["Turkey Ground Breast 1lb", "Meat", 5.99, 454, true]
+      - ["Turkey Whole 12lb", "Meat", 24.99, 5443, true]
+      - ["Duck Whole 5lb", "Meat", 29.99, 2268, true]
+      - ["Cornish Hen 1.5lb", "Meat", 4.99, 680, true]
+      - ["Pork Chops Bone-In 1lb", "Meat", 4.99, 454, true]
+      - ["Pork Chops Boneless 1lb", "Meat", 5.99, 454, true]
+      - ["Pork Tenderloin 1lb", "Meat", 7.99, 454, true]
+      - ["Pork Shoulder Roast 3lb", "Meat", 11.99, 1361, true]
+      - ["Pork Ribs Baby Back 2lb", "Meat", 12.99, 907, true]
+      - ["Pork Ribs Spare 3lb", "Meat", 10.99, 1361, true]
+      - ["Pork Belly 2lb", "Meat", 14.99, 907, true]
+      - ["Pork Sausage Links 1lb", "Meat", 4.99, 454, true]
+      - ["Pork Sausage Patties 1lb", "Meat", 4.99, 454, true]
+      - ["Italian Sausage Sweet 1lb", "Meat", 5.49, 454, true]
+      - ["Italian Sausage Hot 1lb", "Meat", 5.49, 454, true]
+      - ["Bratwurst 1lb", "Meat", 5.99, 454, true]
+      - ["Chorizo Mexican 1lb", "Meat", 4.99, 454, true]
+      - ["Kielbasa 1lb", "Meat", 5.49, 454, true]
+      - ["Andouille Sausage 1lb", "Meat", 6.99, 454, true]
+      - ["Bacon Regular 1lb", "Meat", 6.99, 454, true]
+      - ["Bacon Thick Cut 1lb", "Meat", 8.99, 454, true]
+      - ["Bacon Turkey 12oz", "Meat", 5.99, 340, true]
+      - ["Bacon Center Cut 12oz", "Meat", 7.99, 340, true]
+      - ["Canadian Bacon 8oz", "Meat", 5.49, 227, true]
+      - ["Pancetta 4oz", "Meat", 6.99, 113, true]
+      - ["Prosciutto 4oz", "Meat", 7.99, 113, true]
+      - ["Ham Bone-In 3lb", "Meat", 12.99, 1361, true]
+      - ["Ham Boneless 2lb", "Meat", 11.99, 907, true]
+      - ["Ham Sliced Deli Style 1lb", "Meat", 6.99, 454, true]
+      - ["Ham Honey 1lb", "Meat", 7.99, 454, true]
+      - ["Ham Black Forest 1lb", "Meat", 7.99, 454, true]
+      - ["Turkey Breast Deli Sliced 1lb", "Meat", 7.99, 454, true]
+      - ["Turkey Smoked Deli 1lb", "Meat", 7.99, 454, true]
+      - ["Roast Beef Deli 1lb", "Meat", 8.99, 454, true]
+      - ["Pastrami 1lb", "Meat", 9.99, 454, true]
+      - ["Corned Beef 1lb", "Meat", 8.99, 454, true]
+      - ["Salami Genoa 1lb", "Meat", 7.99, 454, true]
+      - ["Salami Hard 1lb", "Meat", 7.99, 454, true]
+      - ["Pepperoni Sliced 8oz", "Meat", 4.99, 227, true]
+      - ["Bologna 1lb", "Meat", 4.99, 454, true]
+      - ["Liverwurst 1lb", "Meat", 5.99, 454, true]
+      - ["Mortadella 1lb", "Meat", 7.99, 454, true]
+      - ["Hot Dogs Beef 1lb", "Meat", 4.99, 454, true]
+      - ["Hot Dogs All Beef 1lb", "Meat", 5.99, 454, true]
+      - ["Hot Dogs Turkey 1lb", "Meat", 4.99, 454, true]
+      - ["Hot Dogs Jumbo 1lb", "Meat", 6.99, 454, true]
+      - ["Lamb Chops 1lb", "Meat", 14.99, 454, true]
+      - ["Lamb Leg Bone-In 3lb", "Meat", 24.99, 1361, true]
+      - ["Lamb Shoulder 2lb", "Meat", 16.99, 907, true]
+      - ["Lamb Rack 1.5lb", "Meat", 22.99, 680, true]
+      - ["Veal Cutlets 1lb", "Meat", 12.99, 454, true]
+      - ["Veal Chops 1lb", "Meat", 14.99, 454, true]
+      - ["Beef Liver 1lb", "Meat", 3.99, 454, true]
+      - ["Chicken Liver 1lb", "Meat", 2.99, 454, true]
+      - ["Beef Tongue 2lb", "Meat", 12.99, 907, true]
+      - ["Beef Tripe 1lb", "Meat", 4.99, 454, true]
+      - ["Pork Hocks 2lb", "Meat", 5.99, 907, true]
+      - ["Pork Neck Bones 2lb", "Meat", 4.99, 907, true]
+      - ["Beef Marrow Bones 2lb", "Meat", 6.99, 907, true]
+      - ["Chicken Feet 1lb", "Meat", 2.99, 454, true]
+      - ["Chicken Gizzards 1lb", "Meat", 2.49, 454, true]
+      - ["Chicken Hearts 1lb", "Meat", 2.99, 454, true]
+      - ["Rabbit Whole 3lb", "Meat", 19.99, 1361, true]
+      - ["Quail Whole 12oz", "Meat", 8.99, 340, true]
+      - ["Venison Ground 1lb", "Meat", 12.99, 454, true]
+      - ["Bison Ground 1lb", "Meat", 11.99, 454, true]
+      - ["Goat Stew Meat 1lb", "Meat", 9.99, 454, true]
+      - ["Salmon Fillet Atlantic 1lb", "Seafood", 12.99, 454, true]
+      - ["Salmon Fillet Sockeye 1lb", "Seafood", 14.99, 454, true]
+      - ["Salmon Fillet Coho 1lb", "Seafood", 13.99, 454, true]
+      - ["Salmon Whole Side 2lb", "Seafood", 24.99, 907, true]
+      - ["Tilapia Fillet 1lb", "Seafood", 6.99, 454, true]
+      - ["Cod Fillet 1lb", "Seafood", 9.99, 454, true]
+      - ["Halibut Fillet 1lb", "Seafood", 19.99, 454, true]
+      - ["Mahi Mahi Fillet 1lb", "Seafood", 11.99, 454, true]
+      - ["Swordfish Steak 1lb", "Seafood", 16.99, 454, true]
+      - ["Tuna Steak Yellowfin 1lb", "Seafood", 14.99, 454, true]
+      - ["Tuna Steak Ahi 1lb", "Seafood", 15.99, 454, true]
+      - ["Snapper Red Fillet 1lb", "Seafood", 12.99, 454, true]
+      - ["Sea Bass Chilean 1lb", "Seafood", 18.99, 454, true]
+      - ["Grouper Fillet 1lb", "Seafood", 13.99, 454, true]
+      - ["Flounder Fillet 1lb", "Seafood", 10.99, 454, true]
+      - ["Sole Fillet 1lb", "Seafood", 11.99, 454, true]
+      - ["Catfish Fillet 1lb", "Seafood", 7.99, 454, true]
+      - ["Trout Rainbow 1lb", "Seafood", 9.99, 454, true]
+      - ["Branzino Whole 1lb", "Seafood", 12.99, 454, true]
+      - ["Mackerel Whole 1lb", "Seafood", 8.99, 454, true]
+      - ["Sardines Fresh 1lb", "Seafood", 6.99, 454, true]
+      - ["Anchovies Fresh 8oz", "Seafood", 5.99, 227, true]
+      - ["Smelts 1lb", "Seafood", 7.99, 454, true]
+      - ["Perch Fillet 1lb", "Seafood", 9.99, 454, true]
+      - ["Walleye Fillet 1lb", "Seafood", 11.99, 454, true]
+      - ["Shrimp Jumbo 21-25 ct 1lb", "Seafood", 14.99, 454, true]
+      - ["Shrimp Large 31-40 ct 1lb", "Seafood", 11.99, 454, true]
+      - ["Shrimp Medium 41-50 ct 1lb", "Seafood", 9.99, 454, true]
+      - ["Shrimp Colossal 16-20 ct 1lb", "Seafood", 17.99, 454, true]
+      - ["Shrimp Cocktail Ring 1lb", "Seafood", 12.99, 454, true]
+      - ["Prawns Spot 1lb", "Seafood", 16.99, 454, true]
+      - ["Crab Legs Snow 1lb", "Seafood", 24.99, 454, true]
+      - ["Crab Legs King 1lb", "Seafood", 39.99, 454, true]
+      - ["Crab Dungeness Whole 2lb", "Seafood", 29.99, 907, true]
+      - ["Crab Blue Soft Shell 4oz", "Seafood", 7.99, 113, true]
+      - ["Crab Meat Lump 8oz", "Seafood", 19.99, 227, true]
+      - ["Crab Meat Claw 8oz", "Seafood", 14.99, 227, true]
+      - ["Lobster Tail 6oz", "Seafood", 12.99, 170, true]
+      - ["Lobster Whole Live 1.5lb", "Seafood", 24.99, 680, true]
+      - ["Crawfish Live 3lb", "Seafood", 14.99, 1361, true]
+      - ["Scallops Sea Large 1lb", "Seafood", 19.99, 454, true]
+      - ["Scallops Bay 1lb", "Seafood", 14.99, 454, true]
+      - ["Mussels Black 2lb", "Seafood", 7.99, 907, true]
+      - ["Clams Littleneck 2lb", "Seafood", 8.99, 907, true]
+      - ["Clams Manila 2lb", "Seafood", 9.99, 907, true]
+      - ["Clams Cherrystone 2lb", "Seafood", 7.99, 907, true]
+      - ["Oysters Fresh 1 Dozen", "Seafood", 18.99, 454, true]
+      - ["Oysters Shucked Pint", "Seafood", 14.99, 473, true]
+      - ["Squid Whole Cleaned 1lb", "Seafood", 8.99, 454, true]
+      - ["Calamari Tubes Rings 1lb", "Seafood", 9.99, 454, true]
+      - ["Octopus Whole 2lb", "Seafood", 16.99, 907, true]
+      - ["Conch Meat 1lb", "Seafood", 12.99, 454, true]
+      - ["Sea Urchin Uni 4oz", "Seafood", 19.99, 113, true]
+      - ["Abalone 8oz", "Seafood", 29.99, 227, true]
+      - ["Eel Unagi 1lb", "Seafood", 14.99, 454, true]
+      - ["Monkfish Fillet 1lb", "Seafood", 13.99, 454, true]
+      - ["Skate Wing 1lb", "Seafood", 11.99, 454, true]
+      - ["Frog Legs 1lb", "Seafood", 12.99, 454, true]
+      - ["Alligator Tail Meat 1lb", "Seafood", 19.99, 454, true]
+      - ["Salmon Smoked 4oz", "Seafood", 7.99, 113, true]
+      - ["Salmon Lox 4oz", "Seafood", 8.99, 113, true]
+      - ["Trout Smoked 8oz", "Seafood", 9.99, 227, true]
+      - ["Herring Pickled 12oz", "Seafood", 6.99, 340, true]
+      - ["Anchovies in Oil 2oz", "Seafood", 3.99, 57, true]
+      - ["Sardines Canned 4oz", "Seafood", 2.99, 113, false]
+      - ["Tuna Canned in Water 5oz", "Seafood", 1.99, 142, false]
+      - ["Tuna Canned in Oil 5oz", "Seafood", 2.49, 142, false]
+      - ["Salmon Canned 6oz", "Seafood", 3.99, 170, false]
+      - ["Mackerel Canned 4oz", "Seafood", 2.49, 113, false]
+      - ["Clams Canned 6.5oz", "Seafood", 3.49, 184, false]
+      - ["Oysters Canned Smoked 3oz", "Seafood", 4.99, 85, false]
+      - ["Crab Meat Canned 6oz", "Seafood", 5.99, 170, false]
+      - ["Shrimp Canned 4oz", "Seafood", 3.99, 113, false]
+      - ["Caviar Black 2oz", "Seafood", 49.99, 57, true]
+      - ["Caviar Red 4oz", "Seafood", 12.99, 113, true]
+      - ["Roe Tobiko 4oz", "Seafood", 9.99, 113, true]
+      - ["Roe Masago 4oz", "Seafood", 8.99, 113, true]
+      - ["Surimi Crab Sticks 1lb", "Seafood", 5.99, 454, true]
+      - ["Fish Sticks Frozen 24oz", "Seafood", 6.99, 680, false]
+      - ["Shrimp Breaded Frozen 1lb", "Seafood", 8.99, 454, false]
+      - ["Shrimp Popcorn Frozen 12oz", "Seafood", 7.99, 340, false]
+      - ["Calamari Fried Frozen 1lb", "Seafood", 9.99, 454, false]
+      - ["Crab Cakes Frozen 12oz", "Seafood", 11.99, 340, false]
+      - ["Salmon Burgers Frozen 12oz", "Seafood", 9.99, 340, false]
+      - ["Tuna Steaks Frozen 1lb", "Seafood", 12.99, 454, false]
+      - ["Cod Fillets Frozen 1lb", "Seafood", 8.99, 454, false]
+      - ["Tilapia Fillets Frozen 1lb", "Seafood", 6.99, 454, false]
+      - ["Swai Fillets Frozen 1lb", "Seafood", 5.99, 454, false]
+      - ["Pollock Fillets Frozen 1lb", "Seafood", 5.99, 454, false]
+      - ["Haddock Fillets Frozen 1lb", "Seafood", 9.99, 454, false]
+      - ["Sole Fillets Frozen 1lb", "Seafood", 10.99, 454, false]
+      - ["Flounder Fillets Frozen 1lb", "Seafood", 10.99, 454, false]
+      - ["Mahi Mahi Fillets Frozen 1lb", "Seafood", 11.99, 454, false]
+      - ["Swordfish Steaks Frozen 1lb", "Seafood", 15.99, 454, false]
+      - ["Seafood Mix Frozen 1lb", "Seafood", 11.99, 454, false]
+      - ["Pizza Cheese 12inch", "Frozen", 4.99, 454, false]
+      - ["Pizza Pepperoni 12inch", "Frozen", 5.49, 500, false]
+      - ["Pizza Supreme 12inch", "Frozen", 6.99, 567, false]
+      - ["Pizza Margherita 12inch", "Frozen", 5.99, 454, false]
+      - ["Pizza Meat Lovers 12inch", "Frozen", 6.99, 600, false]
+      - ["Pizza Veggie 12inch", "Frozen", 5.99, 500, false]
+      - ["Pizza BBQ Chicken 12inch", "Frozen", 6.49, 550, false]
+      - ["Pizza Four Cheese 12inch", "Frozen", 5.49, 480, false]
+      - ["Pizza Rolls 40ct", "Frozen", 5.99, 680, false]
+      - ["Bagel Bites 9ct", "Frozen", 3.99, 198, false]
+      - ["Hot Pockets Pepperoni 2pk", "Frozen", 3.49, 226, false]
+      - ["Hot Pockets Ham Cheese 2pk", "Frozen", 3.49, 226, false]
+      - ["Lean Pockets Turkey 2pk", "Frozen", 3.99, 226, false]
+      - ["Corn Dogs 6ct", "Frozen", 4.99, 453, false]
+      - ["Mini Corn Dogs 20ct", "Frozen", 5.99, 567, false]
+      - ["Chicken Nuggets 32oz", "Frozen", 6.99, 907, false]
+      - ["Chicken Tenders 25oz", "Frozen", 7.99, 709, false]
+      - ["Popcorn Chicken 28oz", "Frozen", 6.99, 794, false]
+      - ["Chicken Wings Frozen 3lb", "Frozen", 11.99, 1361, false]
+      - ["Mozzarella Sticks 24oz", "Frozen", 6.99, 680, false]
+      - ["Jalape\u00f1o Poppers 18oz", "Frozen", 5.99, 510, false]
+      - ["Onion Rings 22oz", "Frozen", 4.99, 624, false]
+      - ["French Fries Regular 32oz", "Frozen", 3.99, 907, false]
+      - ["French Fries Crinkle 32oz", "Frozen", 3.99, 907, false]
+      - ["French Fries Steak 28oz", "Frozen", 4.49, 794, false]
+      - ["Sweet Potato Fries 20oz", "Frozen", 4.99, 567, false]
+      - ["Tater Tots 32oz", "Frozen", 3.99, 907, false]
+      - ["Hash Browns Patties 22oz", "Frozen", 3.99, 624, false]
+      - ["Hash Browns Shredded 32oz", "Frozen", 3.49, 907, false]
+      - ["Potato Skins 24oz", "Frozen", 5.99, 680, false]
+      - ["Mac and Cheese Bites 18oz", "Frozen", 5.49, 510, false]
+      - ["Burritos Bean Cheese 8pk", "Frozen", 6.99, 907, false]
+      - ["Burritos Beef Bean 8pk", "Frozen", 7.99, 1020, false]
+      - ["Quesadilla Cheese 2pk", "Frozen", 4.99, 340, false]
+      - ["Taquitos Beef 20ct", "Frozen", 6.99, 680, false]
+      - ["Empanadas Beef 6pk", "Frozen", 7.99, 567, false]
+      - ["Spring Rolls Vegetable 12oz", "Frozen", 4.99, 340, false]
+      - ["Egg Rolls Pork 6pk", "Frozen", 5.99, 454, false]
+      - ["Potstickers Pork 24oz", "Frozen", 6.99, 680, false]
+      - ["Dumplings Chicken 24oz", "Frozen", 7.99, 680, false]
+      - ["Samosas Vegetable 8oz", "Frozen", 4.99, 227, false]
+      - ["Waffles Homestyle 24oz", "Frozen", 3.49, 680, false]
+      - ["Waffles Blueberry 24oz", "Frozen", 3.99, 680, false]
+      - ["Waffles Buttermilk 24oz", "Frozen", 3.49, 680, false]
+      - ["Pancakes Buttermilk 24oz", "Frozen", 3.99, 680, false]
+      - ["French Toast Sticks 24oz", "Frozen", 4.49, 680, false]
+      - ["Breakfast Burritos 6pk", "Frozen", 6.99, 850, false]
+      - ["Breakfast Sandwiches Sausage 4pk", "Frozen", 5.99, 454, false]
+      - ["Breakfast Sandwiches Bacon 4pk", "Frozen", 5.99, 454, false]
+      - ["Jimmy Dean Croissants 4pk", "Frozen", 6.99, 340, false]
+      - ["Sausage Biscuits 4pk", "Frozen", 4.99, 340, false]
+      - ["Lasagna Meat 38oz", "Frozen", 8.99, 1077, false]
+      - ["Lasagna Vegetable 38oz", "Frozen", 7.99, 1077, false]
+      - ["Macaroni Cheese Family 40oz", "Frozen", 6.99, 1134, false]
+      - ["Chicken Alfredo 24oz", "Frozen", 7.99, 680, false]
+      - ["Beef Stroganoff 28oz", "Frozen", 8.99, 794, false]
+      - ["Salisbury Steak Dinner 16oz", "Frozen", 4.99, 454, false]
+      - ["Meatloaf Dinner 16oz", "Frozen", 4.99, 454, false]
+      - ["Fried Chicken Dinner 16oz", "Frozen", 5.99, 454, false]
+      - ["Turkey Dinner 16oz", "Frozen", 5.49, 454, false]
+      - ["Pot Roast Dinner 16oz", "Frozen", 5.99, 454, false]
+      - ["Chicken Pot Pie 10oz", "Frozen", 3.49, 283, false]
+      - ["Beef Pot Pie 10oz", "Frozen", 3.49, 283, false]
+      - ["Turkey Pot Pie 10oz", "Frozen", 3.49, 283, false]
+      - ["Shepherd's Pie 24oz", "Frozen", 6.99, 680, false]
+      - ["Ravioli Cheese 25oz", "Frozen", 5.99, 709, false]
+      - ["Tortellini Cheese 20oz", "Frozen", 5.99, 567, false]
+      - ["Gnocchi Potato 16oz", "Frozen", 4.99, 454, false]
+      - ["Pierogies Potato 16oz", "Frozen", 3.99, 454, false]
+      - ["Pierogies Cheese 16oz", "Frozen", 3.99, 454, false]
+      - ["Peas 16oz", "Frozen", 1.99, 454, false]
+      - ["Corn 16oz", "Frozen", 1.99, 454, false]
+      - ["Green Beans Cut 16oz", "Frozen", 1.99, 454, false]
+      - ["Mixed Vegetables 16oz", "Frozen", 2.49, 454, false]
+      - ["Broccoli Florets 16oz", "Frozen", 2.49, 454, false]
+      - ["Cauliflower Florets 16oz", "Frozen", 2.49, 454, false]
+      - ["Brussels Sprouts 14oz", "Frozen", 2.99, 397, false]
+      - ["Spinach Chopped 16oz", "Frozen", 2.49, 454, false]
+      - ["Collard Greens 16oz", "Frozen", 2.49, 454, false]
+      - ["Okra Cut 16oz", "Frozen", 2.99, 454, false]
+      - ["Edamame Shelled 12oz", "Frozen", 2.99, 340, false]
+      - ["Stir Fry Vegetables 16oz", "Frozen", 2.99, 454, false]
+      - ["California Blend 16oz", "Frozen", 2.49, 454, false]
+      - ["Normandy Blend 16oz", "Frozen", 2.49, 454, false]
+      - ["Italian Blend 16oz", "Frozen", 2.49, 454, false]
+      - ["Asian Vegetables 16oz", "Frozen", 2.99, 454, false]
+      - ["Butternut Squash Cubed 12oz", "Frozen", 3.49, 340, false]
+      - ["Sweet Potato Cubes 16oz", "Frozen", 3.49, 454, false]
+      - ["Riced Cauliflower 12oz", "Frozen", 2.99, 340, false]
+      - ["Zucchini Noodles 12oz", "Frozen", 3.49, 340, false]
+      - ["Strawberries Whole 16oz", "Frozen", 3.99, 454, false]
+      - ["Blueberries 16oz", "Frozen", 4.99, 454, false]
+      - ["Raspberries 12oz", "Frozen", 4.99, 340, false]
+      - ["Blackberries 12oz", "Frozen", 4.99, 340, false]
+      - ["Mixed Berries 16oz", "Frozen", 4.49, 454, false]
+      - ["Mango Chunks 16oz", "Frozen", 3.99, 454, false]
+      - ["Pineapple Chunks 16oz", "Frozen", 3.49, 454, false]
+      - ["Peaches Sliced 16oz", "Frozen", 3.49, 454, false]
+      - ["Cherries Dark Sweet 16oz", "Frozen", 4.99, 454, false]
+      - ["Smoothie Mix Berry 32oz", "Frozen", 5.99, 907, false]
+      - ["Smoothie Mix Tropical 32oz", "Frozen", 5.99, 907, false]
+      - ["Acai Puree 14oz", "Frozen", 7.99, 397, false]
+      - ["Banana Sliced 16oz", "Frozen", 3.99, 454, false]
+      - ["Ice Cream Vanilla 48oz", "Frozen", 4.99, 1361, false]
+      - ["Ice Cream Chocolate 48oz", "Frozen", 4.99, 1361, false]
+      - ["Ice Cream Strawberry 48oz", "Frozen", 4.99, 1361, false]
+      - ["Ice Cream Cookies Cream 48oz", "Frozen", 5.49, 1361, false]
+      - ["Ice Cream Mint Chip 48oz", "Frozen", 5.49, 1361, false]
+      - ["Ice Cream Cookie Dough 48oz", "Frozen", 5.99, 1361, false]
+      - ["Ice Cream Rocky Road 48oz", "Frozen", 5.49, 1361, false]
+      - ["Ice Cream Butter Pecan 48oz", "Frozen", 5.49, 1361, false]
+      - ["Ice Cream Neapolitan 48oz", "Frozen", 4.99, 1361, false]
+      - ["Gelato Vanilla 16oz", "Frozen", 5.99, 454, false]
+      - ["Gelato Chocolate 16oz", "Frozen", 5.99, 454, false]
+      - ["Sorbet Mango 16oz", "Frozen", 4.99, 454, false]
+      - ["Sorbet Raspberry 16oz", "Frozen", 4.99, 454, false]
+      - ["Sorbet Lemon 16oz", "Frozen", 4.99, 454, false]
+      - ["Sherbet Orange 48oz", "Frozen", 4.49, 1361, false]
+      - ["Sherbet Rainbow 48oz", "Frozen", 4.49, 1361, false]
+      - ["Frozen Yogurt Vanilla 16oz", "Frozen", 4.99, 454, false]
+      - ["Ice Cream Bars Vanilla 12pk", "Frozen", 5.99, 850, false]
+      - ["Ice Cream Sandwiches 12pk", "Frozen", 5.49, 793, false]
+      - ["Drumsticks 8pk", "Frozen", 6.99, 600, false]
+      - ["Klondike Bars 6pk", "Frozen", 5.99, 396, false]
+      - ["Popsicles Fruit 18pk", "Frozen", 4.99, 567, false]
+      - ["Fudge Bars 12pk", "Frozen", 4.49, 680, false]
+      - ["Ice Cream Cones 10pk", "Frozen", 6.99, 567, false]
+      - ["Cheesecake Plain 32oz", "Frozen", 9.99, 907, false]
+      - ["Cheesecake Strawberry 32oz", "Frozen", 10.99, 907, false]
+      - ["Pie Apple 38oz", "Frozen", 7.99, 1077, false]
+      - ["Pie Cherry 38oz", "Frozen", 7.99, 1077, false]
+      - ["Pie Pumpkin 36oz", "Frozen", 6.99, 1020, false]
+      - ["Pie Pecan 32oz", "Frozen", 8.99, 907, false]
+      - ["Cake Chocolate 32oz", "Frozen", 8.99, 907, false]
+      - ["Cake Vanilla 32oz", "Frozen", 8.99, 907, false]
+      - ["Brownies Chocolate 24oz", "Frozen", 6.99, 680, false]
+      - ["Cookie Dough Chocolate Chip 16oz", "Frozen", 4.99, 454, false]
+      - ["Cookie Dough Sugar 16oz", "Frozen", 4.99, 454, false]
+      - ["Cinnamon Rolls 5pk", "Frozen", 3.99, 360, false]
+      - ["Bread Dough White 3pk", "Frozen", 4.99, 907, false]
+      - ["Bread Dough Wheat 3pk", "Frozen", 5.49, 907, false]
+      - ["Dinner Rolls 24ct", "Frozen", 3.99, 680, false]
+      - ["Garlic Bread 16oz", "Frozen", 3.49, 454, false]
+      - ["Texas Toast Garlic 8pk", "Frozen", 2.99, 198, false]
+      - ["Croissants 4pk", "Frozen", 3.99, 227, false]
+      - ["Puff Pastry Sheets 2pk", "Frozen", 4.99, 397, false]
+      - ["Phyllo Dough 1lb", "Frozen", 4.49, 454, false]
+      - ["Potato Chips Original 10oz", "Snacks", 3.99, 283, false]
+      - ["Potato Chips BBQ 10oz", "Snacks", 3.99, 283, false]
+      - ["Potato Chips Sour Cream 10oz", "Snacks", 3.99, 283, false]
+      - ["Potato Chips Salt Vinegar 10oz", "Snacks", 3.99, 283, false]
+      - ["Potato Chips Cheddar 10oz", "Snacks", 3.99, 283, false]
+      - ["Kettle Chips Sea Salt 8oz", "Snacks", 4.49, 227, false]
+      - ["Kettle Chips BBQ 8oz", "Snacks", 4.49, 227, false]
+      - ["Tortilla Chips Original 13oz", "Snacks", 3.49, 369, false]
+      - ["Tortilla Chips Nacho 13oz", "Snacks", 3.49, 369, false]
+      - ["Tortilla Chips Lime 13oz", "Snacks", 3.49, 369, false]
+      - ["Corn Chips Regular 10oz", "Snacks", 3.49, 283, false]
+      - ["Corn Chips Chili Cheese 10oz", "Snacks", 3.49, 283, false]
+      - ["Pita Chips Sea Salt 8oz", "Snacks", 3.99, 227, false]
+      - ["Pita Chips Garlic 8oz", "Snacks", 3.99, 227, false]
+      - ["Bagel Chips Everything 7oz", "Snacks", 3.99, 198, false]
+      - ["Veggie Straws 7oz", "Snacks", 3.49, 198, false]
+      - ["Veggie Chips 6oz", "Snacks", 3.99, 170, false]
+      - ["Popcorn Butter 3pk", "Snacks", 4.99, 270, false]
+      - ["Popcorn Movie Theater 6pk", "Snacks", 5.99, 540, false]
+      - ["Popcorn Kettle Corn 7oz", "Snacks", 3.99, 198, false]
+      - ["Popcorn Caramel 7oz", "Snacks", 4.49, 198, false]
+      - ["Popcorn Cheese 7oz", "Snacks", 3.99, 198, false]
+      - ["Popcorn White Cheddar 7oz", "Snacks", 4.49, 198, false]
+      - ["Rice Cakes Plain 4.9oz", "Snacks", 2.99, 139, false]
+      - ["Rice Cakes Caramel 6oz", "Snacks", 3.49, 170, false]
+      - ["Pretzels Twist 16oz", "Snacks", 2.99, 454, false]
+      - ["Pretzels Rods 12oz", "Snacks", 3.49, 340, false]
+      - ["Pretzels Mini 16oz", "Snacks", 2.99, 454, false]
+      - ["Pretzels Honey Mustard 10oz", "Snacks", 3.99, 283, false]
+      - ["Crackers Saltine 16oz", "Snacks", 2.49, 454, false]
+      - ["Crackers Ritz 13.7oz", "Snacks", 3.99, 388, false]
+      - ["Crackers Wheat Thins 9oz", "Snacks", 3.49, 255, false]
+      - ["Crackers Triscuit 9oz", "Snacks", 3.49, 255, false]
+      - ["Crackers Cheez-It 12.4oz", "Snacks", 4.49, 352, false]
+      - ["Crackers Goldfish 30oz", "Snacks", 6.99, 850, false]
+      - ["Crackers Club 13.7oz", "Snacks", 3.99, 388, false]
+      - ["Crackers Town House 13.8oz", "Snacks", 3.99, 391, false]
+      - ["Crackers Graham Honey 14.4oz", "Snacks", 2.99, 408, false]
+      - ["Crackers Graham Chocolate 14.4oz", "Snacks", 2.99, 408, false]
+      - ["Crackers Graham Cinnamon 14.4oz", "Snacks", 2.99, 408, false]
+      - ["Nuts Mixed 16oz", "Snacks", 7.99, 454, false]
+      - ["Nuts Almonds Raw 16oz", "Snacks", 7.99, 454, false]
+      - ["Nuts Almonds Roasted 16oz", "Snacks", 8.49, 454, false]
+      - ["Nuts Cashews Roasted 16oz", "Snacks", 9.99, 454, false]
+      - ["Nuts Peanuts Roasted 16oz", "Snacks", 5.99, 454, false]
+      - ["Nuts Peanuts Honey Roasted 16oz", "Snacks", 6.49, 454, false]
+      - ["Nuts Walnuts Halves 16oz", "Snacks", 9.99, 454, false]
+      - ["Nuts Pecans Halves 16oz", "Snacks", 11.99, 454, false]
+      - ["Nuts Pistachios Roasted 16oz", "Snacks", 10.99, 454, false]
+      - ["Nuts Macadamia Roasted 8oz", "Snacks", 12.99, 227, false]
+      - ["Nuts Hazelnuts 8oz", "Snacks", 8.99, 227, false]
+      - ["Nuts Brazil 12oz", "Snacks", 9.99, 340, false]
+      - ["Nuts Pine 4oz", "Snacks", 11.99, 113, false]
+      - ["Trail Mix Classic 16oz", "Snacks", 6.99, 454, false]
+      - ["Trail Mix Energy 16oz", "Snacks", 7.99, 454, false]
+      - ["Trail Mix Tropical 14oz", "Snacks", 6.99, 397, false]
+      - ["Peanuts in Shell 2lb", "Snacks", 5.99, 907, false]
+      - ["Sunflower Seeds 16oz", "Snacks", 4.99, 454, false]
+      - ["Pumpkin Seeds 12oz", "Snacks", 5.99, 340, false]
+      - ["Raisins 15oz", "Snacks", 3.99, 425, false]
+      - ["Cranberries Dried 12oz", "Snacks", 4.99, 340, false]
+      - ["Apricots Dried 8oz", "Snacks", 5.99, 227, false]
+      - ["Prunes Dried 12oz", "Snacks", 4.99, 340, false]
+      - ["Dates Pitted 8oz", "Snacks", 4.99, 227, false]
+      - ["Cookies Chocolate Chip 12oz", "Snacks", 3.99, 340, false]
+      - ["Cookies Oreo 14.3oz", "Snacks", 4.49, 405, false]
+      - ["Cookies Chips Ahoy 13oz", "Snacks", 3.99, 369, false]
+      - ["Cookies Nutter Butter 16oz", "Snacks", 3.99, 454, false]
+      - ["Cookies Vienna Fingers 14.3oz", "Snacks", 3.49, 405, false]
+      - ["Cookies Fig Newtons 10oz", "Snacks", 3.99, 283, false]
+      - ["Cookies Vanilla Wafers 11oz", "Snacks", 2.99, 312, false]
+      - ["Cookies Animal Crackers 16oz", "Snacks", 2.99, 454, false]
+      - ["Cookies Ginger Snaps 16oz", "Snacks", 2.99, 454, false]
+      - ["Cookies Graham Crackers 14.4oz", "Snacks", 2.99, 408, false]
+      - ["Granola Bars Chewy Chocolate Chip 10ct", "Snacks", 3.99, 250, false]
+      - ["Granola Bars Crunchy Oats 12ct", "Snacks", 3.99, 300, false]
+      - ["Granola Bars Peanut Butter 10ct", "Snacks", 4.49, 250, false]
+      - ["Protein Bars Chocolate 12ct", "Snacks", 11.99, 600, false]
+      - ["Protein Bars Peanut Butter 12ct", "Snacks", 11.99, 600, false]
+      - ["Fruit Snacks Mixed Berry 10ct", "Snacks", 3.49, 250, false]
+      - ["Fruit Snacks Strawberry 10ct", "Snacks", 3.49, 250, false]
+      - ["Applesauce Cups 6pk", "Snacks", 2.99, 600, false]
+      - ["Pudding Cups Chocolate 4pk", "Snacks", 2.49, 450, false]
+      - ["Pudding Cups Vanilla 4pk", "Snacks", 2.49, 450, false]
+      - ["Jello Cups Cherry 4pk", "Snacks", 1.99, 400, false]
+      - ["Jello Cups Strawberry 4pk", "Snacks", 1.99, 400, false]
+      - ["Candy Bar Snickers", "Snacks", 1.29, 52, false]
+      - ["Candy Bar Milky Way", "Snacks", 1.29, 52, false]
+      - ["Candy Bar 3 Musketeers", "Snacks", 1.29, 54, false]
+      - ["Candy Bar Twix", "Snacks", 1.29, 50, false]
+      - ["Candy Bar Kit Kat", "Snacks", 1.29, 42, false]
+      - ["Candy Bar Hershey Milk Chocolate", "Snacks", 1.29, 43, false]
+      - ["Candy Bar Reese's Peanut Butter Cup", "Snacks", 1.29, 42, false]
+      - ["Candy M&M Peanut 10oz", "Snacks", 4.99, 283, false]
+      - ["Candy M&M Milk Chocolate 10oz", "Snacks", 4.99, 283, false]
+      - ["Candy Skittles 14oz", "Snacks", 3.99, 397, false]
+      - ["Candy Starburst 14oz", "Snacks", 3.99, 397, false]
+      - ["Candy Gummy Bears 14oz", "Snacks", 3.49, 397, false]
+      - ["Candy Sour Gummy Worms 14oz", "Snacks", 3.49, 397, false]
+      - ["Candy Swedish Fish 14oz", "Snacks", 3.49, 397, false]
+      - ["Candy Licorice Red 16oz", "Snacks", 3.99, 454, false]
+      - ["Candy Licorice Black 16oz", "Snacks", 3.99, 454, false]
+      - ["Gum Spearmint 15ct", "Snacks", 1.99, 35, false]
+      - ["Gum Peppermint 15ct", "Snacks", 1.99, 35, false]
+      - ["Shampoo Regular 12oz", "Personal Care", 4.99, 355, false]
+      - ["Shampoo Moisturizing 12oz", "Personal Care", 5.99, 355, false]
+      - ["Shampoo Volumizing 12oz", "Personal Care", 5.99, 355, false]
+      - ["Shampoo Dandruff 12oz", "Personal Care", 6.99, 355, false]
+      - ["Shampoo Color Safe 12oz", "Personal Care", 6.49, 355, false]
+      - ["Conditioner Regular 12oz", "Personal Care", 4.99, 355, false]
+      - ["Conditioner Moisturizing 12oz", "Personal Care", 5.99, 355, false]
+      - ["Conditioner Volumizing 12oz", "Personal Care", 5.99, 355, false]
+      - ["Conditioner Repair 12oz", "Personal Care", 6.49, 355, false]
+      - ["2-in-1 Shampoo & Conditioner 12oz", "Personal Care", 5.49, 355, false]
+      - ["Body Wash Original 18oz", "Personal Care", 4.99, 532, false]
+      - ["Body Wash Moisturizing 18oz", "Personal Care", 5.49, 532, false]
+      - ["Body Wash Sport 18oz", "Personal Care", 5.49, 532, false]
+      - ["Body Wash Sensitive Skin 18oz", "Personal Care", 5.99, 532, false]
+      - ["Bar Soap Original 4pk", "Personal Care", 3.99, 400, false]
+      - ["Bar Soap Moisturizing 4pk", "Personal Care", 4.49, 400, false]
+      - ["Bar Soap Antibacterial 4pk", "Personal Care", 4.49, 400, false]
+      - ["Hand Soap Liquid 7.5oz", "Personal Care", 2.49, 221, false]
+      - ["Hand Soap Antibacterial 7.5oz", "Personal Care", 2.99, 221, false]
+      - ["Hand Soap Foam 8.5oz", "Personal Care", 3.49, 251, false]
+      - ["Hand Sanitizer Gel 8oz", "Personal Care", 3.99, 237, false]
+      - ["Hand Sanitizer Spray 2oz", "Personal Care", 2.99, 59, false]
+      - ["Toothpaste Whitening 6oz", "Personal Care", 3.99, 170, false]
+      - ["Toothpaste Sensitive 4oz", "Personal Care", 4.99, 113, false]
+      - ["Toothpaste Cavity Protection 6oz", "Personal Care", 3.49, 170, false]
+      - ["Toothpaste Fresh Mint 6oz", "Personal Care", 3.49, 170, false]
+      - ["Toothpaste Tartar Control 6oz", "Personal Care", 3.99, 170, false]
+      - ["Toothbrush Soft 2pk", "Personal Care", 3.99, 50, false]
+      - ["Toothbrush Medium 2pk", "Personal Care", 3.99, 50, false]
+      - ["Mouthwash Mint 1L", "Personal Care", 5.99, 1000, false]
+      - ["Mouthwash Antiseptic 1L", "Personal Care", 6.49, 1000, false]
+      - ["Dental Floss 50 yards", "Personal Care", 2.99, 45, false]
+      - ["Deodorant Men''s 2.7oz", "Personal Care", 4.99, 76, false]
+      - ["Deodorant Women''s 2.6oz", "Personal Care", 4.99, 74, false]
+      - ["Deodorant Clinical Strength 1.7oz", "Personal Care", 8.99, 48, false]
+      - ["Antiperspirant Men''s 2.7oz", "Personal Care", 5.49, 76, false]
+      - ["Antiperspirant Women''s 2.6oz", "Personal Care", 5.49, 74, false]
+      - ["Razors Disposable Men''s 10ct", "Personal Care", 7.99, 100, false]
+      - ["Razors Disposable Women''s 8ct", "Personal Care", 7.99, 80, false]
+      - ["Razors Cartridges Men''s 4ct", "Personal Care", 14.99, 40, false]
+      - ["Razors Cartridges Women''s 4ct", "Personal Care", 14.99, 40, false]
+      - ["Shaving Cream Men''s 7oz", "Personal Care", 3.49, 198, false]
+      - ["Shaving Cream Women''s 7oz", "Personal Care", 3.49, 198, false]
+      - ["Shaving Gel Men''s 7oz", "Personal Care", 3.99, 198, false]
+      - ["Toilet Paper 12 Rolls", "Personal Care", 7.99, 1200, false]
+      - ["Toilet Paper 24 Rolls", "Personal Care", 14.99, 2400, false]
+      - ["Paper Towels 6 Rolls", "Personal Care", 9.99, 1200, false]
+      - ["Facial Tissue 6 Boxes", "Personal Care", 7.99, 900, false]
+      - ["Cotton Swabs 500ct", "Personal Care", 3.99, 150, false]
+      - ["Baby Wipes 80ct", "Personal Care", 3.49, 400, false]
+
+search:
+  # Keyword-search synonym expansion for the inventory index. Rendered into
+  # os-bootstrap/templates/inventory.json.tmpl at bootstrap.
+  synonyms:
+    - "milk, whole milk, 2% milk, skim milk, dairy milk"
+    - "eggs, egg, dozen eggs, large eggs"
+    - "chicken, poultry, chicken breast, chicken thigh"
+    - "beef, ground beef, steak, sirloin"
+    - "bread, loaf, sourdough, whole wheat bread"
+    - "pasta, penne, spaghetti, linguine, noodles"
+    - "rice, white rice, brown rice, jasmine rice"
+    - "cheese, cheddar, mozzarella, parmesan"
+    - "tomato, tomatoes, cherry tomatoes"
+    - "onion, onions, yellow onion, white onion"
+    - "garlic, garlic cloves, minced garlic"
+    - "olive oil, extra virgin olive oil, evoo"
+    - "butter, unsalted butter, salted butter"
+    - "salt, sea salt, kosher salt, table salt"
+    - "pepper, black pepper, ground pepper"
+
+agent:
+  persona: Operations Assistant
+  placeholder: Ask the operations assistant...
+  empty_state: Ask me about orders, inventory, stores, or couriers.
+  default_store: store:BK-01
+  # The full LLM system prompt. NOTE: this restates the dynamic-pricing rules
+  # in prose, making it a THIRD copy of a formula that also lives in
+  # db/materialize/init.sh:470-721 and db/migrations/081_dynamic_pricing_views.sql.
+  # If you change the pricing SQL, update this in every label -- nothing enforces it.
+  system_prompt: |
+    You are an operations assistant for FreshMart's same-day grocery delivery service.
+
+    **Your Role**: You support FreshMart administrators and customer support agents by helping them manage:
+    - Customer orders and order modifications
+    - Inventory lookups across stores
+    - Order status updates and tracking
+    - Customer account creation and management
+
+    **You are NOT a customer-facing chatbot.** You assist FreshMart staff members who are helping customers or managing operations.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Orders link to Customers via `placed_by`
+    - Orders link to Stores via `order_store`
+    - OrderLines link to Orders via `line_of_order`
+    - Products link to Inventory via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my business?" → Calling get_store_health directly (WRONG!)
+    - User asks "find order 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Customer Support Agents:**
+    - Look up existing customer orders by order number or customer name
+    - Add or remove items from orders that customers call about
+    - Update order status (e.g., mark as delivered, cancel orders)
+    - Check product availability at specific store locations
+    - Create new orders on behalf of customers calling in
+
+    **For Store/Warehouse Staff:**
+    - Search for products in inventory
+    - Check stock levels across different stores
+    - Update order statuses as they're being picked/packed
+    - View delivery task assignments
+    - Check courier availability and workload by store
+
+    **For Administrators:**
+    - Create new customer accounts
+    - Bulk order lookups and status updates
+    - Inventory and operations reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new customer account (requires name)
+    - list_stores: List all stores with IDs and zone info (use FIRST when user mentions a store by name)
+    - list_couriers: List couriers with status and task info (can filter by store_id or status)
+    - search_inventory: Find products in a store's inventory (requires correct store_id)
+    - create_order: Create an order with confirmed items
+    - manage_order_lines: Add, update, or delete products from an existing order
+    - search_orders: Search existing orders
+    - fetch_order_context: Get full details for an order
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time operational health metrics (capacity, inventory risk, pricing yield)
+    - write_triples: Update order status or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for order modifications)
+
+    **Example validation flow:**
+    1. User asks to remove an item from an order
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When searching inventory for a specific store:**
+    1. If user mentions a store by name (e.g., "Queens store", "Manhattan location"), call list_stores FIRST
+    2. Store IDs use abbreviated zone codes: MAN=Manhattan, BK=Brooklyn, QNS=Queens, BX=Bronx, SI=Staten Island
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "Queens store" → list_stores → find store:QNS-01 → search_inventory(store_id="store:QNS-01")
+
+    **When helping staff create or modify orders:**
+    1. Search for products by name or category using search_inventory
+    2. Present found items with live_price (dynamic pricing) and stock levels
+    3. For new orders: use create_order with the confirmed items
+    4. For existing orders: use manage_order_lines to add/update/delete items
+    5. Always use live_price (not base_price) from inventory search results - this includes all 7 dynamic pricing factors
+
+    **When looking up orders:**
+    1. Use search_orders to find orders by number, customer, or status
+    2. Use fetch_order_context to get complete order details
+    3. Present information clearly for the staff member
+
+    **When updating order status:**
+    1. First verify the current status using search_orders
+    2. Use write_triples to update order_status predicate
+    3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking store operational health:**
+    1. Use get_store_health to understand current operational state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all stores doing?" or "What's our overall operational health?"
+       - **quick_check**: "What's happening at Brooklyn store?" (requires store_id)
+       - **capacity**: "Which stores are overloaded?" or "Can we handle more orders?"
+       - **inventory_risk**: "Any inventory emergencies?" or "What products might stock out?"
+    3. Proactively check store health before creating large orders or during peak times
+    4. Include health metrics in your response to provide context for operational decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., close intake, surge pricing, replenishment)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all stores are critical" unless literally every store has CRITICAL status
+    - **Count accurately** - If 7 stores are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific stores** - When asked about least/most healthy, name the actual stores with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 stores are CRITICAL (Manhattan 1 at 155%, Bronx 1 at 147%, Brooklyn 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All stores are at critical capacity" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we accept a large catering order at Manhattan store?" → Check capacity first
+    - Staff reports: "Customer says their order is delayed" → Quick check the fulfilling store's health
+    - Manager asks: "What's the state of operations right now?" → Get summary view
+    - During order creation: If store shows CRITICAL capacity, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with customers
+    - **Be precise**: Include order numbers, product IDs, and exact prices
+    - **Confirm changes**: Before modifying orders, confirm the change with the staff member
+    - Default store is store:BK-01 (FreshMart Brooklyn 1) unless specified
+    - Show prices in USD format ($X.XX)
+    - When working with products, always include current stock availability
+
+    ## Pricing Guidelines
+
+    - **Always show live_price by default** - this is the current dynamic price that customers actually pay
+    - Only show base_price if specifically requested or when explaining pricing breakdowns
+    - **CRITICAL: Always fetch fresh pricing data** - Whenever a staff member asks about prices, product availability, or inventory:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on pricing information from conversation memory or previous tool calls
+      - Prices are dynamic and can change based on stock levels, demand, and time
+      - Even if you just searched for a product, search again if asked about its price
+    - The live_price includes 8 real-time pricing factors:
+      1. **Zone adjustments**: Manhattan +15%, Brooklyn +5%, Queens baseline, Bronx -2%, Staten Island -5%
+      2. **Perishable discounts**: -5% for items requiring refrigeration to move inventory faster
+      3. **Local stock premiums**: +10% for ≤5 units at store, +3% for ≤15 units (store-specific scarcity)
+      4. **Popularity adjustments**: Top 3 products +20%, ranks 4-10 +10%, others -10% (by sales volume)
+      5. **Global scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (total stock across all stores)
+      6. **Demand multipliers**: Based on recent sales price trends and velocity
+      7. **Demand premiums**: +5% for high-demand products above average sales
+      8. **Market-basket discounts**: -5% for "basket driver" products that frequently
+         co-occur with other purchases
+    - If showing price comparisons, format as: "$5.75 (live price, base: $5.00)"
+    - When staff ask about pricing, you can explain which factors are affecting a specific product's price
