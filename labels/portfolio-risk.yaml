@@ -209,25 +209,51 @@ aliases:
     orders_sink_v: trades_sink_v
     inventory_sink_v: positions_sink_v
   predicates:
+    # Covers every predicate the seeded graph actually contains, so the triples
+    # table has no half-renamed rows. Deliberately left as identity because they
+    # already read correctly in this vertical: quantity, category, placed_by,
+    # assigned_to.
+    #
+    # Subject ids in the VALUE column (customer:00001, store:MAN-01) keep their
+    # prefixes -- those are ontology class prefixes and drive validation, so they
+    # are fixed for every label. See docs/WHITE_LABELING.md.
     order_status: trade_state
     order_number: trade_ref
+    order_created_at: trade_created_at
+    order_store: trade_portfolio
+    order_total_amount: trade_notional
     delivery_window_start: execution_window_start
     delivery_window_end: execution_window_end
+    line_of_order: allocation_of_trade
+    line_product: allocation_instrument
+    line_sequence: allocation_sequence
+    line_amount: allocation_amount
+    order_line_unit_price: allocation_unit_price
     customer_name: account_name
     customer_email: account_contact_email
     customer_address: account_address
     store_name: portfolio_name
     store_zone: asset_class
     store_address: desk_address
+    store_status: portfolio_status
+    store_capacity_orders_per_hour: portfolio_limit_per_hour
     product_name: instrument_name
     unit_price: reference_price
     perishable: time_decaying
     unit_weight_grams: risk_weight
     stock_level: position_size
+    inventory_product: position_instrument
+    inventory_store: position_portfolio
+    replenishment_eta: availability_eta
     courier_name: trader_name
     courier_phone: trader_phone
     courier_status: trader_status
+    courier_home_store: trader_home_portfolio
+    vehicle_type: execution_channel
+    task_of_order: step_of_trade
     task_status: execution_step_status
+    route_sequence: execution_sequence
+    eta: expected_fill_time
 
 nav:
   - path: /
