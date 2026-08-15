@@ -202,25 +202,51 @@ aliases:
     orders_sink_v: shipments_sink_v
     inventory_sink_v: dock_capacity_sink_v
   predicates:
+    # Covers every predicate the seeded graph actually contains, so the triples
+    # table has no half-renamed rows. Deliberately left as identity because they
+    # already read correctly in this vertical: quantity, category, assigned_to,
+    # route_sequence.
+    #
+    # Subject ids in the VALUE column (customer:00001, store:BK-01) keep their
+    # prefixes -- those are ontology class prefixes and drive validation, so they
+    # are fixed for every label. See docs/WHITE_LABELING.md.
     order_status: shipment_status
     order_number: pro_number
+    order_created_at: shipment_created_at
+    order_store: shipment_terminal
+    order_total_amount: shipment_charges
+    placed_by: booked_by
     delivery_window_start: appointment_window_start
     delivery_window_end: appointment_window_end
+    line_of_order: line_of_shipment
+    line_product: freight_line_commodity
+    line_sequence: freight_line_sequence
+    line_amount: freight_line_amount
+    order_line_unit_price: freight_line_unit_rate
     customer_name: shipper_name
     customer_email: shipper_email
     customer_address: shipper_address
     store_name: terminal_name
     store_zone: lane
     store_address: terminal_address
+    store_status: terminal_status
+    store_capacity_orders_per_hour: terminal_shipments_per_hour
     product_name: commodity
     unit_price: base_rate
     perishable: temp_controlled
     unit_weight_grams: billable_weight
     stock_level: available_dock_capacity
+    inventory_product: dock_capacity_commodity
+    inventory_store: dock_capacity_terminal
+    replenishment_eta: dock_release_eta
     courier_name: driver_name
     courier_phone: driver_phone
     courier_status: driver_status
+    courier_home_store: driver_home_terminal
+    vehicle_type: equipment_type
+    task_of_order: leg_of_shipment
     task_status: dispatch_leg_status
+    eta: projected_arrival
 
 nav:
   - path: /
