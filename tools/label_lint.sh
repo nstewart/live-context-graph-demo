@@ -43,10 +43,25 @@ status=0
 # Docker network name. See docs/WHITE_LABELING.md.
 STRUCTURAL='/freshmart/|freshmartApi|freshmart-network|pg_database|PG_DATABASE|"freshmart"|freshmart_|_freshmart'
 
+# Whole-line comments are documentation, not hardcoding. This guard exists to
+# catch the brand being typed into a component instead of read from the active
+# label; a doc comment that names freshmart to EXPLAIN the mechanism is correct
+# and must not fail the build. Without this, the label loaders themselves
+# (web/src/label.ts, agents/src/demo_label.py) fail the guard they implement,
+# because their docstrings have to name the default label and its FM- prefix.
+#
+# Deliberately narrow: only a leading comment marker is stripped. A trailing
+# comment on a real code line -- `const p = "FM-" // default` -- is still a hit,
+# and so is a brand string in the body of a multi-line comment, since that line
+# does not start with a marker.
+SQ="'"
+COMMENT_LINE="^[^:]+:[0-9]+:[[:space:]]*(//|/\\*|\\*|#|\"\"\"|${SQ}${SQ}${SQ})"
+
 check() {
   pattern="$1"; what="$2"
   hits=$(printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -nEi "$pattern" 2>/dev/null \
-         | grep -vE "$STRUCTURAL" || true)
+         | grep -vE "$STRUCTURAL" \
+         | grep -vE "$COMMENT_LINE" || true)
   if [ -n "$hits" ]; then
     echo "FAIL $what is hardcoded in application source:"
     printf '%s\n' "$hits" | sed 's/^/  /'
