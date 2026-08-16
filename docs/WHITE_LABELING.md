@@ -413,6 +413,14 @@ FreshMart. They are developer-facing. `label-lint` scans only the
 customer-visible surfaces: `web/src`, `agents/src`, and the OpenAPI metadata in
 `api/src/main.py`.
 
+**Comments, within those surfaces.** The guard catches the brand being typed
+into a component instead of read from the active label, so a whole-line comment
+that names freshmart to *explain* the mechanism is documentation, not
+hardcoding — the label loaders themselves could not describe their own default
+otherwise. Only a leading comment marker is skipped: a trailing comment on a
+real code line (`const p = "FM-" // default`) is still a hit, and so is a brand
+string in the body of a multi-line comment.
+
 ---
 
 ## Theming

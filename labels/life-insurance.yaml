@@ -199,25 +199,53 @@ aliases:
     orders_sink_v: cases_sink_v
     inventory_sink_v: capacity_sink_v
   predicates:
+    # Covers every predicate the seeded graph actually contains, so the triples
+    # table has no half-renamed rows. Deliberately left as identity because they
+    # already read correctly in this vertical: quantity, category, assigned_to.
+    #
+    # Subject ids in the VALUE column (customer:00001, store:BK-01) keep their
+    # prefixes -- those are ontology class prefixes and drive validation, so they
+    # are fixed for every label. See docs/WHITE_LABELING.md.
     order_status: case_status
     order_number: case_number
+    order_created_at: case_created_at
+    order_store: case_service_center
+    order_total_amount: case_cost_to_serve
+    placed_by: submitted_by
     delivery_window_start: sla_window_start
     delivery_window_end: sla_window_end
+    line_of_order: requirement_of_case
+    line_product: requirement_transaction_type
+    line_sequence: requirement_sequence
+    line_amount: requirement_amount
+    order_line_unit_price: requirement_unit_cost
+    perishable_flag: requirement_deadline_bound_flag
     customer_name: policyholder_name
     customer_email: policyholder_email
     customer_address: policyholder_address
+    home_store: policyholder_home_center
     store_name: service_center_name
     store_zone: region
     store_address: service_center_address
+    store_status: service_center_status
+    store_capacity_orders_per_hour: service_center_cases_per_hour
     product_name: transaction_type
     unit_price: base_cost_to_serve
     perishable: deadline_bound
     unit_weight_grams: handling_effort
     stock_level: available_capacity
+    inventory_product: capacity_transaction_type
+    inventory_store: capacity_service_center
+    replenishment_eta: capacity_refresh_eta
     courier_name: case_manager_name
     courier_phone: case_manager_phone
     courier_status: case_manager_status
+    courier_home_store: case_manager_home_center
+    vehicle_type: handling_type
+    task_of_order: work_item_of_case
     task_status: work_item_status
+    route_sequence: work_item_sequence
+    eta: projected_completion
 
 nav:
   - path: /

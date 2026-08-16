@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronRight, ArrowRight, ShoppingCart } from "lucide-react";
 import { triplesApi, Triple } from "../api/client";
-import { copy } from "../label";
+import { aliasPredicate, copy } from "../label";
 
 interface Order {
   order_id: string;
@@ -189,8 +189,10 @@ export const WhatAreTriplesCard = ({
                         <td className="px-4 py-2 font-mono text-xs text-gray-700">
                           {triple.subject_id}
                         </td>
+                        {/* Display only -- onTripleClick above gets the raw
+                            predicate, which is what the write API expects. */}
                         <td className="px-4 py-2 font-mono text-xs text-gray-700">
-                          {triple.predicate}
+                          {aliasPredicate(triple.predicate)}
                         </td>
                         <td className="px-4 py-2 font-mono text-xs">
                           {isEntityRef(triple.object_type) ? (

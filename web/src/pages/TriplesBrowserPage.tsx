@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { triplesApi, ontologyApi, Triple, TripleCreate, OntologyProperty, OntologyClass } from '../api/client'
 import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
+// Predicates are aliased for DISPLAY only. Every value submitted to the API --
+// formData.predicate, the <option value>, deleteConfirm.predicate -- stays raw.
+import { aliasPredicate } from '../label'
 
 interface TripleFormData {
   subject_id: string
@@ -161,7 +164,7 @@ function TripleFormModal({
               <input
                 type="text"
                 disabled
-                value={formData.predicate}
+                value={aliasPredicate(formData.predicate)}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-600"
               />
             ) : (
@@ -174,7 +177,7 @@ function TripleFormModal({
                 <option value="">Select a predicate...</option>
                 {availableProperties.map(prop => (
                   <option key={prop.id} value={prop.prop_name}>
-                    {prop.prop_name} ({prop.range_kind})
+                    {aliasPredicate(prop.prop_name)} ({prop.range_kind})
                   </option>
                 ))}
               </select>
@@ -559,7 +562,7 @@ export default function TriplesBrowserPage() {
                     {subjectInfo.triples.map(triple => (
                       <tr key={triple.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="py-2">
-                          <code className="text-sm text-blue-600">{triple.predicate}</code>
+                          <code className="text-sm text-blue-600">{aliasPredicate(triple.predicate)}</code>
                         </td>
                         <td className="py-2">
                           {triple.object_type === 'entity_ref' ? (
@@ -630,7 +633,7 @@ export default function TriplesBrowserPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
             <h3 className="text-lg font-semibold mb-2">Delete Triple</h3>
             <p className="text-gray-600 mb-4">
-              Are you sure you want to delete the triple <strong>{deleteConfirm.predicate}</strong> = <strong>{deleteConfirm.object_value}</strong>?
+              Are you sure you want to delete the triple <strong>{aliasPredicate(deleteConfirm.predicate)}</strong> = <strong>{deleteConfirm.object_value}</strong>?
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50">
