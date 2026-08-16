@@ -219,9 +219,11 @@ aliases:
     line_sequence: requirement_sequence
     line_amount: requirement_amount
     order_line_unit_price: requirement_unit_cost
+    perishable_flag: requirement_deadline_bound_flag
     customer_name: policyholder_name
     customer_email: policyholder_email
     customer_address: policyholder_address
+    home_store: policyholder_home_center
     store_name: service_center_name
     store_zone: region
     store_address: service_center_address

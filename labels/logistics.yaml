@@ -223,9 +223,11 @@ aliases:
     line_sequence: freight_line_sequence
     line_amount: freight_line_amount
     order_line_unit_price: freight_line_unit_rate
+    perishable_flag: freight_line_temp_controlled_flag
     customer_name: shipper_name
     customer_email: shipper_email
     customer_address: shipper_address
+    home_store: shipper_home_terminal
     store_name: terminal_name
     store_zone: lane
     store_address: terminal_address

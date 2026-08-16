@@ -229,9 +229,11 @@ aliases:
     line_sequence: allocation_sequence
     line_amount: allocation_amount
     order_line_unit_price: allocation_unit_price
+    perishable_flag: allocation_time_decay_flag
     customer_name: account_name
     customer_email: account_contact_email
     customer_address: account_address
+    home_store: account_home_portfolio
     store_name: portfolio_name
     store_zone: asset_class
     store_address: desk_address
