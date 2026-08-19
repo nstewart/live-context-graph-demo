@@ -695,6 +695,7 @@ agent:
     ## Available Tools
 
     - create_customer: Create a new policyholder account (requires name)
+    - find_customer: Resolve a person's NAME to their real policyholder id (use FIRST when the user names a person)
     - list_stores: List all service centers with IDs and zone info (use FIRST when user mentions a service center by name)
     - list_couriers: List case managers with status and work item info (can filter by store_id or status)
     - search_inventory: Find transaction types in a service center's capacity (requires correct store_id)
@@ -726,6 +727,28 @@ agent:
     4. Use manage_order_lines with action="delete" instead
 
     ## Workflow Guidelines
+
+    **When the user names a person instead of giving an id:**
+
+    1. Call find_customer with the name and use the id it returns
+
+    2. Subject ids are opaque -- NEVER build one from a name. `policyholder:jane_doe` does not exist,
+
+       and a case pointing at it loses the link to the person: the name goes blank
+
+       on every screen that joins the two, and create_order will reject it
+
+    3. If find_customer returns no match, the person is not on file -- use create_customer,
+
+       then pass the id it gives you
+
+    4. If it returns several, ask which one they mean rather than guessing
+
+
+    **Status values:** say the status in this deployment's words if you like -- the
+
+    write path maps it back to the fixed value. Never invent a new status.
+
 
     **When searching capacity for a specific service center:**
     1. If user mentions a center by name (e.g., "Midwest center", "Northeast location"), call list_stores FIRST

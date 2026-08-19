@@ -54,6 +54,46 @@ def default_store() -> str:
     return load_label()["agent"].get("default_store", "")
 
 
+def stored_enum_value(predicate: str, value: str) -> str:
+    """Map a display word back to the fixed enum value the SQL joins on.
+
+    The label renames what a status READS as -- DELIVERED shows as "Settled" for
+    an insurance carrier -- but the stored value is data-model shape. A user who
+    says "mark it settled" must not end up writing SETTLED, which no view keys
+    on, so the case would silently drop out of every status filter.
+
+    Unrecognised values pass through untouched: a predicate with no enum, or a
+    genuinely new value, is the caller's business. Matching is case-insensitive
+    and ignores spacing, so "on case", "On Case" and "ON_CASE" all resolve.
+    """
+    enums = load_label().get("enums", {})
+    # The field and its enum usually share a name; these are the ones that don't.
+    by_field = {
+        "store_zone": "zone",
+        "task_status": "task_status",
+        "delivery_task_status": "task_status",
+        "health_status": "capacity_health",
+    }
+    name = by_field.get(predicate, predicate)
+    mapping = enums.get(name)
+    if not mapping:
+        return value
+
+    def norm(s: str) -> str:
+        return "".join(ch for ch in s.lower() if ch.isalnum())
+
+    target = norm(value)
+    # Already a stored value.
+    for stored in mapping:
+        if norm(stored) == target:
+            return stored
+    # A display word for one.
+    for stored, shown in mapping.items():
+        if norm(shown) == target:
+            return stored
+    return value
+
+
 def order_prefix() -> str:
     """Order-number prefix, e.g. 'FM-'. Used when the agent mints an order."""
     return load_label()["vocabulary"]["order"]["id_prefix"]

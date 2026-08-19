@@ -30,11 +30,15 @@ async def create_order(
     - Unit prices are AUTOMATICALLY set to the current live_price from inventory (dynamic pricing)
 
     Use this tool after:
-    1. Customer has been created (or exists)
+    1. The customer's real subject id is in hand -- find_customer to resolve a
+       name, or create_customer if they are not on file
     2. Customer has approved the order
 
     Args:
-        customer_id: The customer placing the order (e.g., "customer:abc123")
+        customer_id: The customer placing the order, as a REAL subject id from
+            find_customer or create_customer (e.g. "customer:00002"). Never
+            build one from a name -- ids are opaque, and a made-up id is
+            rejected.
         store_id: The store fulfilling the order (default: store:BK-01)
         items: List of items with product_id and quantity
                Example: [{"product_id": "product:PROD-001", "quantity": 2}]
@@ -60,6 +64,34 @@ async def create_order(
         return {
             "success": False,
             "error": "Cannot create order without items",
+        }
+
+    # A subject id is opaque -- it is never derived from a name. An id built from
+    # one ("customer:jane_doe") does not exist, and placed_by would then point at
+    # nothing: the record is created but loses its link to the person, so every
+    # view that joins the two drops the name silently. Refuse instead.
+    async with httpx.AsyncClient() as client:
+        try:
+            probe = await client.get(
+                f"{settings.agent_api_base}/triples",
+                params={"subject_id": customer_id, "limit": 1},
+                timeout=10.0,
+            )
+            probe.raise_for_status()
+            exists = bool(probe.json())
+        except Exception:  # noqa: BLE001 - a lookup failure must not block a valid create
+            exists = True
+
+    if not exists:
+        return {
+            "success": False,
+            "error": f"No such customer: {customer_id}",
+            "hint": (
+                "Subject ids are opaque and cannot be constructed from a name. "
+                "Call find_customer to resolve the person's name to their real "
+                "id, or create_customer if they are not on file yet, then retry "
+                "with the id you were given."
+            ),
         }
 
     # Validate items against store inventory

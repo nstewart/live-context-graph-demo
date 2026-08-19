@@ -6,6 +6,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import stored_enum_value
 
 
 @tool
@@ -20,7 +21,9 @@ async def write_triples(
     that the predicates you want to use exist in the ontology schema.**
 
     Use this tool to:
-    - Update order status (e.g., mark as DELIVERED)
+    - Update order status (e.g., mark as DELIVERED). You may pass either the
+      stored value or the wording this deployment shows for it -- the display
+      word is mapped back to the stored value before the write.
     - Assign couriers to tasks
     - Create new entities
 
@@ -76,6 +79,17 @@ async def write_triples(
     async with httpx.AsyncClient() as client:
         for triple in triples:
             try:
+                # The user speaks the label's language ("mark it settled") but the
+                # SQL joins on the fixed value (DELIVERED). Map display -> stored
+                # so a plain-English instruction cannot write an off-contract
+                # value that every status-keyed view would then drop.
+                if isinstance(triple, dict) and isinstance(triple.get("object_value"), str):
+                    resolved = stored_enum_value(
+                        triple.get("predicate", ""), triple["object_value"]
+                    )
+                    if resolved != triple["object_value"]:
+                        triple = {**triple, "object_value": resolved}
+
                 # Validate triple structure
                 required_fields = ["subject_id", "predicate", "object_value", "object_type"]
                 missing = [f for f in required_fields if f not in triple]
