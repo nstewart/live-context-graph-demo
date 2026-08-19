@@ -5,7 +5,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package, Wifi, WifiOff } from 'lucide-react'
 import { InventoryFormModal, InventoryFormData } from '../components/InventoryFormModal'
-import { pageText, placeholder } from '../label'
+import { Entity, aliasColumn, aliasPredicate, entity, enumLabel, pageText, placeholder } from '../label'
 
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
 
@@ -65,7 +65,7 @@ function StoreFormModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
         <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">{store ? 'Edit Store' : 'Create Store'}</h2>
+          <h2 className="text-lg font-semibold">{store ? `Edit ${Entity('store')}` : `Create ${Entity('store')}`}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
@@ -79,7 +79,7 @@ function StoreFormModal({
         >
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Store ID *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('store')} ID *</label>
               <input
                 type="text"
                 required
@@ -100,14 +100,14 @@ function StoreFormModal({
               >
                 {storeStatuses.map(status => (
                   <option key={status} value={status}>
-                    {status}
+                    {enumLabel('store_status', status)}
                   </option>
                 ))}
               </select>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Store Name *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('store')} Name *</label>
             <input
               type="text"
               required
@@ -130,7 +130,7 @@ function StoreFormModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Zone *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('zone')} *</label>
               <input
                 type="text"
                 required
@@ -141,7 +141,7 @@ function StoreFormModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Capacity (orders/hr)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Capacity ({entity('order', 'many')}/hr)</label>
               <input
                 type="number"
                 value={formData.store_capacity_orders_per_hour}
@@ -370,7 +370,7 @@ export default function StoresInventoryPage() {
               </span>
             )}
           </div>
-          <p className="text-gray-600">Real-time store updates with inventory data</p>
+          <p className="text-gray-600">Real-time {entity('store')} updates with {entity('inventory', 'many')} data</p>
         </div>
         <button
           onClick={() => {
@@ -384,7 +384,7 @@ export default function StoresInventoryPage() {
         </button>
       </div>
 
-      {isLoading && <div className="text-center py-8 text-gray-500">Loading stores...</div>}
+      {isLoading && <div className="text-center py-8 text-gray-500">Loading {entity('store', 'many')}...</div>}
 
       {stores.length > 0 && (
         <div className="space-y-6">
@@ -411,9 +411,9 @@ export default function StoresInventoryPage() {
                             : 'bg-red-100 text-red-800'
                       }`}
                     >
-                      {store.store_status}
+                      {enumLabel('store_status', store.store_status)}
                     </span>
-                    <p className="text-sm text-gray-500 mt-1">Zone: {store.store_zone}</p>
+                    <p className="text-sm text-gray-500 mt-1">{Entity('zone')}: {enumLabel('zone', store.store_zone)}</p>
                   </div>
                   <div className="flex gap-1">
                     <button
@@ -422,14 +422,14 @@ export default function StoresInventoryPage() {
                         setShowStoreModal(true)
                       }}
                       className="p-2 text-gray-400 hover:text-blue-600"
-                      title="Edit store"
+                      title={`Edit ${entity('store')}`}
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => setDeleteStoreConfirm(store)}
                       className="p-2 text-gray-400 hover:text-red-600"
-                      title="Delete store"
+                      title={`Delete ${entity('store')}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -452,15 +452,15 @@ export default function StoresInventoryPage() {
                   </button>
                 </div>
                 {store.inventory_items.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No inventory data available</p>
+                  <p className="text-gray-500 text-sm">No {entity('inventory', 'many')} data available</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-gray-500 border-b">
                           <th className="pb-2">Product</th>
-                          <th className="pb-2">Stock Level</th>
-                          <th className="pb-2">Replenishment ETA</th>
+                          <th className="pb-2">{aliasColumn('stock_level')}</th>
+                          <th className="pb-2">{aliasPredicate('replenishment_eta')}</th>
                           <th className="pb-2 w-20">Actions</th>
                         </tr>
                       </thead>
@@ -555,7 +555,7 @@ export default function StoresInventoryPage() {
       {deleteStoreConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-2">Delete Store</h3>
+            <h3 className="text-lg font-semibold mb-2">Delete {Entity('store')}</h3>
             <p className="text-gray-600 mb-4">
               Are you sure you want to delete <strong>{deleteStoreConfirm.store_name}</strong>? This will also delete all inventory items.
             </p>
@@ -578,7 +578,7 @@ export default function StoresInventoryPage() {
       {deleteInventoryConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-2">Delete Inventory Item</h3>
+            <h3 className="text-lg font-semibold mb-2">Delete {Entity('inventory')}</h3>
             <p className="text-gray-600 mb-4">
               Are you sure you want to delete inventory for <strong>{deleteInventoryConfirm.product_id}</strong>?
             </p>
@@ -603,7 +603,7 @@ export default function StoresInventoryPage() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center p-4 border-b">
               <div>
-                <h2 className="text-lg font-semibold">All Inventory Items</h2>
+                <h2 className="text-lg font-semibold">{pageText("stores", "all_inventory_title")}</h2>
                 <p className="text-sm text-gray-600">{viewAllInventoryStore.store_name} - {viewAllInventoryStore.inventory_items.length} items</p>
               </div>
               <button
@@ -618,8 +618,8 @@ export default function StoresInventoryPage() {
                 <thead className="sticky top-0 bg-white">
                   <tr className="text-left text-gray-500 border-b">
                     <th className="pb-2">Product</th>
-                    <th className="pb-2">Stock Level</th>
-                    <th className="pb-2">Replenishment ETA</th>
+                    <th className="pb-2">{aliasColumn('stock_level')}</th>
+                    <th className="pb-2">{aliasPredicate('replenishment_eta')}</th>
                     <th className="pb-2 w-20">Actions</th>
                   </tr>
                 </thead>

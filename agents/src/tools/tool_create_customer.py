@@ -34,7 +34,7 @@ async def create_customer(
         create_customer(
             name="John Doe",
             email="john@email.com",
-            address="123 Main St, Brooklyn, NY"
+            address="123 Main St"
         )
     """
     settings = get_settings()
@@ -70,7 +70,7 @@ async def create_customer(
 
     # Always add an address - use provided or create dummy
     if not address:
-        address = "123 Main St, Brooklyn, NY 11201"
+        address = "123 Main St"
 
     triples.append(
         {

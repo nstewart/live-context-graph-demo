@@ -32,7 +32,8 @@ async def get_store_health(
             - Required for "quick_check" view
             - Optional for other views to filter results
 
-        category: Filter inventory risk by product category (e.g., "Produce", "Dairy")
+        category: Filter inventory risk by product category. Categories come from
+            this deployment's catalog -- call search_inventory first if unsure.
             - Only applies to "inventory_risk" view
 
         risk_level: Filter inventory by risk level (CRITICAL, HIGH, MEDIUM, LOW)
@@ -55,8 +56,8 @@ async def get_store_health(
         # Find all critical inventory issues
         get_store_health(view="inventory_risk", risk_level="CRITICAL")
 
-        # Check Brooklyn store's high-risk produce items
-        get_store_health(view="inventory_risk", store_id="store:BK-01", category="Produce", risk_level="HIGH")
+        # Check one store's high-risk inventory items
+        get_store_health(view="inventory_risk", store_id="store:BK-01", risk_level="HIGH")
     """
     # Validate limit parameter
     if limit < 1 or limit > 100:

@@ -35,7 +35,7 @@ async def search_orders(
         - Order status and delivery windows
         - Promotion information (code, discount, discounted total)
         - Line items with product names, quantities, and prices
-        - Line item count and perishable flags
+        - Line item count and special-handling flags
     """
     settings = get_settings()
 

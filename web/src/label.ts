@@ -49,6 +49,7 @@ export interface LabelConfig {
   placeholders: Record<string, string>
   examples: {
     search_queries: string[]
+    keyword_queries: string[]
     predicate_values: Record<string, string>
   }
   agent: { persona: string; placeholder?: string; empty_state?: string }
@@ -103,12 +104,61 @@ export const Entity = (type: string) => entity(type, 'title')
 export const Entities = (type: string) => entity(type, 'title_many')
 
 /**
+ * The whole word bundle for an entity type. `entity()` covers the four plural
+ * forms; this reaches the extra forms some types carry -- notably `perishable`,
+ * which has no singular/plural but does have `adjective`, `note`, `tooltip`, and
+ * `cart_note`.
+ */
+export function words(type: string): EntityWords {
+  const w = label.vocabulary[type]
+  if (!w) {
+    missing(`vocabulary.${type}`)
+    return { one: '', many: '' }
+  }
+  return w
+}
+
+/**
  * Display label for an internal enum value. The value itself is fixed by the
  * SQL; unknown values pass through unchanged so live data is never hidden.
  */
 export function enumLabel(enumName: string, value: string | null | undefined): string {
   if (value === null || value === undefined || value === '') return ''
   return label.enums[enumName]?.[value] ?? value
+}
+
+/**
+ * Which enum a field's value is drawn from, when the field name and the enum
+ * name differ. Same-named fields (order_status, courier_status, vehicle_type,
+ * store_status) resolve without an entry.
+ *
+ * This lives here rather than in each component because three surfaces need the
+ * same answer: the JSON viewer, the triples tables, and anything rendering a
+ * stored value next to its predicate.
+ */
+const ENUM_BY_FIELD: Record<string, string> = {
+  store_zone: 'zone',
+  zone: 'zone',
+  delivery_task_status: 'task_status',
+  task_status: 'task_status',
+  health_status: 'capacity_health',
+}
+
+/** The enum a field draws from, or undefined if its values are free text. */
+export const enumForField = (field: string): string | undefined =>
+  ENUM_BY_FIELD[field] ?? (field in label.enums ? field : undefined)
+
+/**
+ * A stored value as a human should read it, given the field it came from.
+ * Free-text fields pass through, so this is safe to apply to any value.
+ *
+ * Display only -- callers that write the value back (a form, a triple update)
+ * must keep using the raw value.
+ */
+export function displayValue(field: string, value: string | null | undefined): string {
+  if (value === null || value === undefined) return ''
+  const name = enumForField(field)
+  return name ? enumLabel(name, value) : value
 }
 
 /** Every value of an enum, as {value, label} -- for dropdowns. */
@@ -131,6 +181,33 @@ export const aliasView = (name: string): string => label.aliases.views[name] ?? 
 /** Display name for an ontology predicate. Identity by default. */
 export const aliasPredicate = (name: string): string =>
   label.aliases.predicates[name] ?? name
+
+/**
+ * The eight seeded ontology class names are structural -- their `prefix` drives
+ * subject validation, so they are fixed forever (docs/WHITE_LABELING.md) and are
+ * safe to map here rather than in every label's YAML. Each maps to the
+ * `vocabulary` key that already names the same entity, so a label gets its
+ * ontology screens skinned for free instead of authoring these twice.
+ *
+ * Classes a user creates at runtime are absent here and pass through unchanged.
+ */
+const CLASS_VOCABULARY: Record<string, string> = {
+  Customer: 'customer',
+  Store: 'store',
+  Product: 'product',
+  InventoryItem: 'inventory',
+  Order: 'order',
+  OrderLine: 'orderline',
+  Courier: 'courier',
+  DeliveryTask: 'task',
+}
+
+/** Display name for an ontology class, e.g. "Courier" -> "Case Manager". */
+export const aliasClass = (className: string | null | undefined): string => {
+  if (!className) return ''
+  const key = CLASS_VOCABULARY[className]
+  return key ? entity(key, 'title') : className
+}
 
 /** A page's string bundle, e.g. `page('orders').title`. */
 export function page(key: string): Record<string, string> {
@@ -164,6 +241,9 @@ export const placeholder = (key: string): string =>
   label.placeholders[key] ?? missing(`placeholders.${key}`)
 
 export const searchQueries = label.examples.search_queries
+
+/** Keyword examples that must match seeded data -- see labels/schema.json. */
+export const keywordQueries = label.examples.keyword_queries
 
 /** Sample value for the "Write a Triple" form, keyed by predicate. */
 export const predicateSample = (predicate: string): string =>

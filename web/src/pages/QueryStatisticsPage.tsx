@@ -44,7 +44,7 @@ import { WriteTripleForm } from "../components/WriteTripleForm";
 import { ViewDefinitionModal } from "../components/ViewDefinitionModal";
 import { usePropagation } from "../contexts/PropagationContext";
 import { useViewDefinitionSelection } from "../hooks/useViewDefinitions";
-import { aliasColumn, aliasView, pageText } from "../label";
+import { Entity, aliasColumn, aliasView, copy, entity, enumLabel, pageText, words } from "../label";
 
 // Columns shown in the read-path SQL preview. Rendered through the active
 // label's display aliases; the query the API actually runs is untouched.
@@ -255,7 +255,7 @@ const StatusBadge = ({ status }: { status: string | null }) => {
 
   return (
     <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(status)}`}>
-      {status || "UNKNOWN"}
+      {enumLabel('order_status', status) || "UNKNOWN"}
     </span>
   );
 };
@@ -272,6 +272,7 @@ interface OrderCardProps {
 }
 
 const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading }: OrderCardProps) => {
+  const pr = copy('pricing');
   const [isExpanded, setIsExpanded] = useState(true);
   const prevOrderRef = useRef<OrderWithLinesData | null>(null);
   const [changedFields, setChangedFields] = useState<Set<string>>(new Set());
@@ -430,20 +431,20 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                 >
                   {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   <Package className="h-3 w-3" />
-                  {order.line_item_count || order.line_items.length} items
+                  {order.line_item_count || order.line_items.length} {entity('orderline', 'many')}
                   {order.has_perishable_items && (
-                    <span className="ml-1 text-xs text-amber-600">*perishable</span>
+                    <span className="ml-1 text-xs text-amber-600">*{words('perishable').adjective}</span>
                   )}
                 </button>
                 {isExpanded && (
                   <div className="mt-2 space-y-1 max-h-[250px] overflow-y-auto">
                     {/* Header row */}
                     <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_40px_40px_40px_55px] gap-1">
-                      <span>Product</span>
-                      <span className="text-right" title="Price when order was placed">Order</span>
-                      <span className="text-right" title="Product catalog price">Base</span>
-                      <span className="text-right" title="Current dynamic price">Live</span>
-                      <span className="text-right" title="Quantity × Order Price">Subtotal</span>
+                      <span>{Entity('product')}</span>
+                      <span className="text-right" title={`${pr.order_price_label}`}>Order</span>
+                      <span className="text-right" title={`${pr.base_price_label}`}>Base</span>
+                      <span className="text-right" title={`${pr.live_price_label}`}>Live</span>
+                      <span className="text-right" title={`Quantity × ${pr.order_price_label}`}>Subtotal</span>
                     </div>
                     {order.line_items.map((item: OrderLineItem) => {
                       const lineHighlight = (field: string) => highlightClass(`line-${item.line_id}-${field}`);
@@ -693,7 +694,7 @@ export default function QueryStatisticsPage() {
         }
       } catch (err) {
         console.error("Failed to load data:", err);
-        setError("Failed to load orders");
+        setError(`Failed to load ${entity('order', 'many')}`);
       }
     };
     loadData();
@@ -1063,9 +1064,9 @@ export default function QueryStatisticsPage() {
                     ))}
                     <div className="mt-1"><span className="text-purple-400">FROM</span> {aliasView("orders_with_lines_mv")} o</div>
                     <div><span className="text-purple-400">LEFT JOIN</span> {aliasView("inventory_items_with_dynamic_pricing_mv")} p</div>
-                    <div className="pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id</div>
-                    <div className="pl-4"><span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
-                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.order_id = <span className="text-green-400">:order_id</span></div>
+                    <div className="pl-4"><span className="text-purple-400">ON</span> p.{aliasColumn("product_id")} = o.{aliasColumn("product_id")}</div>
+                    <div className="pl-4"><span className="text-purple-400">AND</span> p.{aliasColumn("store_id")} = o.{aliasColumn("store_id")}</div>
+                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.{aliasColumn("order_id")} = <span className="text-green-400">:{aliasColumn("order_id")}</span></div>
                   </div>
                 </div>
                 {/* Right: JSON response */}
@@ -1074,7 +1075,7 @@ export default function QueryStatisticsPage() {
                     {zeroMaterializeOrder ? (
                       <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
                     ) : (
-                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
+                      <pre className="text-xs font-mono text-gray-500">Select a {entity('order')} to see live data...</pre>
                     )}
                   </div>
                 </div>

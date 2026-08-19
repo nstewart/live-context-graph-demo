@@ -186,9 +186,32 @@ pages:
     kpi_revenue_at_risk: Revenue at Risk
     kpi_store_utilization: Avg Store Utilization
     chart_demand_vs_capacity: Store Demand vs Capacity
+    section_risk_title: High-Risk Inventory
+    section_risk_subtitle: >-
+      Products with low stock levels that have pending customer orders (may
+      cause stockouts)
+    section_capacity_title: Store Capacity Status
+    section_capacity_subtitle: >-
+      Real-time store workload with automated recommendations for demand
+      management
   bundling:
     title: Delivery Bundling
     subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: Delivery windows intersect
+    constraint_inventory_note: Stock available for combined qty
+    constraint_capacity_note: Weight fits courier vehicle
+    empty: >-
+      No bundles yet. Create orders with overlapping delivery windows to see
+      bundles form.
+  # Load-generator lifecycle stages. The stage NAMES are fixed in the
+  # generator; these are only what the operator reads next to each duration.
+  settings:
+    stage_dispatch: Dispatch
+    stage_picking: Picking
+    stage_delivery: Delivery
+    stage_help_dispatch: How often to check for pending orders.
+    stage_help_picking: Time to pick items.
+    stage_help_delivery: Time to deliver.
 
 copy:
   triples:
@@ -229,6 +252,26 @@ copy:
     search_heading: Hybrid Search
     all_zones: All zones
     all_statuses: All statuses
+  cart:
+    heading: Shopping Cart
+    empty_heading: Your cart is empty
+  # The three prices the demo compares. A label that must not imply variable
+  # customer pricing (see life-insurance.yaml) reinterprets these as cost.
+  pricing:
+    order_price_label: Order Price
+    order_price_tooltip: >-
+      Price locked in when the order was placed - what the customer was
+      charged for this item
+    base_price_label: Base Price
+    base_price_tooltip: >-
+      Product's current static catalog price - no dynamic adjustments applied
+    live_price_label: Live Price
+    live_price_tooltip: >-
+      Current dynamically-calculated price based on demand, stock levels, and
+      other factors
+  rerank:
+    # The fields the cross-encoder reads live from Materialize.
+    hydrated_fields: status, items, current price and stock
 
 placeholders:
   subject: order:FM-1001
@@ -249,6 +292,18 @@ examples:
     - organic produce
     - dairy products
     - perishable delivery
+  # Keyword (not semantic) examples. These execute a literal multi_match against
+  # the orders index, so every value must actually occur in seeded data: a
+  # location name, a zone code, or a status the generator really produces
+  # (CREATED / DELIVERED / CANCELLED -- NOT PICKING or OUT_FOR_DELIVERY, which
+  # the seeder never emits). Verify with:
+  #   curl -s localhost:9200/orders/_count -H 'Content-Type: application/json' \
+  #     -d '{"query":{"multi_match":{"query":"<value>","fields":["store_name","store_zone","order_status"]}}}'
+  keyword_queries:
+    - Brooklyn
+    - Manhattan
+    - CREATED
+    - BK
   # Sample values for the "Write a Triple" form, keyed by predicate. Predicate
   # names themselves are fixed by the ontology.
   predicate_values:

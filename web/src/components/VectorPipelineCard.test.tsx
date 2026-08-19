@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VectorPipelineCard } from './VectorPipelineCard'
 
 // Mock the API client
+import { enumLabel } from '../label'
 vi.mock('../api/client', () => ({
   searchApi: {
     vectorSearchOrders: vi.fn(),
@@ -324,7 +325,11 @@ describe('VectorPipelineCard', () => {
       expect(screen.getByTestId('order-status')).not.toHaveAttribute('data-flashing')
 
       fireEvent.click(searchButton)
-      await waitFor(() => expect(screen.getByTestId('order-status')).toHaveTextContent('CREATED'))
+      await waitFor(() =>
+        expect(screen.getByTestId('order-status')).toHaveTextContent(
+          enumLabel('order_status', 'CREATED'),
+        ),
+      )
       expect(screen.getByTestId('order-status')).toHaveAttribute('data-flashing')
     })
 

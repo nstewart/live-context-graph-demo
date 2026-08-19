@@ -5,7 +5,7 @@ import { X, AlertTriangle } from "lucide-react";
 import { ProductSelector, ProductWithStock } from "./ProductSelector";
 import { ShoppingCart, CartLineItem } from "./ShoppingCart";
 import { OrderFlat } from "../api/client";
-import { placeholder } from "../label"
+import { Entity, entity, enumLabel, placeholder } from "../label"
 
 const statusOrder = [
   "CREATED",
@@ -123,7 +123,7 @@ export function OrderFormModal({
 
         return {
           product_id: item.product_id,
-          product_name: item.product_name || "Unknown Product",
+          product_name: item.product_name || `Unknown ${Entity('product')}`,
           quantity: quantity,
           unit_price: unitPrice,
           base_price: inventory?.base_price ?? undefined,
@@ -153,7 +153,7 @@ export function OrderFormModal({
     e.preventDefault();
 
     if (!order && lineItems.length === 0) {
-      alert("Please add at least one product to the order");
+      alert(`Please add at least one ${entity('product')} to the ${entity('order')}`);
       return;
     }
 
@@ -247,7 +247,7 @@ export function OrderFormModal({
       } else {
         // Add new item
         if (product.stock_level < 1) {
-          alert("Product is out of stock");
+          alert(`${Entity('product')} is ${enumLabel('availability_status', 'OUT_OF_STOCK').toLowerCase()}`);
           return prev;
         }
 
@@ -255,7 +255,7 @@ export function OrderFormModal({
           ...prev,
           {
             product_id: product.product_id,
-            product_name: product.product_name || "Unknown Product",
+            product_name: product.product_name || `Unknown ${Entity('product')}`,
             quantity: 1,
             unit_price: product.unit_price || 0,
             live_price: product.live_price || undefined,
@@ -311,7 +311,7 @@ export function OrderFormModal({
         <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center p-4 border-b">
             <h2 className="text-lg font-semibold">
-              {order ? "Edit Order" : "Create Order"}
+              {order ? `Edit ${Entity('order')}` : `Create ${Entity('order')}`}
             </h2>
             <button
               onClick={handleClose}
@@ -354,7 +354,7 @@ export function OrderFormModal({
                 >
                   {statusOrder.map((status) => (
                     <option key={status} value={status}>
-                      {status.replace("_", " ")}
+                      {enumLabel('order_status', status)}
                     </option>
                   ))}
                 </select>
@@ -374,7 +374,7 @@ export function OrderFormModal({
                   }}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
-                  <option value="">Select a customer...</option>
+                  <option value="">Select a {entity('customer')}...</option>
                   {customersData.map((customer) => (
                     <option
                       key={customer.customer_id}
@@ -396,7 +396,7 @@ export function OrderFormModal({
                   onChange={(e) => handleStoreChange(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                 >
-                  <option value="">Select a store...</option>
+                  <option value="">Select a {entity('store')}...</option>
                   {storesData.map((store) => (
                     <option key={store.store_id} value={store.store_id}>
                       {store.store_name || "Unknown"} ({store.store_id})
@@ -515,9 +515,9 @@ export function OrderFormModal({
                 <AlertTriangle className="h-5 w-5 text-orange-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold mb-1">Change Store?</h3>
+                <h3 className="text-lg font-semibold mb-1">Change {Entity('store')}?</h3>
                 <p className="text-gray-600 text-sm">
-                  Changing the store will clear all items from your cart. Are
+                  Changing the {entity('store')} will clear all {entity('orderline', 'many')}. Are
                   you sure?
                 </p>
               </div>

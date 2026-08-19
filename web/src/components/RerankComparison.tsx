@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { searchApi, RerankResponse } from "../api/client";
+import { copy } from "../label";
 
 const fmtMs = (ms?: number) => (ms == null ? "—" : `${ms} ms`);
 
@@ -78,6 +79,7 @@ function StageLatency({ timings }: { timings: Record<string, number | undefined>
  *  Row-per-candidate: ① where kNN ranked it · ② the document the reranker read
  *  (assembled live from Materialize) + the cross-encoder score · ③ new rank. */
 export function RerankComparison({ query }: { query: string }) {
+  const r = copy("rerank");
   const [data, setData] = useState<RerankResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +180,7 @@ export function RerankComparison({ query }: { query: string }) {
         <p className="mt-2 text-xs text-gray-400">
           OpenSearch picks the candidates by matching <span className="text-gray-500 font-medium">indexed text</span> (kNN
           recall). The cross-encoder then scores a <span className="text-purple-600 font-medium">document read live from
-          Materialize</span> — status, items, current price and stock, hydrated in <b>{fmtMs(t.feature_fetch_ms)}</b> — so
+          Materialize</span> — {r.hydrated_fields}, hydrated in <b>{fmtMs(t.feature_fetch_ms)}</b> — so
           editing a triple changes the ranking immediately, before the index catches up.
         </p>
         </div>

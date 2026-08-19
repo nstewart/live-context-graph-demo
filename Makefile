@@ -124,7 +124,9 @@ labels:
 
 # CI guards for white-labeling. `label-check` catches a stale committed web
 # artifact, `label-leaks` catches a label that inherited the default vertical's
-# wording, and `label-lint` catches the brand being hardcoded back into source.
+# wording, and `label-lint` catches the three ways source regresses: the brand
+# hardcoded back in, the default vertical's words in a visible string, and a
+# label key the UI could read but never does.
 label-check:
 	@$(LABEL_PY) tools/resolve_label.py --check
 
@@ -132,7 +134,7 @@ label-leaks:
 	@$(LABEL_PY) tools/check_label_leaks.py
 
 label-lint:
-	@bash tools/label_lint.sh
+	@$(LABEL_PY) tools/check_source_leaks.py
 
 label-ci: label-check label-leaks label-lint
 

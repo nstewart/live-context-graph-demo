@@ -34,7 +34,7 @@ import {
   OrderFormData,
 } from "../components/OrderFormModal";
 import { CartLineItem } from "../components/ShoppingCart";
-import { pageText } from "../label";
+import { Entities, Entity, copy, entity, enumLabel, pageText, words } from "../label";
 
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: "bg-blue-100 text-blue-800", icon: Package },
@@ -63,7 +63,7 @@ function StatusBadge({ status }: { status?: string | null }) {
       className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}
     >
       <Icon className="h-3 w-3" />
-      {status || "Unknown"}
+      {enumLabel('order_status', status) || "Unknown"}
     </span>
   );
 }
@@ -155,7 +155,7 @@ function OrdersTable({
                     <button
                       onClick={() => toggleRow(order.order_id)}
                       className="p-1 hover:bg-gray-200 rounded transition-colors"
-                      title="Toggle line items"
+                      title={`Toggle ${entity('orderline', 'many')}`}
                     >
                       {expandedRows.has(order.order_id) ? (
                         <ChevronDown className="h-4 w-4 text-gray-600" />
@@ -188,7 +188,7 @@ function OrdersTable({
                       {order.store_name || "Unknown"}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {order.store_zone}
+                      {enumLabel('zone', order.store_zone)}
                     </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -211,7 +211,7 @@ function OrdersTable({
                         {order.line_item_count || 0}
                       </span>
                       {order.has_perishable_items && (
-                        <span title="Has perishable items">
+                        <span title={words('perishable').tooltip}>
                           <Snowflake className="h-4 w-4 text-blue-500" />
                         </span>
                       )}
@@ -236,14 +236,14 @@ function OrdersTable({
                       <button
                         onClick={() => onEdit(order)}
                         className="text-blue-600 hover:text-blue-900"
-                        title="Edit order"
+                        title={`Edit ${entity('order')}`}
                       >
                         <Edit2 className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => onDelete(order)}
                         className="text-red-600 hover:text-red-900"
-                        title="Delete order"
+                        title={`Delete ${entity('order')}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -271,6 +271,7 @@ function OrdersTable({
 }
 
 function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; storeId: string | null }) {
+  const pr = copy('pricing');
   const z = useZero<Schema>();
 
   // Query current inventory for this store to get live prices
@@ -298,7 +299,7 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
     return (
       <div className="px-8 py-6 text-center">
         <Package className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-        <p className="text-sm font-medium text-gray-700">No line items</p>
+        <p className="text-sm font-medium text-gray-700">No {entity('orderline', 'many')}</p>
         <p className="text-xs text-gray-500 mt-1">
           This order has no products added yet
         </p>
@@ -323,20 +324,20 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
               <div className="flex items-center justify-end gap-1">
-                <span>Order Price</span>
-                <InfoTooltip text="Price locked in when the order was placed - what the customer was charged for this item" />
+                <span>{pr.order_price_label}</span>
+                <InfoTooltip text={pr.order_price_tooltip} />
               </div>
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
               <div className="flex items-center justify-end gap-1">
-                <span>Base Price</span>
-                <InfoTooltip text="Product's current static catalog price - no dynamic adjustments applied" />
+                <span>{pr.base_price_label}</span>
+                <InfoTooltip text={pr.base_price_tooltip} />
               </div>
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
               <div className="flex items-center justify-end gap-1">
-                <span>Live Price</span>
-                <InfoTooltip text="Current dynamically-calculated price based on demand, stock levels, and other factors" />
+                <span>{pr.live_price_label}</span>
+                <InfoTooltip text={pr.live_price_tooltip} />
               </div>
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">
@@ -358,7 +359,7 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
                       {item.product_name || item.product_id}
                     </span>
                     {item.perishable_flag && (
-                      <span title="Perishable - requires cold chain">
+                      <span title={`${words('perishable').tooltip} - ${words('perishable').note}`}>
                         <Snowflake className="h-4 w-4 text-blue-600" />
                       </span>
                     )}
@@ -861,7 +862,7 @@ export default function OrdersDashboardPage() {
             }}
             className="px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
           >
-            <option value="">All Stores</option>
+            <option value="">All {Entities('store')}</option>
             {storesData.map((store) => (
               <option key={store.store_id} value={store.store_id}>
                 {store.store_name || store.store_id}
@@ -890,7 +891,7 @@ export default function OrdersDashboardPage() {
       </div>
 
       {isLoading && (
-        <div className="text-center py-8 text-gray-500">Loading orders...</div>
+        <div className="text-center py-8 text-gray-500">Loading {entity('order', 'many')}...</div>
       )}
 
       {orders.length > 0 && (
@@ -1008,7 +1009,7 @@ export default function OrdersDashboardPage() {
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-2">Delete Order</h3>
+            <h3 className="text-lg font-semibold mb-2">Delete {Entity('order')}</h3>
             <p className="text-gray-600 mb-4">
               Are you sure you want to delete order{" "}
               <strong>{deleteConfirm.order_number}</strong>? This action cannot

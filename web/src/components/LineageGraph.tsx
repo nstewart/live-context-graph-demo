@@ -13,7 +13,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 import vectorDbImage from '../assets/vector-db.png';
-import { aliasView } from "../label";
+import { Entities, Entity, aliasView } from "../label";
 
 type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic' | 'destination_systems';
 
@@ -523,9 +523,9 @@ const rawNodeDefinitions: Array<{
   highlighted?: boolean;
 }> = [
   { id: 'triples',        label: 'OLTP',              type: 'source', medallionLayer: 'sources' },
-  { id: 'src_customers',  label: 'Customers DB',       type: 'source', medallionLayer: 'sources' },
+  { id: 'src_customers',  label: `${Entities('customer')} DB`,       type: 'source', medallionLayer: 'sources' },
   { id: 'src_operations', label: 'Operations DB',      type: 'source', medallionLayer: 'sources' },
-  { id: 'src_courier',    label: 'Courier Stream',     type: 'source', medallionLayer: 'sources' },
+  { id: 'src_courier',    label: `${Entity('courier')} Stream`,     type: 'source', medallionLayer: 'sources' },
   { id: 'customers_flat', label: 'customers_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'stores_flat', label: 'stores_flat', type: 'view', medallionLayer: 'bronze' },
   { id: 'products_flat', label: 'products_flat', type: 'view', medallionLayer: 'bronze' },

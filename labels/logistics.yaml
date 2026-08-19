@@ -176,6 +176,17 @@ aliases:
     stock_level: available_dock_capacity
     line_items: freight_lines
     line_item_count: freight_line_count
+    base_price: base_rate
+    customer_id: shipper_id
+    demand_multiplier: lane_demand_multiplier
+    demand_premium: lane_demand_premium
+    local_stock_adjustment: local_dock_capacity_adjustment
+    order_id: shipment_id
+    popularity_adjustment: lane_volume_adjustment
+    price_change: rate_change
+    product_id: commodity_id
+    store_id: terminal_id
+    zone_adjustment: lane_adjustment
   views:
     orders_flat_mv: shipments_flat_mv
     orders_with_lines_mv: shipments_with_lines_mv
@@ -221,6 +232,43 @@ aliases:
     courier_phone: driver_phone
     courier_status: driver_status
     task_status: dispatch_leg_status
+    base_price: base_rate
+    courier_home_store: driver_home_terminal
+    courier_status_changed_at: driver_status_changed_at
+    current_task: current_dispatch_leg
+    demand_multiplier: lane_demand_multiplier
+    demand_premium: lane_demand_premium
+    eta: projected_arrival
+    home_store: home_terminal
+    inventory_product: dock_commodity
+    inventory_store: dock_terminal
+    line_amount: freight_line_amount
+    line_inventory_item: freight_line_dock_capacity
+    line_of_order: freight_line_of_shipment
+    line_product: freight_line_commodity
+    line_sequence: freight_line_sequence
+    live_price: current_rate
+    local_stock_adjustment: local_dock_capacity_adjustment
+    order_created_at: shipment_created_at
+    order_line_unit_price: freight_line_unit_rate
+    order_store: shipment_terminal
+    order_total_amount: shipment_charges
+    perishable_adjustment: temp_controlled_adjustment
+    perishable_flag: temp_controlled_flag
+    placed_by: tendered_by
+    popularity_adjustment: lane_volume_adjustment
+    price_change: rate_change
+    product_sale_count: commodity_shipment_count
+    product_total_stock: commodity_total_dock_capacity
+    replenishment_eta: dock_capacity_refresh_eta
+    route_sequence: stop_sequence
+    store_capacity_orders_per_hour: terminal_capacity_shipments_per_hour
+    store_status: terminal_status
+    task_completed_at: dispatch_leg_completed_at
+    task_of_order: dispatch_leg_of_shipment
+    task_started_at: dispatch_leg_started_at
+    vehicle_type: equipment_type
+    zone_adjustment: lane_adjustment
 
 nav:
   - path: /
@@ -268,9 +316,30 @@ pages:
     kpi_revenue_at_risk: Revenue at Risk from Missed Appointments
     kpi_store_utilization: Avg Terminal Utilization
     chart_demand_vs_capacity: Freight Volume vs Dock Capacity
+    section_risk_title: At-Risk Dock Capacity
+    section_risk_subtitle: >-
+      Commodities whose dock capacity is nearly exhausted while shipments are
+      still booked against them
+    section_capacity_title: Terminal Dock Status
+    section_capacity_subtitle: >-
+      Real-time terminal workload with automated recommendations for routing
+      freight
   bundling:
     title: Load Consolidation
     subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: Appointment windows intersect
+    constraint_inventory_note: Dock capacity available for the combined freight
+    constraint_capacity_note: Billable weight fits the equipment
+    empty: >-
+      No consolidations yet. Book shipments with overlapping appointment
+      windows to see consolidations form.
+  settings:
+    stage_dispatch: Dispatch
+    stage_picking: Dock
+    stage_delivery: Linehaul
+    stage_help_dispatch: How often to check for undispatched shipments.
+    stage_help_picking: Time to work the freight across the dock.
+    stage_help_delivery: Time to run the linehaul.
 
 copy:
   triples:
@@ -292,6 +361,24 @@ copy:
   vector_pipeline:
     all_zones: All lanes
     all_statuses: All statuses
+  cart:
+    heading: Freight Lines
+    empty_heading: No freight lines on this shipment yet
+  pricing:
+    order_price_label: Booked Rate
+    order_price_tooltip: >-
+      Rate locked in when the shipment was booked - what the shipper was
+      quoted for this freight line
+    base_price_label: Tariff Rate
+    base_price_tooltip: >-
+      The commodity's standard tariff rate - no accessorial adjustments
+      applied
+    live_price_label: Current Rate
+    live_price_tooltip: >-
+      Current rate based on lane demand, available dock capacity, and other
+      accessorial factors
+  rerank:
+    hydrated_fields: status, freight lines, current rate and dock capacity
 
 placeholders:
   subject: order:SH-1001
@@ -312,6 +399,11 @@ examples:
     - temperature-controlled pallets
     - hazmat placarded freight
     - liftgate residential handoff
+  keyword_queries:
+    - Northeast Corridor
+    - Mid-Atlantic
+    - CREATED
+    - MAN
   predicate_values:
     order_status: DELIVERED
     order_number: SH-1234

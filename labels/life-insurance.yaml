@@ -173,6 +173,17 @@ aliases:
     stock_level: available_capacity
     line_items: requirements
     line_item_count: requirement_count
+    base_price: base_cost_to_serve
+    customer_id: policyholder_id
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
+    local_stock_adjustment: local_capacity_adjustment
+    order_id: case_id
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_id: transaction_type_id
+    store_id: center_id
+    zone_adjustment: region_adjustment
   views:
     orders_flat_mv: cases_flat_mv
     orders_with_lines_mv: cases_with_requirements_mv
@@ -218,6 +229,44 @@ aliases:
     courier_phone: case_manager_phone
     courier_status: case_manager_status
     task_status: work_item_status
+    base_price: base_cost_to_serve
+    courier_home_store: case_manager_home_center
+    courier_status_changed_at: case_manager_status_changed_at
+    current_task: current_work_item
+    delivered_at: settled_at
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
+    eta: projected_settlement
+    home_store: home_center
+    inventory_product: capacity_transaction_type
+    inventory_store: capacity_center
+    line_amount: requirement_amount
+    line_inventory_item: requirement_capacity_pool
+    line_of_order: requirement_of_case
+    line_product: requirement_transaction_type
+    line_sequence: requirement_sequence
+    live_price: current_cost_to_serve
+    local_stock_adjustment: local_capacity_adjustment
+    order_created_at: case_created_at
+    order_line_unit_price: requirement_unit_cost
+    order_store: case_center
+    order_total_amount: case_cost_to_serve
+    perishable_adjustment: deadline_adjustment
+    perishable_flag: deadline_bound_flag
+    placed_by: filed_by
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_sale_count: transaction_type_volume
+    product_total_stock: transaction_type_total_capacity
+    replenishment_eta: capacity_refresh_eta
+    route_sequence: queue_sequence
+    store_capacity_orders_per_hour: center_capacity_cases_per_hour
+    store_status: center_status
+    task_completed_at: work_item_completed_at
+    task_of_order: work_item_of_case
+    task_started_at: work_item_started_at
+    vehicle_type: handling_class
+    zone_adjustment: region_adjustment
 
 nav:
   - path: /
@@ -265,9 +314,30 @@ pages:
     kpi_revenue_at_risk: SLA Breach Exposure
     kpi_store_utilization: Avg Center Utilization
     chart_demand_vs_capacity: Case Volume vs Capacity
+    section_risk_title: At-Risk Capacity
+    section_risk_subtitle: >-
+      Transaction types whose handling capacity is nearly exhausted while
+      cases are still queued against them
+    section_capacity_title: Service Center Capacity Status
+    section_capacity_subtitle: >-
+      Real-time center workload with automated recommendations for routing
+      volume
   bundling:
     title: Case Batching
     subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: SLA windows intersect
+    constraint_inventory_note: Handling capacity available for the combined work
+    constraint_capacity_note: Effort fits the case manager
+    empty: >-
+      No batches yet. Create servicing cases with overlapping SLA windows to
+      see batches form.
+  settings:
+    stage_dispatch: Routing
+    stage_picking: Review
+    stage_delivery: Settlement
+    stage_help_dispatch: How often to check for unrouted cases.
+    stage_help_picking: Time to review requirements.
+    stage_help_delivery: Time to settle.
 
 copy:
   triples:
@@ -289,6 +359,26 @@ copy:
   vector_pipeline:
     all_zones: All regions
     all_statuses: All statuses
+  cart:
+    heading: Case Requirements
+    empty_heading: No requirements on this case yet
+  # DELIBERATE: cost to serve, never benefit or settlement amounts. A demo
+  # that appears to vary what a policyholder is paid would be indefensible.
+  pricing:
+    order_price_label: Booked Cost
+    order_price_tooltip: >-
+      Cost to serve locked in when the case was opened - what this
+      requirement was booked at
+    base_price_label: Standard Cost
+    base_price_tooltip: >-
+      The transaction type's standard cost to serve - no handling adjustments
+      applied
+    live_price_label: Current Cost
+    live_price_tooltip: >-
+      Current cost to serve based on case volume, available capacity, and
+      other handling factors
+  rerank:
+    hydrated_fields: status, requirements, current cost to serve and capacity
 
 placeholders:
   subject: order:SC-1001
@@ -309,6 +399,11 @@ examples:
     - beneficiary disputes
     - annuity income start
     - deadline-bound death claims
+  keyword_queries:
+    - Northeast
+    - Mid-Atlantic
+    - CREATED
+    - MAN
   predicate_values:
     order_status: DELIVERED
     order_number: SC-1234

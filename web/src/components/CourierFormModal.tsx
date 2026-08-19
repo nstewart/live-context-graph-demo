@@ -3,7 +3,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { CourierSchedule } from '../api/client'
 import { X } from 'lucide-react'
-import { placeholder } from '../label'
+import { Entity, aliasColumn, entity, placeholder } from '../label'
 
 const vehicleTypes = ['BIKE', 'CAR', 'VAN']
 const courierStatuses = ['AVAILABLE', 'ON_DELIVERY', 'OFF_SHIFT']
@@ -65,7 +65,7 @@ export function CourierFormModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
         <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">{courier ? 'Edit Courier' : 'Create Courier'}</h2>
+          <h2 className="text-lg font-semibold">{courier ? `Edit ${Entity('courier')}` : `Create ${Entity('courier')}`}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
@@ -79,7 +79,7 @@ export function CourierFormModal({
         >
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Courier ID *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('courier')} ID *</label>
               <input
                 type="text"
                 required
@@ -119,7 +119,7 @@ export function CourierFormModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Type *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{aliasColumn('vehicle_type')} *</label>
               <select
                 required
                 value={formData.vehicle_type}
@@ -134,14 +134,14 @@ export function CourierFormModal({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Home Store *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Home {Entity('store')} *</label>
               <select
                 required
                 value={formData.home_store_id}
                 onChange={e => setFormData({ ...formData, home_store_id: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Select a store...</option>
+                <option value="">Select a {entity('store')}...</option>
                 {storesData.map(store => (
                   <option key={store.store_id} value={store.store_id}>
                     {store.store_name || 'Unknown'} ({store.store_id})

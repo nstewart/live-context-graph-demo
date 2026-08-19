@@ -19,6 +19,7 @@ import { Schema } from '../schema'
 import { apiClient } from '../api/client'
 
 // Feature status type
+import { Entities, Entity, entity, enumLabel, page } from '../label'
 interface FeatureStatus {
   feature: string
   enabled: boolean
@@ -77,6 +78,7 @@ function getVehicleCompatibility(weightGrams: number | null): { bike: boolean; c
 }
 
 export default function BundlingPage() {
+  const b = page('bundling')
   const [howItWorksOpen, setHowItWorksOpen] = useState(true)
   const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set())
   const [featureStatus, setFeatureStatus] = useState<FeatureStatus | null>(null)
@@ -217,7 +219,7 @@ export default function BundlingPage() {
       // Has compatible pairs but still singleton - might be transitive incompatibility
       return {
         type: 'transitive',
-        message: 'Compatible with some orders individually, but no complete bundle possible',
+        message: `Compatible with some ${entity('order', 'many')} individually, but no complete bundle possible`,
       }
     }
 
@@ -229,14 +231,14 @@ export default function BundlingPage() {
     if (sameStoreOrders.length === 0) {
       return {
         type: 'only_order',
-        message: 'Only CREATED order at this store',
+        message: `Only ${enumLabel('order_status', 'CREATED')} ${entity('order')} at this ${entity('store')}`,
       }
     }
 
     // There are other orders but no compatible pairs
     return {
       type: 'no_overlap',
-      message: `No time overlap with ${sameStoreOrders.length} other order${sameStoreOrders.length !== 1 ? 's' : ''} at this store`,
+      message: `No time overlap with ${sameStoreOrders.length} other ${sameStoreOrders.length !== 1 ? entity('order', 'many') : entity('order')} at this ${entity('store')}`,
     }
   }
 
@@ -247,7 +249,7 @@ export default function BundlingPage() {
         <div className="flex items-center gap-3 mb-6">
           <Truck className="h-8 w-8 text-green-600" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Delivery Bundling</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{b.title}</h1>
             <p className="text-gray-600">Loading feature status...</p>
           </div>
         </div>
@@ -264,9 +266,9 @@ export default function BundlingPage() {
           <div className="flex items-center gap-3">
             <Truck className="h-8 w-8 text-gray-400" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Delivery Bundling</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{b.title}</h1>
               <p className="text-gray-600">
-                Mutually recursive constraint satisfaction
+                {b.subtitle}
               </p>
             </div>
           </div>
@@ -311,9 +313,9 @@ export default function BundlingPage() {
         <div className="flex items-center gap-3">
           <Truck className="h-8 w-8 text-green-600" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Delivery Bundling</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{b.title}</h1>
             <p className="text-gray-600">
-              Mutually recursive constraint satisfaction
+              {b.subtitle}
             </p>
           </div>
         </div>
@@ -357,7 +359,7 @@ export default function BundlingPage() {
                   <div className="flex items-center justify-center gap-4">
                     <div className="bg-white rounded-lg shadow-md p-4 w-40 text-center border-2 border-blue-300">
                       <div className="text-blue-600 font-semibold text-sm mb-1">Compatible Pairs</div>
-                      <div className="text-xs text-gray-500">Which orders CAN be bundled?</div>
+                      <div className="text-xs text-gray-500">Which {entity('order', 'many')} CAN be bundled?</div>
                     </div>
                     <div className="flex flex-col items-center gap-1">
                       <span className="text-green-500 text-lg">→</span>
@@ -366,7 +368,7 @@ export default function BundlingPage() {
                     </div>
                     <div className="bg-white rounded-lg shadow-md p-4 w-40 text-center border-2 border-green-300">
                       <div className="text-green-600 font-semibold text-sm mb-1">Bundle Membership</div>
-                      <div className="text-xs text-gray-500">Which bundle does each order join?</div>
+                      <div className="text-xs text-gray-500">Which bundle does each {entity('order')} join?</div>
                     </div>
                   </div>
                   <div className="mt-4 flex items-center justify-center gap-2">
@@ -385,7 +387,7 @@ export default function BundlingPage() {
                     <span className="text-amber-500 mt-0.5">💡</span>
                     <p className="text-xs text-amber-800">
                       <span className="font-semibold">Why Materialize?</span> Most databases can't handle mutual recursion.
-                      Materialize maintains these complex recursive results incrementally—when an order changes,
+                      Materialize maintains these complex recursive results incrementally—when a {entity('order')} changes,
                       only affected bundles recompute, not everything.
                     </p>
                   </div>
@@ -394,27 +396,27 @@ export default function BundlingPage() {
 
               {/* Right: How Bundling Works */}
               <div>
-                <h4 className="font-medium text-gray-900 mb-4">How Orders Get Bundled</h4>
+                <h4 className="font-medium text-gray-900 mb-4">How {Entities('order')} Get Bundled</h4>
                 <div className="space-y-3 mb-4">
                   <div className="flex gap-3">
                     <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">1</div>
                     <div>
-                      <div className="text-sm font-medium text-gray-900">Each order starts alone</div>
-                      <div className="text-xs text-gray-500">Every CREATED order begins in its own bundle</div>
+                      <div className="text-sm font-medium text-gray-900">Each {entity('order')} starts alone</div>
+                      <div className="text-xs text-gray-500">Every {enumLabel('order_status', 'CREATED')} {entity('order')} begins in its own bundle</div>
                     </div>
                   </div>
                   <div className="flex gap-3">
                     <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">2</div>
                     <div>
                       <div className="text-sm font-medium text-gray-900">Find compatible pairs</div>
-                      <div className="text-xs text-gray-500">Check all constraints between every two orders</div>
+                      <div className="text-xs text-gray-500">Check all constraints between every two {entity('order', 'many')}</div>
                     </div>
                   </div>
                   <div className="flex gap-3">
                     <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">3</div>
                     <div>
-                      <div className="text-sm font-medium text-gray-900">Merge compatible orders</div>
-                      <div className="text-xs text-gray-500">Orders join the smallest compatible bundle</div>
+                      <div className="text-sm font-medium text-gray-900">Merge compatible {entity('order', 'many')}</div>
+                      <div className="text-xs text-gray-500">{Entities('order')} join the smallest compatible bundle</div>
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -431,30 +433,30 @@ export default function BundlingPage() {
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <Store className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm font-medium text-gray-900">Same Store</span>
+                      <span className="text-sm font-medium text-gray-900">Same {Entity('store')}</span>
                     </div>
-                    <p className="text-xs text-gray-500">Orders from the same location</p>
+                    <p className="text-xs text-gray-500">{Entities('order')} from the same location</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <Clock className="h-4 w-4 text-gray-400" />
                       <span className="text-sm font-medium text-gray-900">Time Overlap</span>
                     </div>
-                    <p className="text-xs text-gray-500">Delivery windows intersect</p>
+                    <p className="text-xs text-gray-500">{b.constraint_time_note}</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <Package className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm font-medium text-gray-900">Inventory</span>
+                      <span className="text-sm font-medium text-gray-900">{Entities('inventory')}</span>
                     </div>
-                    <p className="text-xs text-gray-500">Stock available for combined qty</p>
+                    <p className="text-xs text-gray-500">{b.constraint_inventory_note}</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <Scale className="h-4 w-4 text-gray-400" />
                       <span className="text-sm font-medium text-gray-900">Capacity</span>
                     </div>
-                    <p className="text-xs text-gray-500">Weight fits courier vehicle</p>
+                    <p className="text-xs text-gray-500">{b.constraint_capacity_note}</p>
                   </div>
                 </div>
               </div>
@@ -488,7 +490,7 @@ export default function BundlingPage() {
           {bundles.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <ShoppingCart className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              <p>No bundles yet. Create orders with overlapping delivery windows to see bundles form.</p>
+              <p>{b.empty}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -530,11 +532,11 @@ export default function BundlingPage() {
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-sm font-semibold">
                                   {bundle.bundle_size}
                                 </span>
-                                <span className="text-sm text-gray-600">orders bundled</span>
+                                <span className="text-sm text-gray-600">{entity('order', 'many')} bundled</span>
                               </div>
                               {/* Constraint badges */}
                               <div className="flex items-center gap-1">
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title="Same Store">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title={`Same ${Entity('store')}`}>
                                   <Store className="h-3 w-3" />
                                   <Check className="h-3 w-3" />
                                 </span>
@@ -542,11 +544,11 @@ export default function BundlingPage() {
                                   <Clock className="h-3 w-3" />
                                   <Check className="h-3 w-3" />
                                 </span>
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title="Inventory OK">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title={`${Entity('inventory')} OK`}>
                                   <Package className="h-3 w-3" />
                                   <Check className="h-3 w-3" />
                                 </span>
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title="Courier Capacity">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-xs" title={`${Entity('courier')} Capacity`}>
                                   <Scale className="h-3 w-3" />
                                   <Check className="h-3 w-3" />
                                 </span>
@@ -560,7 +562,7 @@ export default function BundlingPage() {
                                 <div className="grid grid-cols-2 gap-2 text-xs">
                                   <div className="flex items-center gap-2">
                                     <Check className="h-3 w-3 text-green-600" />
-                                    <span className="text-gray-600">Same Store:</span>
+                                    <span className="text-gray-600">Same {Entity('store')}:</span>
                                     <span className="font-medium text-gray-900">{bundle.store_name}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -573,7 +575,7 @@ export default function BundlingPage() {
                                   <div className="flex items-center gap-2">
                                     <Check className="h-3 w-3 text-green-600" />
                                     <span className="text-gray-600">Inventory:</span>
-                                    <span className="font-medium text-gray-900">All products available</span>
+                                    <span className="font-medium text-gray-900">All {entity('product', 'many')} available</span>
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <Check className="h-3 w-3 text-green-600" />
@@ -613,7 +615,7 @@ export default function BundlingPage() {
                   <div className="bg-amber-50 px-4 py-2 border-b border-amber-200">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      <span className="font-medium text-amber-800">Unbundled Orders</span>
+                      <span className="font-medium text-amber-800">Unbundled {Entities('order')}</span>
                       <span className="text-xs text-amber-600">
                         ({singletonBundles.length} order{singletonBundles.length !== 1 ? 's' : ''})
                       </span>

@@ -45,6 +45,10 @@ def system_prompt() -> str:
 def persona() -> str:
     return load_label()["agent"]["persona"]
 
+def empty_state() -> str:
+    """One line telling the operator what this deployment can be asked about."""
+    return load_label()["agent"].get("empty_state", "")
+
 
 def default_store() -> str:
     return load_label()["agent"].get("default_store", "")

@@ -11,7 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from src.config import get_settings
-from src.demo_label import persona
+from src.demo_label import empty_state, persona
 
 # Lazy import for heavy graph module - only import when actually needed
 # This avoids loading langchain/langgraph on every CLI invocation
@@ -64,9 +64,9 @@ def chat(
     Chat with the operations assistant.
 
     Examples:
-        python -m src.main "Show all OUT_FOR_DELIVERY orders"
-        python -m src.main "Find orders for customer Alex"
-        python -m src.main "Mark order FM-1001 as DELIVERED"
+        python -m src.main "Show all OUT_FOR_DELIVERY records"
+        python -m src.main "Find everything for customer Alex"
+        python -m src.main "Mark <id> as DELIVERED"
 
         # Continue a conversation:
         python -m src.main --thread-id my-session "Find orders for Lisa"
@@ -79,7 +79,7 @@ def chat(
 
         console.print(Panel.fit(
             f"[bold green]{persona()}[/bold green]\n"
-            "Type your questions about orders, stores, and couriers.\n"
+            f"{empty_state()}\n"
             f"Session ID: [cyan]{session_thread_id}[/cyan]\n"
             "Type 'quit' or 'exit' to leave.",
             title="Welcome",

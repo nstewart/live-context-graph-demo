@@ -14,7 +14,7 @@ from src.config import get_settings
 from src.db.client import close_connections, get_query_stats
 from src.routes import audit_router, features_router, freshmart_router, loadgen_router, metrics_router, ontology_router, query_stats_router, search_router, triples_router
 from src.routes.query_stats import start_heartbeat_generator, stop_heartbeat_generator
-from src.demo_label import api_title, brand_name, label_name
+from src.demo_label import api_title, brand_name, entity_title, label_name
 
 # Configure logging
 settings = get_settings()
@@ -86,12 +86,15 @@ app = FastAPI(
     The API uses a triple store (subject-predicate-object) backed by PostgreSQL,
     with an ontology schema for validation. Entity types include:
 
-    - **Customer**: People who place orders
-    - **Store**: Store / service center locations
-    - **Product**: Items available for sale
-    - **Order**: Customer orders
-    - **Courier**: Delivery couriers
-    - **DeliveryTask**: Tasks assigned to couriers
+    - **Customer**: {entity_title("customer", "Customer")}
+    - **Store**: {entity_title("store", "Store")} locations
+    - **Product**: {entity_title("product", "Product")} catalog
+    - **Order**: {entity_title("order", "Order")}
+    - **Courier**: {entity_title("courier", "Courier")}
+    - **DeliveryTask**: {entity_title("task", "Delivery Task")}, assigned to a {entity_title("courier", "Courier")}
+
+    The bold names are the fixed ontology class names; the text after each is what
+    this deployment's label calls them.
 
     Active label: `{label_name()}`
     """,

@@ -212,6 +212,14 @@
         },
         "predicate_values": {
           "$ref": "#/$defs/stringMap"
+        },
+        "keyword_queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Keyword search examples for the Agent-native Reads card. Unlike search_queries these run a literal keyword match against the orders index, so every value must occur in this label's seeded data (a location name, a fixed status value, or a zone code)."
         }
       }
     },

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 // Simple SVG sparkline component
+import { enumLabel, page } from '../label'
 function Sparkline({
   data,
   width = 80,
@@ -116,6 +117,7 @@ const healthStatusColors = {
 }
 
 export default function MetricsDashboardPage() {
+  const m = page('metrics')
   const z = useZero<Schema>();
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
 
@@ -268,7 +270,7 @@ export default function MetricsDashboardPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Live Metrics Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{m.title}</h1>
             {z.online ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -284,7 +286,7 @@ export default function MetricsDashboardPage() {
               Last update: {new Date(lastUpdateTime).toLocaleTimeString()}
             </span>
           </div>
-          <p className="text-gray-600">Real-time business health indicators</p>
+          <p className="text-gray-600">{m.subtitle}</p>
         </div>
       </div>
 
@@ -293,7 +295,7 @@ export default function MetricsDashboardPage() {
         {/* Pricing Yield */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-500">Dynamic Pricing Yield</h3>
+            <h3 className="text-sm font-medium text-gray-500">{m.kpi_pricing_yield}</h3>
             <DollarSign className="h-5 w-5 text-green-600" />
           </div>
           <p className="text-xs text-gray-500 mb-4">
@@ -313,7 +315,7 @@ export default function MetricsDashboardPage() {
         {/* Inventory Risk */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-500">Revenue at Risk</h3>
+            <h3 className="text-sm font-medium text-gray-500">{m.kpi_revenue_at_risk}</h3>
             <AlertTriangle className="h-5 w-5 text-red-600" />
           </div>
           <p className="text-xs text-gray-500 mb-4">
@@ -330,7 +332,7 @@ export default function MetricsDashboardPage() {
         {/* Capacity Health */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-500">Avg Store Utilization</h3>
+            <h3 className="text-sm font-medium text-gray-500">{m.kpi_store_utilization}</h3>
             <Activity className="h-5 w-5 text-blue-600" />
           </div>
           <p className="text-xs text-gray-500 mb-4">
@@ -354,10 +356,10 @@ export default function MetricsDashboardPage() {
           <div className="p-4 border-b">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
               <Package className="h-5 w-5" />
-              High-Risk Inventory
+              {m.section_risk_title}
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Products with low stock levels that have pending customer orders (may cause stockouts)
+              {m.section_risk_subtitle}
             </p>
           </div>
           <div className="overflow-x-auto max-h-96">
@@ -410,10 +412,10 @@ export default function MetricsDashboardPage() {
           <div className="p-4 border-b">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
               <Store className="h-5 w-5" />
-              Store Capacity Status
+              {m.section_capacity_title}
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Real-time store workload with automated recommendations for demand management
+              {m.section_capacity_subtitle}
             </p>
           </div>
           <div className="overflow-x-auto max-h-96">
@@ -433,7 +435,7 @@ export default function MetricsDashboardPage() {
                     <tr key={store.store_id} className="hover:bg-gray-50">
                       <td className="px-4 py-2">
                         <div>{store.store_name}</div>
-                        <div className="text-xs text-gray-500">{store.store_zone}</div>
+                        <div className="text-xs text-gray-500">{enumLabel('zone', store.store_zone)}</div>
                       </td>
                       <td className="px-4 py-2 text-center font-medium">
                         {store.current_utilization_pct?.toFixed(1)}%
@@ -445,11 +447,11 @@ export default function MetricsDashboardPage() {
                           store.health_status === 'HEALTHY' ? 'bg-green-100 text-green-800' :
                           'bg-blue-100 text-blue-800'
                         }`}>
-                          {store.health_status}
+                          {enumLabel('capacity_health', store.health_status)}
                         </span>
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-600">
-                        {store.recommended_action?.replace('_', ' ')}
+                        {enumLabel('recommended_action', store.recommended_action)}
                       </td>
                     </tr>
                   ))}
@@ -462,7 +464,7 @@ export default function MetricsDashboardPage() {
       {/* Store Demand vs Capacity Table */}
       {storeMetrics.length > 0 && (
         <div className="mt-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Store Demand vs Capacity</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">{m.chart_demand_vs_capacity}</h2>
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -509,12 +511,12 @@ export default function MetricsDashboardPage() {
                       <tr key={metrics.store_id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{metrics.store_name}</div>
-                          <div className="text-xs text-gray-500">{metrics.store_zone}</div>
+                          <div className="text-xs text-gray-500">{enumLabel('zone', metrics.store_zone)}</div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-center">
                           <span
                             className={`inline-block w-3 h-3 rounded-full ${healthStatusColors[metrics.health_status]}`}
-                            title={metrics.health_status}
+                            title={enumLabel('capacity_health', metrics.health_status)}
                           />
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">

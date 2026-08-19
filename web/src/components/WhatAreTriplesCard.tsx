@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronRight, ArrowRight, ShoppingCart } from "lucide-react";
 import { triplesApi, Triple } from "../api/client";
-import { copy } from "../label";
+import { aliasPredicate, copy, displayValue, enumLabel } from '../label'
 
 interface Order {
   order_id: string;
@@ -131,7 +131,7 @@ export const WhatAreTriplesCard = ({
             >
               {orders.map((order) => (
                 <option key={order.order_id} value={order.order_id}>
-                  {order.order_number || order.order_id} - {order.order_status} - {order.customer_name || "Unknown"} @ {order.store_name || "Unknown"}
+                  {order.order_number || order.order_id} - {enumLabel('order_status', order.order_status)} - {order.customer_name || "Unknown"} @ {order.store_name || "Unknown"}
                 </option>
               ))}
             </select>
@@ -190,7 +190,7 @@ export const WhatAreTriplesCard = ({
                           {triple.subject_id}
                         </td>
                         <td className="px-4 py-2 font-mono text-xs text-gray-700">
-                          {triple.predicate}
+                          {aliasPredicate(triple.predicate)}
                         </td>
                         <td className="px-4 py-2 font-mono text-xs">
                           {isEntityRef(triple.object_type) ? (
@@ -199,7 +199,11 @@ export const WhatAreTriplesCard = ({
                               {triple.object_value}
                             </span>
                           ) : (
-                            <span className="text-gray-700">{triple.object_value}</span>
+                            /* Display only -- onTripleClick above still hands the
+                               raw value to the write form. */
+                            <span className="text-gray-700">
+                              {displayValue(triple.predicate, triple.object_value)}
+                            </span>
                           )}
                         </td>
                       </tr>

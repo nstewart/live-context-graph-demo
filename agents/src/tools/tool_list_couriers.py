@@ -35,13 +35,13 @@ async def list_couriers(store_id: str = None, status: str = None) -> list[dict]:
         - ON_DELIVERY: Courier is currently delivering an order
 
     Example workflows:
-        1. "Who's available at the Queens store?"
+        1. "Who's available at the QNS location?"
            -> list_couriers(store_id="store:QNS-01", status="AVAILABLE")
 
-        2. "Show me all couriers on delivery"
+        2. "Show me everyone currently assigned to a task"
            -> list_couriers(status="ON_DELIVERY")
 
-        3. "List couriers for Manhattan stores"
+        3. "List couriers for the MAN zone"
            -> First call list_stores(zone="MAN") to get store IDs
            -> Then call list_couriers(store_id="store:MAN-01") for each store
     """

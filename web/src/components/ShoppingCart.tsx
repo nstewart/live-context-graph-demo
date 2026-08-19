@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Minus, Plus, Trash2, ShoppingCart as CartIcon, Snowflake } from 'lucide-react'
 import { formatAmount } from '../test/utils'
+import { Entity, copy, entity, words } from '../label'
 
 export interface CartLineItem {
   product_id: string
@@ -28,6 +29,7 @@ export function ShoppingCart({
   onRemoveItem,
   className = '',
 }: ShoppingCartProps) {
+  const c = copy('cart')
   const [updatingItem, setUpdatingItem] = useState<string | null>(null)
   const [errorItem, setErrorItem] = useState<{ productId: string; message: string } | null>(null)
 
@@ -74,9 +76,9 @@ export function ShoppingCart({
       <div className={`bg-white rounded-lg border-2 border-dashed border-gray-200 ${className}`}>
         <div className="p-8 text-center">
           <CartIcon className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Your cart is empty</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">{c.empty_heading}</h3>
           <p className="text-gray-500">
-            Search and select products above to add them to your order
+            Search and select {entity('product', 'many')} above to add them to your {entity('order')}
           </p>
         </div>
       </div>
@@ -90,12 +92,12 @@ export function ShoppingCart({
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
             <CartIcon className="h-5 w-5" />
-            Shopping Cart ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})
+            {c.heading} ({lineItems.length} {lineItems.length !== 1 ? entity('orderline', 'many') : entity('orderline')})
           </h3>
           {hasPerishableItems && (
             <span className="flex items-center gap-1 text-sm text-blue-600">
               <Snowflake className="h-4 w-4" />
-              Contains perishables
+              {words('perishable').tooltip}
             </span>
           )}
         </div>
@@ -135,7 +137,7 @@ export function ShoppingCart({
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-900">{item.product_name}</span>
                     {item.perishable_flag && (
-                      <span title="Perishable">
+                      <span title={words('perishable').tooltip}>
                         <Snowflake className="h-4 w-4 text-blue-600" />
                       </span>
                     )}
@@ -213,7 +215,7 @@ export function ShoppingCart({
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-gray-900">{item.product_name}</span>
                   {item.perishable_flag && (
-                    <span title="Perishable">
+                    <span title={words('perishable').tooltip}>
                       <Snowflake className="h-4 w-4 text-blue-600" />
                     </span>
                   )}
@@ -274,12 +276,12 @@ export function ShoppingCart({
       {/* Total */}
       <div className="px-4 py-4 border-t border-gray-200 bg-gray-50">
         <div className="flex justify-between items-center">
-          <span className="text-lg font-semibold text-gray-900">Order Total</span>
+          <span className="text-lg font-semibold text-gray-900">{Entity('order')} Total</span>
           <span className="text-2xl font-bold text-green-600">${formatAmount(total)}</span>
         </div>
         {hasPerishableItems && (
           <p className="text-xs text-gray-500 mt-2">
-            This order contains perishable items requiring cold chain delivery
+            {words('perishable').cart_note}
           </p>
         )}
       </div>

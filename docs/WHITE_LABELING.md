@@ -241,7 +241,7 @@ make label && make label-ci
 | `brand.tab_title` / `favicon` | browser tab | `index.html`, build-time |
 | `brand.theme.primary` / `accent` | `brand-*` / `accent-*` Tailwind scales | buttons, active nav, focus rings |
 | `brand.qr` | QR modal URL and CTA | sidebar → Show QR Code |
-| `vocabulary.<entity>` | display words per entity type | everywhere, via `entity()` |
+| `vocabulary.<entity>` | display words per entity type | everywhere, via `entity()`; also names the eight ontology classes, via `aliasClass()` |
 | `vocabulary.order.id_prefix` | order-number prefix | seeder, load generator, agent |
 | `enums.<name>` | value → display label | dropdowns, status badges |
 | `aliases.columns` / `views` / `predicates` | **display-only** identifier renaming | SQL preview, lineage graph, predicate dropdown, raw JSON, OpenSearch examples |
@@ -249,7 +249,8 @@ make label && make label-ci
 | `pages.<page>` | titles, subtitles, search placeholders | each page header |
 | `copy.<block>` | narrative/explainer prose | the teaching cards |
 | `placeholders` | form input placeholders | all modals and forms |
-| `examples.search_queries` | "Try:" suggestions | Vector Pipeline |
+| `examples.search_queries` | "Try:" suggestions (semantic) | Vector Pipeline |
+| `examples.keyword_queries` | "Try:" suggestions (literal keyword match) | Agent-native Reads |
 | `examples.predicate_values` | sample values per predicate | Write a Triple |
 | `seed.store_name_template` | store naming (`{zone_name}`, `{n}`) | seeded data |
 | `seed.locations` | zone names and street pools | seeded addresses |
@@ -257,6 +258,37 @@ make label && make label-ci
 | `search.synonyms` | OpenSearch synonym filter | keyword half of hybrid search |
 | `agent.persona` / `placeholder` / `empty_state` | chat widget chrome | chat widget |
 | `agent.system_prompt` | the LLM's entire briefing | agent responses |
+
+### Reading a key from the UI
+
+Everything in `web/src` goes through `web/src/label.ts`. There is no reason for a
+component to contain a literal a label could supply, and `make label-lint` fails
+if one does.
+
+| Helper | Use |
+|---|---|
+| `entity('courier', 'many')` | a display word; `Entity()` / `Entities()` are the capitalized forms |
+| `words('perishable')` | the forms `entity()` cannot express: `adjective`, `note`, `tooltip`, `cart_note` |
+| `enumLabel('order_status', v)` | a fixed SQL value → its display text; unknown values pass through |
+| `enumOptions('vehicle_type')` | the same map as `{value, label}` pairs, for a dropdown |
+| `aliasColumn` / `aliasView` / `aliasPredicate` | display-only identifier renaming |
+| `aliasClass('Courier')` | an ontology class name → its display word |
+| `page('metrics')` / `copy('cart')` | a string bundle; `pageText()` / `copyText()` fetch one field |
+| `placeholder('order_search')` | a form input placeholder |
+
+A missing key renders `⟪pages.orders.no_such_field⟫` and warns on the console,
+rather than silently rendering an empty string — a half-wired screen should be
+obvious, not subtle.
+
+`aliasClass()` maps the eight seeded ontology class names (`Order`, `Courier`,
+`InventoryItem`, …) onto the `vocabulary` key that already names the same entity,
+so the ontology screens skin themselves and no label authors those words twice. A
+class created at runtime is unknown to the map and passes through unchanged.
+
+`HighlightedJson` runs field names through `aliasColumn()` and enum values through
+`enumLabel()`, because the JSON panes on the home page and the Agent-native Reads
+card are on-screen surfaces like any other. The rewrite is render-time only — the
+`data` prop, change tracking, and the wire format all keep the real key.
 
 ### The catalog
 
@@ -327,7 +359,58 @@ reorder an inherited entry.
 |---|---|
 | `make label-check` | the committed web artifact drifting from `freshmart.yaml` |
 | `make label-leaks` | a label that inherited the default vertical's wording |
-| `make label-lint` | the brand hardcoded back into application source |
+| `make label-lint` | source that ignores the label (three checks, below) |
+
+`label-leaks` reads in one direction — it proves a *label's copy* is clean.
+`label-lint` (`tools/check_source_leaks.py`) reads the other, which is the
+direction white-labeling actually regresses in: `labels/` can author "case
+manager" perfectly while a component still renders the literal `Courier`, so the
+key is authored, correct, and never read.
+
+| Check | Catches | Scope |
+|---|---|---|
+| `brand` | `FreshMart` or the `FM-` prefix typed into code | all scanned source |
+| `vocabulary` | the default vertical's words in a user-visible string | entity nouns in `web/src`; grocery-specific words everywhere |
+| `raw-fields` | a database field rendered without its label helper | `web/src` `.tsx` |
+| `dead-keys` | a label key the UI could read but no component reads | `web/src` |
+
+`vocabulary` and `raw-fields` are two halves of one problem and you need both.
+`vocabulary` reads *string literals*, so it catches a hardcoded
+`Couriers & Schedule` but is blind to `{triple.predicate}` — a binding that
+renders whatever Postgres holds. That blind spot is why the "Agent Writes and
+Memories" card still showed raw grocery predicates after every literal on it had
+been fixed: the leak was in the data path, not the copy.
+
+`raw-fields` flags a render of `predicate`, `class_name`, `order_status`,
+`store_zone` and friends when the expression is not wrapped in a label helper. It
+deliberately ignores positions where the raw value is required: `value=` and
+`key=` attributes, `className` lookups like `healthStatusColors[x.health_status]`,
+triple-write payloads (`{ predicate: …, object_value: … }`), and `${…}` template
+interpolations, which build React keys and dedup keys rather than display text.
+
+`dead-keys` is the cheap proxy for "did anyone wire this up?" — when it was first
+run it found 3 page bundles, 7 enum maps and 9 of 10 `vocabulary` entries that no
+component had ever read.
+
+The `vocabulary` check scans JSX text and string literals, skipping comments. It
+does **not** skip docstrings under `agents/src/tools`, because LangChain ships
+those to the model as tool descriptions and a customer hears the result. Entity
+nouns are only flagged in `web/src`: in `agents/src` the tool names and
+parameters *are* `create_order` and `store_id`, fixed by the same rule that fixes
+predicate names, so a docstring describing `create_order` has to say "order". The
+assistant's own wording comes from `agent.system_prompt`, which each label
+authors in full.
+
+When a literal genuinely has to stay, mark it and say why:
+
+```tsx
+{/* label-lint-ok: real index name, these must run as pasted */}
+<div className="text-purple-600">GET orders/_search</div>
+```
+
+The pragma applies to its own line and the line below it. Reach for it rarely —
+the ones in the tree today are a real OpenSearch index name and an ontology class
+name the user actually types.
 
 ---
 
@@ -412,6 +495,20 @@ lines, and comments in `api/`, `load-generator/`, and `db/scripts/` still say
 FreshMart. They are developer-facing. `label-lint` scans only the
 customer-visible surfaces: `web/src`, `agents/src`, and the OpenAPI metadata in
 `api/src/main.py`.
+
+**`SHOW CREATE` output.** The View Definition modal (click a lineage-graph node)
+shows the real object name and the real SQL Materialize returns, with grocery
+identifiers intact. That is deliberate: the modal exists so a field engineer can
+copy a runnable `SHOW CREATE` and open it in the SQL shell, and aliasing it would
+produce object names that do not exist. Note the consequence — the node you click
+is *labelled* `cases_flat_mv` and the modal it opens is titled `orders_flat_mv`.
+If that mismatch is a problem in front of a prospect, show `aliasView(name)` as
+the modal heading and keep the real name only on the copyable `SHOW CREATE` line.
+
+**The seeder's console banner.** `db/scripts` prints `FreshMart Load Test Data
+Generator` while it seeds, and the Postgres database is named `freshmart` under
+every label. Both are deploy-log and DB-client text, not demo UI — but they are
+the one place the default brand surfaces if you screen-share a terminal.
 
 ---
 
