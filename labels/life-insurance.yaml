@@ -805,3 +805,80 @@ agent:
          appear alongside others in the same case
     - If showing cost comparisons, format as: "$115.75 (current cost to serve, base: $100.00)"
     - When staff ask about cost, you can explain which factors are affecting a specific transaction type
+
+ontology:
+  classes:
+    Customer: A policyholder whose in-force policy is being serviced
+    Store: A service center that handles casework
+    Product: A servicing transaction type that can be requested
+    InventoryItem: Center-by-transaction-type handling capacity record
+    Order: A servicing case opened against a policy
+    OrderLine: A requirement within a servicing case
+    Courier: A case manager who works cases
+    DeliveryTask: A work item assigned to a case manager
+  properties:
+    assigned_to: Assigned case manager
+    base_price: Standard cost to serve before handling adjustments
+    category: Transaction type category
+    courier_home_store: Case manager home center
+    courier_name: Case manager full name
+    courier_status: "Case manager status. Values: OFF_SHIFT=Off Shift,
+      AVAILABLE=Available, ON_DELIVERY=On Case, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when case manager status last changed
+    current_task: Current work item the case manager is handling
+    customer_address: Policyholder mailing address
+    customer_email: Policyholder email address
+    customer_name: Policyholder full name
+    delivered_at: Timestamp when the case was settled
+    delivery_window_end: SLA window end time
+    delivery_window_start: SLA window start time
+    demand_multiplier: Volume-based cost multiplier for high-volume transaction types
+    demand_premium: Additional premium for exceptionally high-volume transaction types
+    eta: Projected settlement time
+    home_store: Policyholder servicing center
+    inventory_product: Transaction type this capacity pool covers
+    inventory_store: Center holding this capacity
+    line_amount: "Requirement total (derived: quantity * unit cost)"
+    line_inventory_item: Capacity pool used to satisfy this requirement
+    line_of_order: Parent servicing case
+    line_product: Transaction type on this requirement
+    line_sequence: Display sequence within the case
+    live_price: Current cost to serve with all handling adjustments applied
+    local_stock_adjustment: Local capacity scarcity multiplier for this specific center
+    order_created_at: Timestamp when the case was opened
+    order_line_unit_price: Cost to serve at case open time (snapshot)
+    order_number: Human-readable case number (SC-XXXX)
+    order_status: "Case status. Values: CREATED=Received, PICKING=In Review,
+      OUT_FOR_DELIVERY=Awaiting Settlement, DELIVERED=Settled, CANCELLED=Withdrawn"
+    order_store: Center handling the case
+    order_total_amount: Total cost to serve the case, in dollars
+    perishable: Whether the transaction type carries a statutory deadline
+    perishable_adjustment: Deadline-priority multiplier, to clear time-bound work first
+    perishable_flag: Denormalized statutory-deadline flag, for performance
+    placed_by: Policyholder the case was opened for
+    popularity_adjustment: Frequency multiplier based on request rank within category
+    price_change: Difference between current and standard cost to serve
+    product_name: Transaction type display name
+    product_sale_count: Historical request count for this transaction type across all centers
+    product_total_stock: Total handling capacity for this transaction type across all centers
+    quantity: Quantity requested
+    replenishment_eta: Expected capacity refresh time
+    route_sequence: Position in the case manager's queue
+    scarcity_adjustment: Cross-center scarcity multiplier based on total available capacity
+    stock_level: Current available handling capacity
+    store_address: Center physical address
+    store_capacity_orders_per_hour: Maximum cases per hour
+    store_name: Center display name
+    store_status: "Center operational status. Values: OPEN=Open,
+      LIMITED=Reduced capacity"
+    store_zone: Center region code
+    task_completed_at: Timestamp when the work item was completed
+    task_of_order: Case the work item belongs to
+    task_started_at: When the current work phase started (for timing completion)
+    task_status: "Work item status. Values: PENDING=Pending,
+      IN_PROGRESS=In Progress, COMPLETED=Completed, FAILED=Failed"
+    unit_price: Standard cost to serve, in dollars
+    unit_weight_grams: Relative handling effort for this transaction type
+    vehicle_type: "Handling class. Values: BIKE=Standard handling,
+      SCOOTER=Priority handling, CAR=Complex handling, WALKING=Manual review"
+    zone_adjustment: Region-based cost multiplier (e.g., Northeast premium)

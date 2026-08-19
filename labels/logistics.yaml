@@ -806,3 +806,80 @@ agent:
          same shipment
     - If showing rate comparisons, format as: "$166.75 (current rate, base: $145.00)"
     - When staff ask about rates, you can explain which factors are affecting a specific commodity
+
+ontology:
+  classes:
+    Customer: A shipper that tenders freight
+    Store: A cross-dock terminal
+    Product: A commodity that can be shipped
+    InventoryItem: Terminal-by-commodity dock capacity record
+    Order: A shipment booked for movement
+    OrderLine: A freight line within a shipment
+    Courier: A driver who runs freight
+    DeliveryTask: A dispatch leg assigned to a driver
+  properties:
+    assigned_to: Assigned driver
+    base_price: Tariff rate before accessorial adjustments
+    category: Commodity category
+    courier_home_store: Driver home terminal
+    courier_name: Driver full name
+    courier_status: "Driver status. Values: OFF_SHIFT=Off Duty,
+      AVAILABLE=Available, ON_DELIVERY=On Route, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when driver status last changed
+    current_task: Current dispatch leg the driver is running
+    customer_address: Shipper pickup address
+    customer_email: Shipper email address
+    customer_name: Shipper full name
+    delivered_at: Timestamp when the shipment arrived
+    delivery_window_end: Appointment window end time
+    delivery_window_start: Appointment window start time
+    demand_multiplier: Lane demand multiplier for high-demand commodities
+    demand_premium: Additional premium for exceptionally high-demand lanes
+    eta: Projected arrival time
+    home_store: Shipper's origin terminal
+    inventory_product: Commodity this dock capacity covers
+    inventory_store: Terminal holding this dock capacity
+    line_amount: "Freight line total (derived: quantity * unit rate)"
+    line_inventory_item: Dock capacity used to move this freight line
+    line_of_order: Parent shipment
+    line_product: Commodity on this freight line
+    line_sequence: Display sequence within the shipment
+    live_price: Current rate with all accessorial adjustments applied
+    local_stock_adjustment: Local dock scarcity multiplier for this specific terminal
+    order_created_at: Timestamp when the shipment was booked
+    order_line_unit_price: Rate at booking time (rate snapshot)
+    order_number: Human-readable PRO number (SH-XXXX)
+    order_status: "Shipment status. Values: CREATED=Booked, PICKING=At Dock,
+      OUT_FOR_DELIVERY=In Transit, DELIVERED=Arrived, CANCELLED=Cancelled"
+    order_store: Terminal handling the shipment
+    order_total_amount: Total shipment charges in dollars
+    perishable: Whether the commodity needs temperature control
+    perishable_adjustment: Reefer-priority multiplier, to move temp-controlled freight first
+    perishable_flag: Denormalized temperature-control flag, for performance
+    placed_by: Shipper that tendered the shipment
+    popularity_adjustment: Lane volume multiplier based on tender rank within category
+    price_change: Difference between current rate and tariff rate
+    product_name: Commodity display name
+    product_sale_count: Historical tender count for this commodity across all terminals
+    product_total_stock: Total dock capacity for this commodity across all terminals
+    quantity: Quantity tendered
+    replenishment_eta: Expected dock capacity refresh time
+    route_sequence: Stop position in the driver's route
+    scarcity_adjustment: Cross-terminal scarcity multiplier based on total dock capacity
+    stock_level: Current available dock capacity
+    store_address: Terminal physical address
+    store_capacity_orders_per_hour: Maximum shipments per hour
+    store_name: Terminal display name
+    store_status: "Terminal operational status. Values: OPEN=Open,
+      LIMITED=Dock constrained"
+    store_zone: Terminal lane code
+    task_completed_at: Timestamp when the dispatch leg was completed
+    task_of_order: Shipment the dispatch leg belongs to
+    task_started_at: When the current leg started (for timing completion)
+    task_status: "Dispatch leg status. Values: PENDING=Pending,
+      IN_PROGRESS=In Progress, COMPLETED=Completed, FAILED=Failed"
+    unit_price: Tariff rate in dollars
+    unit_weight_grams: Billable handling weight in carrier units
+    vehicle_type: "Equipment type. Values: BIKE=Cargo van,
+      SCOOTER=Box truck, CAR=Tractor-trailer, WALKING=Yard hostler"
+    zone_adjustment: Lane-based rate multiplier (e.g., Northeast Corridor premium)

@@ -1332,3 +1332,80 @@ agent:
          co-occur with other purchases
     - If showing price comparisons, format as: "$5.75 (live price, base: $5.00)"
     - When staff ask about pricing, you can explain which factors are affecting a specific product's price
+
+# Ontology descriptions. Keys are the FIXED class and property names;
+# only the prose is label-driven. These are seeded into Postgres and shown
+# on the Knowledge Graph tab, so a label that omits one inherits the
+# default vertical's wording -- `make label-leaks` fails on that.
+
+ontology:
+  classes:
+    Customer: A customer who places orders
+    Store: A FreshMart store location
+    Product: A product available for sale
+    InventoryItem: Store-product inventory record
+    Order: A customer order
+    OrderLine: A line item within an order
+    Courier: A delivery courier
+    DeliveryTask: A delivery task assigned to a courier
+  properties:
+    assigned_to: Assigned courier
+    base_price: Base price before dynamic adjustments
+    category: Product category
+    courier_home_store: Courier home store
+    courier_name: Courier full name
+    courier_status: Courier status (OFF_SHIFT, AVAILABLE, ON_DELIVERY, ACTIVE)
+    courier_status_changed_at: Timestamp when courier status last changed
+    current_task: Current delivery task the courier is working on
+    customer_address: Customer delivery address
+    customer_email: Customer email address
+    customer_name: Customer full name
+    delivered_at: Timestamp when the order was delivered
+    delivery_window_end: Delivery window end time
+    delivery_window_start: Delivery window start time
+    demand_multiplier: Demand-based pricing multiplier for high-demand products
+    demand_premium: Additional demand premium for exceptionally high-demand products
+    eta: Estimated delivery time
+    home_store: Customer preferred store
+    inventory_product: Product in inventory
+    inventory_store: Store holding this inventory
+    line_amount: "Line total amount (derived: quantity * unit_price)"
+    line_inventory_item: Inventory item used to fulfill this order line
+    line_of_order: Parent order
+    line_product: Product on this line
+    line_sequence: Display sequence within order
+    live_price: Current dynamically-calculated price with all adjustments applied
+    local_stock_adjustment: Local stock scarcity multiplier for this specific store
+    order_created_at: Timestamp when the order was created
+    order_line_unit_price: Unit price at order time (price snapshot)
+    order_number: Human-readable order number (FM-XXXX)
+    order_status: Order status (CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED)
+    order_store: Store fulfilling the order
+    order_total_amount: Total order amount in dollars
+    perishable: Whether product is perishable
+    perishable_adjustment: Perishability discount multiplier to move inventory faster
+    perishable_flag: Denormalized perishable flag from product for performance
+    placed_by: Customer who placed the order
+    popularity_adjustment: Product popularity multiplier based on sales rank within category
+    price_change: Difference between live price and base price
+    product_name: Product display name
+    product_sale_count: Historical sales count for this product across all stores
+    product_total_stock: Total stock level for this product across all stores
+    quantity: Quantity ordered
+    replenishment_eta: Expected restock time
+    route_sequence: Position in courier route
+    scarcity_adjustment: Cross-store scarcity multiplier based on total available stock
+    stock_level: Current stock quantity
+    store_address: Store physical address
+    store_capacity_orders_per_hour: Maximum orders per hour
+    store_name: Store display name
+    store_status: Store operational status (OPEN, LIMITED)
+    store_zone: Store delivery zone code
+    task_completed_at: Timestamp when the delivery task was completed
+    task_of_order: Order being delivered
+    task_started_at: When the current task phase started (for timing task completion)
+    task_status: Task status (PENDING, IN_PROGRESS, COMPLETED, FAILED)
+    unit_price: Product unit price in dollars
+    unit_weight_grams: Product weight in grams
+    vehicle_type: Vehicle type (BIKE, SCOOTER, CAR, WALKING)
+    zone_adjustment: Zone-based pricing multiplier (e.g., Manhattan premium)

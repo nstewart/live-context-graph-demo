@@ -393,6 +393,29 @@
           "description": "Full LLM system prompt. Restates the dynamic-pricing rules in prose -- see docs/WHITE_LABELING.md; it must track db/materialize/init.sh."
         }
       }
+    },
+    "ontology": {
+      "type": "object",
+      "description": "Descriptions for the ontology, seeded into Postgres and shown on the Knowledge Graph tab. Keys are the FIXED class and property names; only the prose is label-driven. A label that omits an entry inherits the default vertical's wording, which check_label_leaks.py reports.",
+      "additionalProperties": false,
+      "properties": {
+        "classes": {
+          "type": "object",
+          "description": "class_name -> description. Keys are structural and must not be renamed.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "properties": {
+          "type": "object",
+          "description": "prop_name -> description. Keys are structural and must not be renamed.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   },
   "$defs": {

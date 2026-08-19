@@ -256,6 +256,7 @@ make label && make label-ci
 | `seed.locations` | zone names and street pools | seeded addresses |
 | `seed.catalog` | the product catalog | seeded data, search results |
 | `search.synonyms` | OpenSearch synonym filter | keyword half of hybrid search |
+| `ontology.classes` / `.properties` | descriptions for the 8 classes and 60 properties | Knowledge Graph tab (Classes and Properties) |
 | `agent.persona` / `placeholder` / `empty_state` | chat widget chrome | chat widget |
 | `agent.system_prompt` | the LLM's entire briefing | agent responses |
 
@@ -289,6 +290,29 @@ class created at runtime is unknown to the map and passes through unchanged.
 `enumLabel()`, because the JSON panes on the home page and the Agent-native Reads
 card are on-screen surfaces like any other. The rewrite is render-time only — the
 `data` prop, change tracking, and the wire format all keep the real key.
+
+### Ontology descriptions
+
+`db/seed/demo_ontology_freshmart.sql` defines the ontology's *shape* — the eight
+classes, their prefixes, and the 60 properties with their domains and range
+kinds — and is identical for every label. It seeds every `description` as **NULL**
+on purpose, because the prose is what a customer reads on the Knowledge Graph tab.
+`db/scripts/apply_ontology_labels.py` writes the descriptions from
+`labels/<name>.yaml` immediately afterwards, and fails the seed if the active
+label is missing any. A blank column beats silently showing the wrong vertical's
+wording.
+
+Keys are the fixed `class_name` and `prop_name`; only the prose changes. Because
+they live in the label, `make label-leaks` already covers them — a label that
+forgets one inherits FreshMart's wording and the check reports the exact path.
+
+Descriptions that list a fixed enum pair the stored value with what the UI shows,
+since a triple-writer needs the real value:
+
+```yaml
+order_status: "Case status. Stored/shown: CREATED=Received, PICKING=In Review,
+  OUT_FOR_DELIVERY=Awaiting Settlement, DELIVERED=Settled, CANCELLED=Withdrawn"
+```
 
 ### The catalog
 

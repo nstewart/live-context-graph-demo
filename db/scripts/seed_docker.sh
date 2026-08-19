@@ -34,6 +34,13 @@ for seed in /seed/*.sql; do
     fi
 done
 
+# The ontology SQL seeds descriptions as NULL -- they are prose a customer reads
+# on the Knowledge Graph tab, so the active label owns them. Do this right after
+# the SQL and before anything else, so a failure here stops the seed rather than
+# leaving the tab blank.
+echo "Labelling ontology descriptions..."
+python3 /app/apply_ontology_labels.py
+
 # Generate representative operational data with scale factor 0.01
 # Scale 0.01 = ~10 stores, 500 orders, ~70K triples
 # Use --clear to remove existing triples first (idempotent seeding)
