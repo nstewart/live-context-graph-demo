@@ -1,4 +1,4 @@
-.PHONY: help setup label labels label-check label-leaks label-lint label-ci up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
+.PHONY: help setup label labels label-check label-leaks label-lint label-data label-ci up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -137,6 +137,13 @@ label-lint:
 	@$(LABEL_PY) tools/check_source_leaks.py
 
 label-ci: label-check label-leaks label-lint
+
+# Data-level check. Needs a seeded stack, so it is NOT in label-ci: the static
+# checks above cannot see what a seeder or generator wrote into Postgres, which
+# is where leaks have survived longest (ontology descriptions, generated
+# addresses). Run it after `make up LABEL=<name>`.
+label-data:
+	@$(LABEL_PY) tools/check_seeded_data.py
 
 # Initialize Materialize
 init-mz:

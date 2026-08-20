@@ -384,6 +384,15 @@ reorder an inherited entry.
 | `make label-check` | the committed web artifact drifting from `freshmart.yaml` |
 | `make label-leaks` | a label that inherited the default vertical's wording |
 | `make label-lint` | source that ignores the label (three checks, below) |
+| `make label-data` | seeded rows a producer wrote without consulting the label (needs a running stack) |
+
+`label-data` is the third axis and is deliberately outside `label-ci`, because it
+needs a seeded database. Both static checks are blind to what a seeder or
+generator *wrote*, and that is where leaks have survived longest: 63 ontology
+descriptions, and 30 policyholder addresses in Brooklyn and Queens minted by the
+load generator, whose address builder ignored `seed.locations` entirely. Run it
+after `make up LABEL=<name>`. It skips when the active label is the default,
+whose data is *supposed* to be grocery.
 
 `label-leaks` reads in one direction — it proves a *label's copy* is clean.
 `label-lint` (`tools/check_source_leaks.py`) reads the other, which is the

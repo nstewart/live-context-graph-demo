@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from faker import Faker
 
-from .demo_label import order_prefix
+from .demo_label import address_state, locations, order_prefix
 
 # Initialize Faker
 fake = Faker()
@@ -68,28 +68,42 @@ class DataGenerator:
         return fake.email()
 
     def generate_address(self, zone: str = None) -> str:
-        """Generate a realistic NYC address.
+        """Generate an address in the active label's geography.
+
+        The default vertical is NYC, but a label supplies its own zone names and
+        street pools (`seed.locations`) plus the state used for postal codes
+        (`seed.address_state`). Generating NYC boroughs under another label put
+        "Williamsburg, Brooklyn, NY" on a policyholder record.
 
         Args:
-            zone: Optional zone (Manhattan, Brooklyn, Queens)
+            zone: Optional zone, by CODE ("BK") or display name ("Mid-Atlantic").
+                Omitted picks one at random.
 
         Returns:
             Street address
         """
-        zones = {
-            "Manhattan": ["Upper West Side", "Midtown", "Lower East Side", "Chelsea"],
-            "Brooklyn": ["Park Slope", "Williamsburg", "Brooklyn Heights", "DUMBO"],
-            "Queens": ["Astoria", "Long Island City", "Forest Hills", "Flushing"],
-        }
+        locs = locations()
+        if not locs:
+            # No resolved label available (bare `python -m loadgen`): keep the
+            # generator working rather than failing, and stay vertical-neutral.
+            return f"{fake.building_number()} {fake.street_name()}"
 
-        if zone and zone in zones:
-            neighborhood = random.choice(zones[zone])
-        else:
-            zone = random.choice(list(zones.keys()))
-            neighborhood = random.choice(zones[zone])
+        chosen = None
+        if zone:
+            for code, name, streets in locs:
+                if zone in (code, name):
+                    chosen = (code, name, streets)
+                    break
+        if chosen is None:
+            chosen = random.choice(locs)
 
-        street = fake.street_address()
-        return f"{street}, {neighborhood}, {zone}, NY"
+        _code, zone_name, streets = chosen
+        street = random.choice(streets) if streets else fake.street_name()
+        state = address_state()
+        return (
+            f"{fake.building_number()} {street}, {zone_name}, "
+            f"{state} {fake.zipcode_in_state(state)}"
+        )
 
     def generate_delivery_window(
         self, hours_from_now: int = None
