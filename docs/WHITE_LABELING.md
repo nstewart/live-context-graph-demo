@@ -258,7 +258,7 @@ make label && make label-ci
 | `search.synonyms` | OpenSearch synonym filter | keyword half of hybrid search |
 | `ontology.classes` / `.properties` | descriptions for the 8 classes and 60 properties | Knowledge Graph tab (Classes and Properties) |
 | `agent.persona` / `placeholder` / `empty_state` | chat widget chrome | chat widget |
-| `agent.system_prompt` | the LLM's entire briefing | agent responses |
+| `agent.system_prompt` | the LLM's entire briefing, including the tool list and the resolve-names-first rule | agent responses |
 
 ### Reading a key from the UI
 
@@ -276,6 +276,8 @@ if one does.
 | `aliasClass('Courier')` | an ontology class name → its display word |
 | `page('metrics')` / `copy('cart')` | a string bundle; `pageText()` / `copyText()` fetch one field |
 | `placeholder('order_search')` | a form input placeholder |
+| `displayValue('order_status', v)` | a stored value as a human reads it, given the field it came from; free-text passes through |
+| `enumForField('store_zone')` | which enum a field's values are drawn from, when the names differ |
 
 A missing key renders `⟪pages.orders.no_such_field⟫` and warns on the console,
 rather than silently rendering an empty string — a half-wired screen should be
@@ -290,6 +292,33 @@ class created at runtime is unknown to the map and passes through unchanged.
 `enumLabel()`, because the JSON panes on the home page and the Agent-native Reads
 card are on-screen surfaces like any other. The rewrite is render-time only — the
 `data` prop, change tracking, and the wire format all keep the real key.
+
+### The agent's write paths
+
+The assistant's wording is label-driven (`agent.system_prompt`), and that creates
+a hazard the read paths do not have: a user speaks the label's vocabulary, and a
+tool may write it. Two guards exist because both failures happened.
+
+**Names never become ids.** A subject id is opaque — `customer:00002` is not
+derived from "James Spence". Asked to open a case for a named person, the model
+used to invent `customer:james_spence`, which has no triples, so `placed_by`
+pointed at nothing and the policyholder rendered blank on every view that joins
+the two. `find_customer` resolves a name to the real id, `create_order` probes
+the id and refuses a dangling reference, and every label's prompt carries the
+rule: resolve first, never construct an id from a name, ask when ambiguous.
+
+**Display words never become stored values.** "Mark it settled" used to store
+`order_status = SETTLED`. The enum is `CREATED / PICKING / OUT_FOR_DELIVERY /
+DELIVERED / CANCELLED`; "Settled" is only what this label *shows* for
+`DELIVERED`, so nothing keyed on it and the case dropped out of every
+status-filtered view. `write_triples` now maps display → stored via
+`stored_enum_value()` in `agents/src/demo_label.py`, reading the active label's
+`enums`. Matching ignores case and spacing, so "on case", "On Case" and
+`ON_CASE` all resolve to `ON_DELIVERY`. Unrecognised values pass through
+untouched — genuinely new data is never silently rewritten.
+
+The general rule when adding a tool that writes: **resolve to shape at the
+boundary.** Accept the label's words if you like, but store the fixed value.
 
 ### Ontology descriptions
 
@@ -386,8 +415,8 @@ reorder an inherited entry.
 | `make label-lint` | source that ignores the label (three checks, below) |
 | `make label-data` | seeded rows a producer wrote without consulting the label (needs a running stack) |
 
-`label-data` is the third axis and is deliberately outside `label-ci`, because it
-needs a seeded database. Both static checks are blind to what a seeder or
+`label-data` (`tools/check_seeded_data.py`) is the third axis and is deliberately
+outside `label-ci`, because it needs a seeded database. Both static checks are blind to what a seeder or
 generator *wrote*, and that is where leaks have survived longest: 63 ontology
 descriptions, and 30 policyholder addresses in Brooklyn and Queens minted by the
 load generator, whose address builder ignored `seed.locations` entirely. Run it
@@ -528,6 +557,11 @@ lines, and comments in `api/`, `load-generator/`, and `db/scripts/` still say
 FreshMart. They are developer-facing. `label-lint` scans only the
 customer-visible surfaces: `web/src`, `agents/src`, and the OpenAPI metadata in
 `api/src/main.py`.
+
+Note the distinction: those files' *comments* are out of scope, but anything they
+**write into the database is not**. `db/scripts/apply_ontology_labels.py` and the
+load generator's address builder both read the active label, because their output
+is on screen. `make label-data` is what enforces that.
 
 **`SHOW CREATE` output.** The View Definition modal (click a lineage-graph node)
 shows the real object name and the real SQL Materialize returns, with grocery
