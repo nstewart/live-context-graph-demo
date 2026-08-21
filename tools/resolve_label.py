@@ -79,6 +79,7 @@ WEB_SECTIONS = (
     "copy",
     "placeholders",
     "examples",
+    "architecture",
 )
 # Of the agent section, only what the chat widget renders.
 WEB_AGENT_KEYS = ("persona", "placeholder", "empty_state")

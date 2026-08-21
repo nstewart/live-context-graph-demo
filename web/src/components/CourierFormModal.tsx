@@ -4,7 +4,6 @@ import { Schema } from '../schema'
 import { CourierSchedule } from '../api/client'
 import { X } from 'lucide-react'
 import { Entity, aliasColumn, entity, placeholder } from '../label'
-
 const vehicleTypes = ['BIKE', 'CAR', 'VAN']
 const courierStatuses = ['AVAILABLE', 'ON_DELIVERY', 'OFF_SHIFT']
 

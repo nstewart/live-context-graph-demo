@@ -377,6 +377,11 @@ copy:
     live_price_tooltip: >-
       Current cost to serve based on case volume, available capacity, and
       other handling factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Booked
+    base_price_short: Standard
+    live_price_short: Current
   rerank:
     hydrated_fields: status, requirements, current cost to serve and capacity
 
@@ -431,6 +436,18 @@ examples:
     task_status: COMPLETED
     assigned_to: courier:C-001
     eta: "2025-01-15T11:00:00"
+
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - Policy Admin
+      - Claims
+      - Billing
+      - Agent Portal
 
 seed:
   store_name_template: Acme Life {zone_name} Service Center {n}

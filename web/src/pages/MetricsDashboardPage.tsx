@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 // Simple SVG sparkline component
-import { enumLabel, page } from '../label'
+import { Entities, entity, Entity, enumLabel, page } from '../label'
 function Sparkline({
   data,
   width = 80,
@@ -319,7 +319,7 @@ export default function MetricsDashboardPage() {
             <AlertTriangle className="h-5 w-5 text-red-600" />
           </div>
           <p className="text-xs text-gray-500 mb-4">
-            Order value at risk due to low inventory levels with pending customer orders
+            {`${Entity('order')} value at risk due to low ${entity('inventory')} levels with pending ${entity('customer')} ${entity('order', 'many')}`}
           </p>
           <div className="text-3xl font-bold text-gray-900 mb-2">
             ${formatAmount(metrics.inventoryRisk.totalRevAtRisk)}
@@ -336,7 +336,7 @@ export default function MetricsDashboardPage() {
             <Activity className="h-5 w-5 text-blue-600" />
           </div>
           <p className="text-xs text-gray-500 mb-4">
-            Current order volume as percentage of maximum store capacity per hour
+            {`Current ${entity('order')} volume as percentage of maximum ${entity('store')} capacity per hour`}
           </p>
           <div className="text-3xl font-bold text-gray-900 mb-2">
             {metrics.capacityHealth.avgUtilization.toFixed(1)}%
@@ -366,8 +366,8 @@ export default function MetricsDashboardPage() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Product</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Store</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{Entity('product')}</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{Entity('store')}</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Stock</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Pending</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Risk</th>
@@ -422,7 +422,7 @@ export default function MetricsDashboardPage() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Store</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{Entity('store')}</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Utilization</th>
                   <th className="px-4 py-2 text-center text-xs font-medium text-gray-500">Status</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
@@ -471,7 +471,7 @@ export default function MetricsDashboardPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Store
+                      {Entity('store')}
                     </th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Health
@@ -479,7 +479,7 @@ export default function MetricsDashboardPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <span className="flex items-center gap-1">
                         <Users className="h-3.5 w-3.5" />
-                        Couriers
+                        {Entities('courier')}
                       </span>
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">

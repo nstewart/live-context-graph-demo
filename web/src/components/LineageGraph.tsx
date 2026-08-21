@@ -13,8 +13,7 @@ import {
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 import vectorDbImage from '../assets/vector-db.png';
-import { Entities, Entity, aliasView } from "../label";
-
+import { Entities, Entity, aliasView, sourceSystems } from "../label";
 type MedallionLayer = 'source_systems' | 'sources' | 'bronze' | 'silver' | 'gold' | 'biz_logic' | 'destination_systems';
 
 // Node type colors (object type)
@@ -37,7 +36,7 @@ const medallionColors: Record<MedallionLayer, {
     bg: 'rgba(148, 163, 184, 0.07)',
     border: 'rgba(148, 163, 184, 0.30)',
     labelColor: '#475569',
-    legendLabel: 'Source Systems',
+    legendLabel: sourceSystems().heading,
   },
   sources: {
     bg: 'rgba(59, 130, 246, 0.07)',
@@ -317,9 +316,9 @@ const SourceSystemsNode = () => (
         marginBottom: '2px',
       }}
     >
-      Source Systems
+      {sourceSystems().heading}
     </div>
-    {['CRM', 'ERP', 'Apps', 'External Data'].map((s) => (
+    {sourceSystems().items.map((s) => (
       <div
         key={s}
         style={{

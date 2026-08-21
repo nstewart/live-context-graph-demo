@@ -1,62 +1,197 @@
 {
   "agent": {
-    "empty_state": "Ask me about orders, inventory, stores, or couriers.",
-    "persona": "Operations Assistant",
-    "placeholder": "Ask the operations assistant..."
+    "empty_state": "Ask me about loan files, capacity, centers, or underwriters.",
+    "persona": "Underwriting Assistant",
+    "placeholder": "Ask the underwriting assistant..."
   },
   "aliases": {
-    "columns": {},
-    "predicates": {},
-    "views": {}
+    "columns": {
+      "assigned_courier_id": "assigned_underwriter_id",
+      "base_price": "base_underwriting_cost",
+      "courier_name": "underwriter_name",
+      "courier_status": "underwriter_status",
+      "customer_address": "applicant_address",
+      "customer_email": "applicant_email",
+      "customer_id": "applicant_id",
+      "customer_name": "applicant_name",
+      "delivery_eta": "projected_clear_to_close",
+      "delivery_task_status": "verification_status",
+      "delivery_window_end": "sla_window_end",
+      "delivery_window_start": "sla_window_start",
+      "demand_multiplier": "volume_multiplier",
+      "demand_premium": "volume_premium",
+      "has_perishable_items": "has_rate_lock",
+      "line_item_count": "condition_count",
+      "line_items": "conditions",
+      "live_price": "current_underwriting_cost",
+      "local_stock_adjustment": "local_capacity_adjustment",
+      "order_id": "loan_file_id",
+      "order_number": "loan_number",
+      "order_status": "loan_status",
+      "order_total_amount": "file_underwriting_cost",
+      "perishable": "rate_locked",
+      "perishable_adjustment": "rate_lock_adjustment",
+      "popularity_adjustment": "frequency_adjustment",
+      "price_change": "cost_change",
+      "product_id": "loan_program_id",
+      "product_name": "loan_program",
+      "stock_level": "available_capacity",
+      "store_address": "center_address",
+      "store_id": "center_id",
+      "store_name": "center_name",
+      "store_zone": "lending_region",
+      "unit_price": "base_underwriting_cost",
+      "unit_weight_grams": "review_effort",
+      "zone_adjustment": "region_adjustment"
+    },
+    "predicates": {
+      "base_price": "standard_underwriting_cost",
+      "courier_home_store": "underwriter_home_center",
+      "courier_name": "underwriter_name",
+      "courier_phone": "underwriter_phone",
+      "courier_status": "underwriter_status",
+      "courier_status_changed_at": "underwriter_status_changed_at",
+      "current_task": "current_verification_task",
+      "customer_address": "applicant_address",
+      "customer_email": "applicant_email",
+      "customer_name": "applicant_name",
+      "delivered_at": "funded_at",
+      "delivery_window_end": "sla_window_end",
+      "delivery_window_start": "sla_window_start",
+      "demand_multiplier": "volume_multiplier",
+      "demand_premium": "volume_premium",
+      "eta": "projected_clear_to_close",
+      "home_store": "home_center",
+      "inventory_product": "capacity_loan_program",
+      "inventory_store": "capacity_center",
+      "line_amount": "condition_amount",
+      "line_inventory_item": "condition_capacity_pool",
+      "line_of_order": "condition_of_loan_file",
+      "line_product": "condition_loan_program",
+      "line_sequence": "condition_sequence",
+      "live_price": "current_underwriting_cost",
+      "local_stock_adjustment": "local_capacity_adjustment",
+      "order_created_at": "loan_file_created_at",
+      "order_line_unit_price": "condition_unit_cost",
+      "order_number": "loan_number",
+      "order_status": "loan_status",
+      "order_store": "loan_file_center",
+      "order_total_amount": "file_underwriting_cost",
+      "perishable": "rate_locked",
+      "perishable_adjustment": "rate_lock_adjustment",
+      "perishable_flag": "rate_locked_flag",
+      "placed_by": "submitted_for",
+      "popularity_adjustment": "frequency_adjustment",
+      "price_change": "cost_change",
+      "product_name": "loan_program",
+      "product_sale_count": "loan_program_volume",
+      "product_total_stock": "loan_program_total_capacity",
+      "replenishment_eta": "capacity_refresh_eta",
+      "route_sequence": "queue_sequence",
+      "stock_level": "available_capacity",
+      "store_address": "center_address",
+      "store_capacity_orders_per_hour": "center_capacity_files_per_hour",
+      "store_name": "center_name",
+      "store_status": "center_status",
+      "store_zone": "lending_region",
+      "task_completed_at": "verification_completed_at",
+      "task_of_order": "verification_of_loan_file",
+      "task_started_at": "verification_started_at",
+      "task_status": "verification_status",
+      "unit_price": "base_underwriting_cost",
+      "unit_weight_grams": "review_effort",
+      "vehicle_type": "review_class",
+      "zone_adjustment": "region_adjustment"
+    },
+    "views": {
+      "courier_schedule_mv": "underwriter_schedule_mv",
+      "customers_flat": "applicants_flat",
+      "customers_mv": "applicants_mv",
+      "delivery_bundles_mv": "file_batches_mv",
+      "delivery_tasks_flat": "verification_tasks_flat",
+      "dynamic_pricing": "underwriting_cost",
+      "dynamic_pricing_mv": "underwriting_cost_mv",
+      "inventory_items_with_dynamic_pricing_mv": "capacity_with_underwriting_cost_mv",
+      "inventory_risk_mv": "capacity_risk_mv",
+      "inventory_sink_v": "capacity_sink_v",
+      "order_lines_base": "loan_conditions_base",
+      "order_lines_flat_mv": "loan_conditions_flat_mv",
+      "orders_flat": "loan_files_flat",
+      "orders_flat_mv": "loan_files_flat_mv",
+      "orders_search_source_mv": "loan_files_search_source_mv",
+      "orders_sink_v": "loan_files_sink_v",
+      "orders_with_lines_mv": "loan_files_with_conditions_mv",
+      "pricing_yield_mv": "underwriting_cost_yield_mv",
+      "products_flat": "loan_programs_flat",
+      "products_mv": "loan_programs_mv",
+      "store_capacity_health_mv": "center_health_mv",
+      "store_inventory_mv": "center_capacity_mv",
+      "stores_flat": "fulfillment_centers_flat",
+      "stores_mv": "fulfillment_centers_mv"
+    }
+  },
+  "architecture": {
+    "source_systems": {
+      "heading": "Source Systems",
+      "items": [
+        "Loan Origination",
+        "Credit Bureau",
+        "AUS Findings",
+        "Core Banking"
+      ]
+    }
   },
   "brand": {
-    "favicon": "freshmart.svg",
-    "name": "FreshMart",
+    "favicon": "mortgage-underwriting.svg",
+    "name": "Cornerstone Federal",
     "qr": {
       "cta": "Schedule a demo",
       "url": "https://materialize.com/demo/"
     },
-    "tab_title": "FreshMart Digital Twin - Admin",
-    "tagline": "Digital Twin Admin",
+    "tab_title": "Cornerstone Federal Mortgage Underwriting - Console",
+    "tagline": "Mortgage Underwriting Console",
     "theme": {
-      "accent": "purple",
-      "primary": "green"
+      "accent": "emerald",
+      "primary": "slate"
     }
   },
   "copy": {
     "cart": {
-      "empty_heading": "Your cart is empty",
-      "heading": "Shopping Cart"
+      "empty_heading": "No conditions on this loan file yet",
+      "heading": "Loan Conditions"
     },
     "knowledge_graph": {
-      "entity_examples": "Order, Customer, Product",
+      "entity_examples": "Loan File, Applicant, Loan Program",
       "heading": "Leveraging Context Graphs",
       "subhead": "The relationships that give agents and humans understanding about what to do next and why"
     },
     "pricing": {
-      "base_price_label": "Base Price",
-      "base_price_tooltip": "Product's current static catalog price - no dynamic adjustments applied",
-      "live_price_label": "Live Price",
-      "live_price_tooltip": "Current dynamically-calculated price based on demand, stock levels, and other factors",
-      "order_price_label": "Order Price",
-      "order_price_tooltip": "Price locked in when the order was placed - what the customer was charged for this item"
+      "base_price_label": "Standard Cost",
+      "base_price_short": "Standard",
+      "base_price_tooltip": "The loan program's standard cost to underwrite - no review adjustments applied",
+      "live_price_label": "Current Cost",
+      "live_price_short": "Current",
+      "live_price_tooltip": "Current cost to underwrite based on file volume, available capacity, and other review factors",
+      "order_price_label": "Booked Cost",
+      "order_price_short": "Booked",
+      "order_price_tooltip": "Cost to underwrite locked in when the file was submitted - what this condition was booked at"
     },
     "rerank": {
-      "hydrated_fields": "status, items, current price and stock"
+      "hydrated_fields": "status, conditions, current cost to underwrite and capacity"
     },
     "triples": {
-      "closing": "Click any row to pre-populate the Write Triple form below. This view shows only triples for the selected order and its line items—the full graph includes customers, stores, products, inventory, couriers, and delivery tasks.",
-      "empty": "No triples found for this order",
+      "closing": "Click any row to pre-populate the Write Triple form below. This view shows only triples for the selected loan file and its conditions—the full graph includes applicants, fulfillment centers, loan programs, underwriting capacity, underwriters, and verification tasks.",
+      "empty": "No triples found for this loan file",
       "explainer_lead": "Triples are the atomic unit of knowledge—each captures a single fact as",
       "explainer_tail": "This structure lets AI agents update individual facts without needing complex schemas or full object structures.",
       "heading": "Agent Writes and Memories",
-      "selector_label": "Select Order",
+      "selector_label": "Select Loan File",
       "subhead": "Using \"triples\" as the atomic unit of knowledge recorded by agents. This forms the foundation that will ultimately create their world model.",
-      "table_heading": "Triples for Order"
+      "table_heading": "Triples for Loan File"
     },
     "vector_pipeline": {
       "all_statuses": "All statuses",
-      "all_zones": "All zones",
+      "all_zones": "All lending regions",
       "explainer": "The vector store finds which documents match semantically. Materialize provides live data for those documents — always fresh, never stale.",
       "heading": "Vector Pipeline",
       "search_heading": "Hybrid Search",
@@ -64,14 +199,14 @@
     },
     "write_triple": {
       "heading": "Write a Triple",
-      "subhead": "— Update an order property and observe propagation"
+      "subhead": "— Update a loan file property and observe propagation"
     }
   },
   "enums": {
     "availability_status": {
-      "IN_STOCK": "In Stock",
-      "LOW_STOCK": "Low Stock",
-      "OUT_OF_STOCK": "Out of Stock"
+      "IN_STOCK": "Capacity available",
+      "LOW_STOCK": "Capacity constrained",
+      "OUT_OF_STOCK": "At capacity"
     },
     "capacity_health": {
       "CRITICAL": "Critical",
@@ -83,102 +218,102 @@
       "ACTIVE": "Active",
       "AVAILABLE": "Available",
       "OFF_SHIFT": "Off Shift",
-      "ON_DELIVERY": "On Delivery"
+      "ON_DELIVERY": "In Review"
     },
     "order_status": {
-      "CANCELLED": "Cancelled",
-      "CREATED": "Created",
-      "DELIVERED": "Delivered",
-      "OUT_FOR_DELIVERY": "Out for Delivery",
-      "PICKING": "Picking"
+      "CANCELLED": "Withdrawn",
+      "CREATED": "Submitted",
+      "DELIVERED": "Funded",
+      "OUT_FOR_DELIVERY": "Clear to Close",
+      "PICKING": "In Underwriting"
     },
     "recommended_action": {
-      "CLOSE_INTAKE": "Close Intake",
+      "CLOSE_INTAKE": "Pause intake",
       "MONITOR": "Monitor",
-      "PROMOTE_DEMAND": "Promote Demand",
-      "SURGE_PRICING": "Surge Pricing"
+      "PROMOTE_DEMAND": "Route more volume here",
+      "SURGE_PRICING": "Add overflow underwriters"
     },
     "store_status": {
-      "LIMITED": "Limited",
+      "LIMITED": "Reduced capacity",
       "OPEN": "Open"
     },
     "task_status": {
-      "COMPLETED": "Completed",
-      "FAILED": "Failed",
+      "COMPLETED": "Cleared",
+      "FAILED": "Unable to Verify",
       "IN_PROGRESS": "In Progress",
       "PENDING": "Pending"
     },
     "vehicle_type": {
-      "BIKE": "Bike",
-      "CAR": "Car",
-      "SCOOTER": "Scooter",
-      "WALKING": "Walking"
+      "BIKE": "Standard review",
+      "CAR": "Complex review",
+      "SCOOTER": "Priority review",
+      "WALKING": "Manual exception"
     },
     "zone": {
-      "BK": "Brooklyn",
-      "BX": "Bronx",
-      "MAN": "Manhattan",
-      "QNS": "Queens",
-      "SI": "Staten Island"
+      "BK": "Mid-Atlantic",
+      "BX": "Gulf South",
+      "MAN": "Metro East",
+      "QNS": "Great Lakes",
+      "SI": "Pacific West"
     }
   },
   "examples": {
     "keyword_queries": [
-      "Brooklyn",
-      "Manhattan",
+      "Metro East",
+      "Mid-Atlantic",
       "CREATED",
-      "BK"
+      "MAN"
     ],
     "predicate_values": {
       "assigned_to": "courier:C-001",
-      "category": "Produce",
-      "courier_name": "Jane Smith",
+      "category": "Conventional Conforming",
+      "courier_name": "Devin Osei",
       "courier_phone": "555-1234",
       "courier_status": "ACTIVE",
-      "customer_address": "123 Main St",
-      "customer_email": "john@example.com",
-      "customer_name": "John Doe",
+      "customer_address": "200 S Tryon St",
+      "customer_email": "alicia.navarro@example.com",
+      "customer_name": "Alicia Navarro",
       "delivery_window_end": "2025-01-15T12:00:00",
       "delivery_window_start": "2025-01-15T10:00:00",
       "eta": "2025-01-15T11:00:00",
       "line_sequence": "1",
-      "order_line_unit_price": "12.99",
-      "order_number": "FM-1234",
+      "order_line_unit_price": "168.00",
+      "order_number": "LN-1234",
       "order_status": "DELIVERED",
       "perishable": "true",
-      "product_name": "Organic Apples",
-      "quantity": "5",
+      "product_name": "Conforming 30-year fixed",
+      "quantity": "2",
       "replenishment_eta": "2025-01-16T08:00:00",
       "stock_level": "100",
-      "store_address": "456 Broadway",
-      "store_name": "Downtown Market",
+      "store_address": "100 Federal St",
+      "store_name": "Mid-Atlantic Fulfillment Center",
       "store_zone": "MAN",
       "task_status": "COMPLETED",
-      "unit_price": "4.99",
-      "unit_weight_grams": "500"
+      "unit_price": "145.00",
+      "unit_weight_grams": "700"
     },
     "search_queries": [
-      "organic produce",
-      "dairy products",
-      "perishable delivery"
+      "self-employed income verification",
+      "jumbo appraisal review",
+      "rate-locked cash-out refinance"
     ]
   },
-  "label": "freshmart",
+  "label": "mortgage-underwriting",
   "nav": [
     {
       "label": "Agent Ref. Architecture",
       "path": "/"
     },
     {
-      "label": "Freshmart Agent Search Demo",
+      "label": "Cornerstone Agent Search Demo",
       "path": "/vector-search"
     },
     {
-      "label": "Orders",
+      "label": "Loan Files",
       "path": "/orders"
     },
     {
-      "label": "Couriers",
+      "label": "Underwriters",
       "path": "/couriers"
     },
     {
@@ -186,7 +321,7 @@
       "path": "/metrics"
     },
     {
-      "label": "Stores & Inventory",
+      "label": "Centers & Capacity",
       "path": "/stores"
     },
     {
@@ -198,7 +333,7 @@
       "path": "/triples"
     },
     {
-      "label": "Delivery Bundling",
+      "label": "File Batching",
       "path": "/bundling"
     },
     {
@@ -208,130 +343,130 @@
   ],
   "pages": {
     "bundling": {
-      "constraint_capacity_note": "Weight fits courier vehicle",
-      "constraint_inventory_note": "Stock available for combined qty",
-      "constraint_time_note": "Delivery windows intersect",
-      "empty": "No bundles yet. Create orders with overlapping delivery windows to see bundles form.",
+      "constraint_capacity_note": "Review effort fits the underwriter",
+      "constraint_inventory_note": "Underwriting capacity available for the combined work",
+      "constraint_time_note": "SLA windows intersect",
+      "empty": "No batches yet. Create loan files with overlapping SLA windows to see batches form.",
       "subtitle": "Mutually recursive constraint satisfaction",
-      "title": "Delivery Bundling"
+      "title": "File Batching"
     },
     "couriers": {
-      "search_placeholder": "Search by courier ID...",
-      "subtitle": "View courier status and assigned tasks",
-      "title": "Couriers & Schedule"
+      "search_placeholder": "Search by underwriter ID...",
+      "subtitle": "View underwriter status and assigned verification tasks",
+      "title": "Underwriters & Schedule"
     },
     "home": {
-      "title": "Freshmart: Live Context Layer + Agent Memory Demo"
+      "title": "Cornerstone Federal: Live Context Layer + Agent Memory Demo"
     },
     "metrics": {
-      "chart_demand_vs_capacity": "Store Demand vs Capacity",
-      "kpi_pricing_yield": "Dynamic Pricing Yield",
-      "kpi_revenue_at_risk": "Revenue at Risk",
-      "kpi_store_utilization": "Avg Store Utilization",
-      "section_capacity_subtitle": "Real-time store workload with automated recommendations for demand management",
-      "section_capacity_title": "Store Capacity Status",
-      "section_risk_subtitle": "Products with low stock levels that have pending customer orders (may cause stockouts)",
-      "section_risk_title": "High-Risk Inventory",
-      "subtitle": "Real-time business health indicators",
+      "chart_demand_vs_capacity": "File Volume vs Capacity",
+      "kpi_pricing_yield": "Cost-to-Underwrite Yield",
+      "kpi_revenue_at_risk": "Rate-Lock Expiry Exposure",
+      "kpi_store_utilization": "Avg Center Utilization",
+      "section_capacity_subtitle": "Real-time center workload with automated recommendations for routing volume",
+      "section_capacity_title": "Fulfillment Center Capacity Status",
+      "section_risk_subtitle": "Loan programs whose underwriting capacity is nearly exhausted while files are still queued against them",
+      "section_risk_title": "At-Risk Capacity",
+      "subtitle": "Real-time underwriting pipeline health indicators",
       "title": "Live Metrics Dashboard"
     },
     "orders": {
-      "search_placeholder": "Search order",
-      "subtitle": "Monitor and manage FreshMart orders via WebSocket",
-      "title": "Orders Dashboard"
+      "search_placeholder": "Search loan",
+      "subtitle": "Monitor and manage in-flight loan files via WebSocket",
+      "title": "Loan Files"
     },
     "settings": {
-      "stage_delivery": "Delivery",
-      "stage_dispatch": "Dispatch",
-      "stage_help_delivery": "Time to deliver.",
-      "stage_help_dispatch": "How often to check for pending orders.",
-      "stage_help_picking": "Time to pick items.",
-      "stage_picking": "Picking"
+      "stage_delivery": "Closing",
+      "stage_dispatch": "Assignment",
+      "stage_help_delivery": "Time to clear to close and fund.",
+      "stage_help_dispatch": "How often to check for unassigned files.",
+      "stage_help_picking": "Time to underwrite conditions.",
+      "stage_picking": "Underwriting"
     },
     "stores": {
-      "all_inventory_title": "All Inventory Items",
-      "inventory_title": "Inventory",
-      "title": "Stores & Inventory"
+      "all_inventory_title": "All Capacity Pools",
+      "inventory_title": "Capacity",
+      "title": "Centers & Capacity"
     },
     "vector_search": {
-      "title": "Freshmart Agent Search Demo"
+      "title": "Cornerstone Agent Search Demo"
     }
   },
   "placeholders": {
-    "courier_code": "CR-01",
-    "courier_name": "John Smith",
-    "inventory_code": "INV-BK01-001",
-    "order_number": "FM-1001",
-    "order_search": "Search orders...",
-    "product_search": "Search products...",
-    "semantic_search": "Search by meaning (e.g., dairy products)...",
-    "store_address": "123 Main St, Brooklyn, NY",
+    "courier_code": "UW-01",
+    "courier_name": "Marcus Reyes",
+    "inventory_code": "CAP-BK01-001",
+    "order_number": "LN-1001",
+    "order_search": "Search loan files...",
+    "product_search": "Search loan programs...",
+    "semantic_search": "Search by meaning (e.g., self-employed income docs)...",
+    "store_address": "200 S Tryon St, Charlotte, NC",
     "store_code": "BK-01",
-    "store_name": "FreshMart Brooklyn",
+    "store_name": "Cornerstone Federal Mid-Atlantic",
     "store_zone": "BK",
-    "subject": "order:FM-1001"
+    "subject": "order:LN-1001"
   },
   "vocabulary": {
     "courier": {
-      "many": "couriers",
-      "one": "courier",
-      "title": "Courier",
-      "title_many": "Couriers"
+      "many": "underwriters",
+      "one": "underwriter",
+      "title": "Underwriter",
+      "title_many": "Underwriters"
     },
     "customer": {
-      "many": "customers",
-      "one": "customer",
-      "title": "Customer",
-      "title_many": "Customers"
+      "many": "applicants",
+      "one": "applicant",
+      "title": "Applicant",
+      "title_many": "Applicants"
     },
     "inventory": {
-      "many": "inventory items",
-      "one": "inventory item",
-      "title": "Inventory Item",
-      "title_many": "Inventory"
+      "many": "capacity pools",
+      "one": "capacity pool",
+      "title": "Capacity Pool",
+      "title_many": "Underwriting Capacity"
     },
     "order": {
-      "id_prefix": "FM-",
-      "many": "orders",
-      "one": "order",
-      "title": "Order",
-      "title_many": "Orders"
+      "id_prefix": "LN-",
+      "many": "loan files",
+      "one": "loan file",
+      "title": "Loan File",
+      "title_many": "Loan Files"
     },
     "orderline": {
-      "many": "line items",
-      "one": "line item",
-      "title": "Line Item",
-      "title_many": "Line Items"
+      "many": "loan conditions",
+      "one": "loan condition",
+      "title": "Loan Condition",
+      "title_many": "Loan Conditions"
     },
     "perishable": {
-      "adjective": "perishable",
-      "cart_note": "This order contains perishable items requiring cold chain delivery",
-      "note": "requires cold chain",
-      "tooltip": "Has perishable items"
+      "adjective": "rate-locked",
+      "cart_note": "This loan file includes conditions under a rate lock that expires",
+      "note": "rate lock expires",
+      "tooltip": "Has a rate lock that expires"
     },
     "product": {
-      "many": "products",
-      "one": "product",
-      "title": "Product",
-      "title_many": "Products"
+      "many": "loan programs",
+      "one": "loan program",
+      "title": "Loan Program",
+      "title_many": "Loan Programs"
     },
     "store": {
-      "many": "stores",
-      "one": "store",
-      "title": "Store",
-      "title_many": "Stores"
+      "many": "fulfillment centers",
+      "one": "fulfillment center",
+      "title": "Fulfillment Center",
+      "title_many": "Fulfillment Centers"
     },
     "task": {
-      "many": "delivery tasks",
-      "one": "delivery task",
-      "title": "Delivery Task",
-      "title_many": "Delivery Tasks"
+      "many": "verification tasks",
+      "one": "verification task",
+      "title": "Verification Task",
+      "title_many": "Verification Tasks"
     },
     "zone": {
-      "many": "zones",
-      "one": "zone",
-      "title": "Zone",
-      "title_many": "Zones"
+      "many": "lending regions",
+      "one": "lending region",
+      "title": "Lending Region",
+      "title_many": "Lending Regions"
     }
   }
 }

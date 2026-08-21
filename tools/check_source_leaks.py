@@ -75,12 +75,24 @@ STRUCTURAL_RE = re.compile(
 # Entity nouns. Every one already has a `vocabulary`, `enums` or `copy` key, so
 # reading that key is always the fix -- never an exemption.
 #
-# Scoped to web/src ONLY. In agents/src the tool names and parameters ARE
-# `create_order`, `list_stores`, `search_inventory` and `store_id` -- fixed shape
-# by the same rule that fixes predicate and view names -- so a docstring
-# describing create_order has to say "order" to be coherent. What the assistant
-# actually says to a customer is governed by agent.system_prompt, which every
-# label authors in full.
+# Scoped to web/src ONLY, for two different reasons.
+#
+# In agents/src the tool names and parameters ARE `create_order`, `list_stores`,
+# `search_inventory` and `store_id` -- fixed shape by the same rule that fixes
+# predicate and view names -- so a docstring describing create_order has to say
+# "order" to be coherent.
+#
+# It used to say here that "what the assistant actually says to a customer is
+# governed by agent.system_prompt". That was wrong, and it cost a bank demo the
+# line "Has Perishable Items: Yes". The assistant also relays tool return
+# payloads and echoes tool descriptions. Both are handled at runtime now --
+# alias_payload() rewrites what a tool returns and localize_doc() rewrites the
+# docstring LangChain ships as the description, both in agents/src/demo_label.py
+# -- which is why the prose in those docstrings can stay in the default nouns.
+#
+# The check that covers this surface is `make label-agent`, which drives the
+# running agent and greps its replies. A guard that reads source cannot see what
+# a runtime assembles.
 ENTITY_TERMS = re.compile(
     r"\b("
     r"orders?|stores?|products?|inventor(?:y|ies)|customers?|couriers?"
@@ -99,6 +111,9 @@ VERTICAL_TERMS = re.compile(
     r")\b",
     re.I,
 )
+
+# Statement punctuation that marks a span as code, not a JSX text node.
+CODE_SPAN_RE = re.compile(r";|=>|\?\?|&&|\|\|")
 
 # Phrases where a flagged word is genuinely generic rather than vertical
 # vocabulary. Stripped before the scan.
@@ -121,14 +136,21 @@ IDENTIFIER_RE = re.compile(
 )
 
 
-def visible_strings(path: Path, text: str) -> list[tuple[int, str]]:
-    """Every string a user could read, as (line number, text).
+def visible_strings(path: Path, text: str) -> list[tuple[int, str, str]]:
+    """Every string a user could read, as (line number, text, kind).
+
+    `kind` is "jsx" for a JSX text node or "literal" for a quoted string. The
+    distinction matters for one rule: a bare single-word token in a quoted
+    literal is nearly always an identifier or a fixed enum value, but a JSX text
+    node is display copy whatever its length -- `<th>Product</th>` is a column
+    heading a customer reads.
 
     JSX text nodes plus quoted literals. Comments are dropped -- they are
     developer-facing -- EXCEPT docstrings under agents/src/tools, which LangChain
     ships to the model as tool descriptions and a customer therefore hears.
     """
-    out: list[tuple[int, str]] = []
+    out: list[tuple[int, str, str]] = []
+    cleaned: list[str] = []
     llm_facing = "agents/src/tools" in path.as_posix()
     in_block = False  # /* ... */
     in_docstring = False  # triple-quoted
@@ -147,9 +169,11 @@ def visible_strings(path: Path, text: str) -> list[tuple[int, str]]:
                 in_docstring = not in_docstring
             if was_inside or fences:
                 if llm_facing and stripped:
-                    out.append((lineno, triple.sub("", stripped).strip()))
+                    out.append((lineno, triple.sub("", stripped).strip(), "literal"))
+                cleaned.append("")
                 continue
             if stripped.startswith("#"):
+                cleaned.append("")
                 continue
 
         # /* ... */ and JSX {/* ... */} blocks
@@ -158,6 +182,7 @@ def visible_strings(path: Path, text: str) -> list[tuple[int, str]]:
                 line = line.split("*/", 1)[1]
                 in_block = False
             else:
+                cleaned.append("")
                 continue
         line = re.sub(r"/\*.*?\*/", " ", line)
         if "/*" in line:
@@ -166,19 +191,49 @@ def visible_strings(path: Path, text: str) -> list[tuple[int, str]]:
         line = re.sub(r"//.*$", "", line)
         stripped = line.strip()
         if stripped.startswith("*"):  # continuation of a /** ... */ block
+            cleaned.append("")
             continue
 
-        candidates: list[str] = []
-        candidates += re.findall(r">([^<>{}]{3,})<", line)
+        candidates: list[tuple[str, str]] = []
         candidates += [
-            m.group(1) or m.group(2) or m.group(3)
+            (m.group(1) or m.group(2) or m.group(3), "literal")
             for m in re.finditer(r"'([^'\\]{3,})'|\"([^\"\\]{3,})\"|`([^`\\$]{3,})`", line)
         ]
-        for c in candidates:
+        for c, kind in candidates:
             c = c.strip()
             if not c or c.startswith(("/", "http")):
                 continue
-            out.append((lineno, c))
+            out.append((lineno, c, kind))
+        cleaned.append(line)
+
+    # JSX text nodes, matched across line breaks. Prettier puts a heading on its
+    # own line between the tags:
+    #
+    #     <th className="...">
+    #       Customer
+    #     </th>
+    #
+    # so a same-line `>text<` pattern misses nearly every real one. Run over the
+    # comment-stripped body instead, and report the line the text sits on.
+    body = "\n".join(cleaned)
+    starts = [0]
+    for ch in body:
+        starts.append(starts[-1] + 1)
+    for m in re.finditer(r">([^<>{}]{3,}?)<", body, re.S):
+        inner = m.group(1)
+        text = " ".join(inner.split())
+        if not text or text.startswith(("/", "http")):
+            continue
+        # `>` also ends an arrow function and a comparison, so the span between
+        # it and the next `<` is sometimes code rather than a text node. Copy
+        # does not contain statement punctuation and does not open on a closing
+        # bracket.
+        if CODE_SPAN_RE.search(text) or text[0] in ")]}":
+            continue
+        # Attribute the finding to the first line that carries actual text.
+        offset = m.start(1) + (len(inner) - len(inner.lstrip()))
+        lineno = body.count("\n", 0, offset) + 1
+        out.append((lineno, text, "jsx"))
     return out
 
 
@@ -213,7 +268,7 @@ def check_brand(files: list[Path]) -> list[str]:
         for lineno, raw in enumerate(lines, 1):
             if STRUCTURAL_RE.search(raw) or has_pragma(lines, lineno):
                 continue
-            visible = {s for ln, s in visible_strings(path, text) if ln == lineno}
+            visible = {s for ln, s, _ in visible_strings(path, text) if ln == lineno}
             for pattern, what in BRAND_PATTERNS:
                 if any(pattern.search(s) for s in visible):
                     rel = path.relative_to(REPO)
@@ -229,16 +284,19 @@ def check_vocabulary(files: list[Path]) -> list[str]:
         in_ui = rel.as_posix().startswith("web/src")
         text = path.read_text()
         lines = text.split("\n")
-        for lineno, s in visible_strings(path, text):
+        for lineno, s, kind in visible_strings(path, text):
             if has_pragma(lines, lineno):
                 continue
             probe = s
             for phrase in ALLOWED_PHRASES:
                 probe = re.sub(re.escape(phrase), " ", probe, flags=re.I)
             probe = IDENTIFIER_RE.sub(" ", probe)
-            # Prose has spaces. A bare token is an identifier or a fixed enum
-            # value, both of which are data-model shape.
-            if " " not in probe.strip():
+            # In a quoted literal, a bare token is an identifier or a fixed enum
+            # value -- data-model shape, not copy. A JSX text node is copy at any
+            # length, so `<th>Product</th>` is checked. Skipping bare tokens
+            # everywhere is what let a hardcoded column heading sit next to an
+            # aliased one for the whole life of this guard.
+            if kind == "literal" and " " not in probe.strip():
                 continue
             hit = VERTICAL_TERMS.search(probe) or (in_ui and ENTITY_TERMS.search(probe))
             if hit:

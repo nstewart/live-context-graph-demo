@@ -377,6 +377,11 @@ copy:
     live_price_tooltip: >-
       Current rate based on lane demand, available dock capacity, and other
       accessorial factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Booked
+    base_price_short: Standard
+    live_price_short: Current
   rerank:
     hydrated_fields: status, freight lines, current rate and dock capacity
 
@@ -431,6 +436,18 @@ examples:
     task_status: COMPLETED
     assigned_to: courier:C-001
     eta: "2025-01-15T11:00:00"
+
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - TMS
+      - WMS
+      - Telematics
+      - EDI Feeds
 
 seed:
   store_name_template: Meridian {zone_name} Terminal {n}

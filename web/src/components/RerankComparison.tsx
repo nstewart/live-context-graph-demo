@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { searchApi, RerankResponse } from "../api/client";
-import { copy } from "../label";
-
+import { copy, Entity } from "../label";
 const fmtMs = (ms?: number) => (ms == null ? "—" : `${ms} ms`);
 
 function Delta({ delta }: { delta: number }) {
@@ -130,7 +129,7 @@ export function RerankComparison({ query }: { query: string }) {
           <table className="w-full border-collapse" style={{ fontSize: "12px" }}>
             <thead>
               <tr className="text-left text-gray-400 border-b border-gray-100">
-                <th className="pb-1 pr-3 font-medium whitespace-nowrap">Order</th>
+                <th className="pb-1 pr-3 font-medium whitespace-nowrap">{Entity('order')}</th>
                 <th className="pb-1 pr-3 font-medium whitespace-nowrap">① kNN</th>
                 <th className="pb-1 pr-3 font-medium">② Reranker input — scored doc (MZ) vs what kNN matched (index)</th>
                 <th className="pb-1 font-medium whitespace-nowrap">③ Reranked</th>

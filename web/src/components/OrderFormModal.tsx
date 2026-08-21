@@ -5,8 +5,7 @@ import { X, AlertTriangle } from "lucide-react";
 import { ProductSelector, ProductWithStock } from "./ProductSelector";
 import { ShoppingCart, CartLineItem } from "./ShoppingCart";
 import { OrderFlat } from "../api/client";
-import { Entity, entity, enumLabel, placeholder } from "../label"
-
+import { aliasColumn, entity, Entity, enumLabel, placeholder } from "../label"
 const statusOrder = [
   "CREATED",
   "PICKING",
@@ -324,7 +323,7 @@ export function OrderFormModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Order Number *
+                  {`${Entity('order')} Number *`}
                 </label>
                 <input
                   type="text"
@@ -363,7 +362,7 @@ export function OrderFormModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Customer *
+                  {`${Entity('customer')} *`}
                 </label>
                 <select
                   required
@@ -388,7 +387,7 @@ export function OrderFormModal({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Store *
+                  {`${Entity('store')} *`}
                 </label>
                 <select
                   required
@@ -443,7 +442,7 @@ export function OrderFormModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Delivery Window Start
+                  {aliasColumn('delivery_window_start')}
                 </label>
                 <input
                   type="datetime-local"
@@ -460,7 +459,7 @@ export function OrderFormModal({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Delivery Window End
+                  {aliasColumn('delivery_window_end')}
                 </label>
                 <input
                   type="datetime-local"
@@ -533,7 +532,7 @@ export function OrderFormModal({
                 onClick={confirmStoreChange}
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
               >
-                Change Store
+                {`Change ${Entity('store')}`}
               </button>
             </div>
           </div>

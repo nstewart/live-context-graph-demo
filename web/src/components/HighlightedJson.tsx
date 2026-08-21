@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { aliasColumn, displayValue } from "../label";
-
 interface HighlightedJsonProps {
   data: object;
   trackingKey?: string;

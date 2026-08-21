@@ -9,8 +9,7 @@ import { searchApi, VectorSearchResult, VectorLineItem } from "../api/client";
 import { WriteTripleForm } from "./WriteTripleForm";
 import { SearchIndexUpdates } from "./SearchIndexUpdates";
 import { RerankComparison } from "./RerankComparison";
-import { copy, enumLabel, enumOptions, placeholder, searchQueries } from '../label'
-
+import { copy, Entity, enumLabel, enumOptions, placeholder, searchQueries } from '../label'
 const vp = copy("vector_pipeline");
 
 // ── Embedding fingerprint ─────────────────────────────────────────────────────
@@ -131,7 +130,7 @@ const ResultCard = ({ result, rank: _rank, flashedRows, embeddingFlashing, statu
         <table className="w-full border-collapse" style={{ fontSize: "11px" }}>
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
-              <th className="pb-0.5 pr-2 font-medium">Product</th>
+              <th className="pb-0.5 pr-2 font-medium">{Entity('product')}</th>
               <th className="pb-0.5 pr-2 font-medium">Cat</th>
               <th className="pb-0.5 pr-2 font-medium text-right">Qty</th>
               <th className="pb-0.5 pr-2 font-medium text-right">Live $</th>

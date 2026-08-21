@@ -4,6 +4,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 async def _fetch_inventory_pricing(
@@ -68,14 +69,14 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
     Use this tool after searching to get full order details including:
     - Customer information
     - Store information
-    - Delivery task status
+    - Fulfilment task status
     - Order line items with both order-time and current live pricing
 
     Args:
         order_ids: List of order IDs to fetch (e.g., ["order:FM-1001", "order:FM-1002"])
 
     Returns:
-        List of detailed order records with customer, store, and delivery info.
+        List of detailed order records with customer, store, and scheduling info.
         Line items include:
         - unit_price: The price when the order was placed (historical)
         - live_price: The current dynamic price at the store
@@ -173,4 +174,4 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
             for order_id in order_ids:
                 results.append({"order_id": order_id, "error": f"Search failed: {str(e)}"})
 
-    return results
+    return alias_payload(results)

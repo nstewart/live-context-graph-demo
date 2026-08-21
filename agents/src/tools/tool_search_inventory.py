@@ -6,6 +6,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -166,7 +167,7 @@ async def search_inventory(
                     results.append(result)
 
             # Return top results up to limit
-            return results[:limit]
+            return alias_payload(results[:limit])
 
         except httpx.HTTPError as e:
             return [{"error": f"Search failed: {str(e)}"}]

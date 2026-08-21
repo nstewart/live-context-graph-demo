@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { OntologyGraph } from "./OntologyGraph";
 import { copy } from "../label";
-
 export const WhatIsKnowledgeGraphCard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const t = copy("knowledge_graph");

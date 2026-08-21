@@ -5,8 +5,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Warehouse, AlertTriangle, Plus, Edit2, Trash2, X, Package, Wifi, WifiOff } from 'lucide-react'
 import { InventoryFormModal, InventoryFormData } from '../components/InventoryFormModal'
-import { Entity, aliasColumn, aliasPredicate, entity, enumLabel, pageText, placeholder } from '../label'
-
+import { aliasColumn, aliasPredicate, Entities, entity, Entity, enumLabel, pageText, placeholder } from '../label'
 const storeStatuses = ['OPEN', 'LIMITED', 'CLOSED']
 
 interface StoreFormData {
@@ -380,7 +379,7 @@ export default function StoresInventoryPage() {
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
-          Add Store
+          {`Add ${Entity('store')}`}
         </button>
       </div>
 
@@ -439,7 +438,7 @@ export default function StoresInventoryPage() {
 
               <div className="p-4">
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700">Inventory</h3>
+                  <h3 className="font-medium text-gray-700">{Entities('inventory')}</h3>
                   <button
                     onClick={() => {
                       setEditingInventory({ storeId: store.store_id })
@@ -458,7 +457,7 @@ export default function StoresInventoryPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-gray-500 border-b">
-                          <th className="pb-2">Product</th>
+                          <th className="pb-2">{Entity('product')}</th>
                           <th className="pb-2">{aliasColumn('stock_level')}</th>
                           <th className="pb-2">{aliasPredicate('replenishment_eta')}</th>
                           <th className="pb-2 w-20">Actions</th>
@@ -557,7 +556,7 @@ export default function StoresInventoryPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
             <h3 className="text-lg font-semibold mb-2">Delete {Entity('store')}</h3>
             <p className="text-gray-600 mb-4">
-              Are you sure you want to delete <strong>{deleteStoreConfirm.store_name}</strong>? This will also delete all inventory items.
+              Are you sure you want to delete <strong>{deleteStoreConfirm.store_name}</strong>{`? This will also delete all ${entity('inventory', 'many')}.`}
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteStoreConfirm(null)} className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50">
@@ -580,7 +579,7 @@ export default function StoresInventoryPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
             <h3 className="text-lg font-semibold mb-2">Delete {Entity('inventory')}</h3>
             <p className="text-gray-600 mb-4">
-              Are you sure you want to delete inventory for <strong>{deleteInventoryConfirm.product_id}</strong>?
+              {`Are you sure you want to delete ${entity('inventory')} for`} <strong>{deleteInventoryConfirm.product_id}</strong>?
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteInventoryConfirm(null)} className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50">
@@ -617,7 +616,7 @@ export default function StoresInventoryPage() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-white">
                   <tr className="text-left text-gray-500 border-b">
-                    <th className="pb-2">Product</th>
+                    <th className="pb-2">{Entity('product')}</th>
                     <th className="pb-2">{aliasColumn('stock_level')}</th>
                     <th className="pb-2">{aliasPredicate('replenishment_eta')}</th>
                     <th className="pb-2 w-20">Actions</th>

@@ -3,7 +3,6 @@ import { ChevronDown, ChevronRight, Search, Database } from "lucide-react";
 import { HighlightedJson } from "./HighlightedJson";
 import { searchApi, OpenSearchResponse } from "../api/client";
 import { aliasColumn, entity, keywordQueries, placeholder } from "../label";
-
 export const AgentNativeReadsCard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,7 +111,7 @@ export const AgentNativeReadsCard = () => {
               fresh&mdash;no stale data, no batch refresh lag.
             </p>
             <p className="text-xs text-gray-500">
-              In production, some customers add a vector index for improved semantic search
+              In production, some organizations add a vector index for improved semantic search
               and natural language queries.
             </p>
           </div>
@@ -174,6 +173,7 @@ export const AgentNativeReadsCard = () => {
                       <div className="flex items-center gap-2 mb-2">
                         <Database className="h-4 w-4 text-blue-500" />
                         <span className="text-xs font-medium text-gray-600">
+                          {/* label-lint-ok: real OpenSearch index, must run as pasted */}
                           GET /orders/_search
                         </span>
                       </div>

@@ -4,7 +4,6 @@ import { Schema } from '../schema'
 import { StoreInventory } from '../api/client'
 import { X } from 'lucide-react'
 import { Entity, aliasColumn, aliasPredicate, entity, placeholder } from '../label'
-
 export interface InventoryFormData {
   inventory_id: string
   store_id: string

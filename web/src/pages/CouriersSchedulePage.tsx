@@ -5,8 +5,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
 import { CourierFormModal, CourierFormData } from '../components/CourierFormModal'
-import { Entities, Entity, entity, enumLabel, pageText } from '../label'
-
+import { aliasColumn, Entities, entity, Entity, enumLabel, pageText } from '../label'
 const vehicleIcons: Record<string, typeof Truck> = {
   BIKE: Bike,
   CAR: Car,
@@ -258,7 +257,7 @@ export default function CouriersSchedulePage() {
             )}
             {!courierIdSearch && couriers.length >= 1000 && (
               <div className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
-                ⚠️ Showing first 1000 couriers. Use search or filter by store.
+                {`\u26a0\ufe0f Showing first 1000 ${entity('courier', 'many')}. Use search or filter by ${entity('store')}.`}
               </div>
             )}
           </div>
@@ -269,7 +268,7 @@ export default function CouriersSchedulePage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Courier
+                      {Entity('courier')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -278,7 +277,7 @@ export default function CouriersSchedulePage() {
                       Vehicle
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Home Store
+                      {aliasColumn('home_store')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Assigned {Entities('task')}

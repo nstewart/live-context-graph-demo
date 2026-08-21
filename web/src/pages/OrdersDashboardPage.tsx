@@ -34,8 +34,7 @@ import {
   OrderFormData,
 } from "../components/OrderFormModal";
 import { CartLineItem } from "../components/ShoppingCart";
-import { Entities, Entity, copy, entity, enumLabel, pageText, words } from "../label";
-
+import { aliasColumn, copy, Entities, entity, Entity, enumLabel, pageText, words } from "../label";
 const statusConfig: Record<string, { color: string; icon: typeof Package }> = {
   CREATED: { color: "bg-blue-100 text-blue-800", icon: Package },
   PICKING: { color: "bg-yellow-100 text-yellow-800", icon: Clock },
@@ -119,19 +118,19 @@ function OrdersTable({
             <tr>
               <th className="px-2 py-3 w-10"></th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Order
+                {Entity('order')}
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Customer
+                {Entity('customer')}
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Store
+                {Entity('store')}
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Delivery Window
+                {aliasColumn('delivery_window_start')}
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Amount
@@ -140,7 +139,7 @@ function OrdersTable({
                 Items
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Courier
+                {Entity('courier')}
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -301,7 +300,7 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
         <Package className="h-12 w-12 mx-auto mb-2 text-gray-300" />
         <p className="text-sm font-medium text-gray-700">No {entity('orderline', 'many')}</p>
         <p className="text-xs text-gray-500 mt-1">
-          This order has no products added yet
+          {`This ${entity('order')} has no ${entity('product', 'many')} added yet`}
         </p>
       </div>
     );
@@ -317,7 +316,7 @@ function LineItemsTable({ lineItems, storeId }: { lineItems: OrderLineItem[]; st
         <thead className="bg-gray-100">
           <tr>
             <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">
-              Product
+              {Entity('product')}
             </th>
             <th className="text-center px-3 py-2 text-xs font-medium text-gray-600">
               Quantity
@@ -810,7 +809,7 @@ export default function OrdersDashboardPage() {
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="h-4 w-4" />
-          Create Order
+          {`Create ${Entity('order')}`}
         </button>
       </div>
 

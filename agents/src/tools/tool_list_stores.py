@@ -4,6 +4,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -49,7 +50,7 @@ async def list_stores(zone: str = None) -> list[dict]:
                 stores = [s for s in stores if s.get("store_zone") == zone]
 
             # Return simplified store info
-            return [
+            return alias_payload([
                 {
                     "store_id": store.get("store_id"),
                     "store_name": store.get("store_name"),
@@ -57,7 +58,7 @@ async def list_stores(zone: str = None) -> list[dict]:
                     "address": store.get("store_address"),
                 }
                 for store in stores
-            ]
+            ])
 
         except httpx.HTTPError:
             # Return empty list on error instead of error dict

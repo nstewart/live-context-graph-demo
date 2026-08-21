@@ -27,6 +27,9 @@ export interface EntityWords {
 }
 
 export interface LabelConfig {
+  architecture?: {
+    source_systems?: { heading?: string; items?: string[] }
+  }
   label: string
   brand: {
     name: string
@@ -207,6 +210,39 @@ export const aliasClass = (className: string | null | undefined): string => {
   if (!className) return ''
   const key = CLASS_VOCABULARY[className]
   return key ? entity(key, 'title') : className
+}
+
+/**
+ * Display form of a subject id, aliasing only its class prefix.
+ *
+ * `order:LN-1001` -> `loan_file:LN-1001`. The prefix is the one part of an id a
+ * customer can read as a word, and it is the same set of keys `vocabulary` uses,
+ * so the mapping is free. The local part is opaque and never touched.
+ *
+ * Display only. The prefix drives ontology validation, so every value that
+ * reaches the API -- triple writes, entity_ref dropdowns, React keys -- must
+ * keep the raw id.
+ */
+export const aliasSubject = (subjectId: string | null | undefined): string => {
+  if (!subjectId) return ''
+  const colon = subjectId.indexOf(':')
+  if (colon < 1) return subjectId
+  const prefix = subjectId.slice(0, colon)
+  if (!label.vocabulary[prefix]) return subjectId
+  const word = entity(prefix, 'one').toLowerCase().replace(/\s+/g, '_')
+  return `${word}${subjectId.slice(colon)}`
+}
+
+/**
+ * The upstream systems shown feeding the context layer in the architecture
+ * diagram. The diagram's shape is fixed; only these words change.
+ */
+export const sourceSystems = (): { heading: string; items: string[] } => {
+  const a = label.architecture?.source_systems
+  return {
+    heading: a?.heading ?? 'Source Systems',
+    items: a?.items ?? ['CRM', 'ERP', 'Apps', 'External Data'],
+  }
 }
 
 /** A page's string bundle, e.g. `page('orders').title`. */

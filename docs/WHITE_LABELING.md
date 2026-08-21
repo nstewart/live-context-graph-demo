@@ -258,6 +258,7 @@ make label && make label-ci
 | `seed.store_name_template` | store naming (`{zone_name}`, `{n}`) | seeded data |
 | `seed.locations` | zone names and street pools | seeded addresses |
 | `seed.catalog` | the product catalog | seeded data, search results |
+| `architecture.source_systems` | the upstream systems feeding the context layer | reference-architecture diagram, via `sourceSystems()` |
 | `search.synonyms` | OpenSearch synonym filter | keyword half of hybrid search |
 | `ontology.classes` / `.properties` | descriptions for the 8 classes and 60 properties | Knowledge Graph tab (Classes and Properties) |
 | `agent.persona` / `placeholder` / `empty_state` | chat widget chrome | chat widget |
@@ -277,6 +278,7 @@ if one does.
 | `enumOptions('vehicle_type')` | the same map as `{value, label}` pairs, for a dropdown |
 | `aliasColumn` / `aliasView` / `aliasPredicate` | display-only identifier renaming |
 | `aliasClass('Courier')` | an ontology class name → its display word |
+| `aliasSubject('order:LN-1')` | a subject id's class prefix → its display word; the local part is untouched |
 | `page('metrics')` / `copy('cart')` | a string bundle; `pageText()` / `copyText()` fetch one field |
 | `placeholder('order_search')` | a form input placeholder |
 | `displayValue('order_status', v)` | a stored value as a human reads it, given the field it came from; free-text passes through |
@@ -295,6 +297,40 @@ class created at runtime is unknown to the map and passes through unchanged.
 `enumLabel()`, because the JSON panes on the home page and the Agent-native Reads
 card are on-screen surfaces like any other. The rewrite is render-time only — the
 `data` prop, change tracking, and the wire format all keep the real key.
+
+### The agent's read paths
+
+A tool's return value is copy. The model is given `{"has_perishable_items": true}`
+and nothing else to call it by, so it writes "Has Perishable Items: Yes" — and no
+system prompt prevents that, because the key is the only name it has.
+
+`agents/src/demo_label.py` therefore exposes the same two maps `web/src` uses:
+
+| Helper | Does |
+|---|---|
+| `alias_column(name)` | `aliases.columns` lookup, then a compositional fallback that substitutes entity nouns inside a key, so synthetic aggregates like `total_stores` alias without any label authoring them |
+| `alias_class(name)` | ontology class name → display word |
+| `alias_subject(id)` | `order:LN-1001` → `loan_file:LN-1001` |
+| `display_enum(field, v)` | stored enum value → display word |
+| `alias_payload(obj)` | all of the above, recursively, over a whole return value |
+
+Every read tool wraps its successful return in `alias_payload()`. Two deliberate
+exceptions, both about the model needing to quote a value back:
+
+- **Id values pass through unchanged.** `store_id`'s *name* is aliased, its
+  *value* stays `store:BK-01`. Aliasing the value would leave the model unable to
+  pass it to the next tool. A raw prefix inside an id is structural, and
+  `label-leaks` strips id-shaped tokens for exactly that reason.
+- **`get_context_graph` keeps `class_name` and `prefix`**, and gains
+  `display_name` beside them. `write_triples` validates against the real class,
+  so removing it would break writes; adding the display name is what stops the
+  model listing `Courier / DeliveryTask / InventoryItem` when asked what entity
+  types exist.
+
+`tool_get_store_health.py` was the other half: eight recommendation strings
+hardcoded in English ("potential stockouts imminent", "prioritize
+replenishment"). Its nouns now come from the label, with count-aware
+singular/plural.
 
 ### The agent's write paths
 
@@ -479,6 +515,43 @@ deliberately ignores positions where the raw value is required: `value=` and
 `key=` attributes, `className` lookups like `healthStatusColors[x.health_status]`,
 triple-write payloads (`{ predicate: …, object_value: … }`), and `${…}` template
 interpolations, which build React keys and dedup keys rather than display text.
+
+### What the guards could not see
+
+Three blind spots, all found by auditing a running demo rather than reading code.
+Each is fixed; they are recorded because the *shape* of the mistake recurs.
+
+**JSX text on its own line.** `visible_strings()` matched text nodes with
+`>([^<>{}]{3,})<` — `>` and `<` on one line. Prettier puts a heading on its own
+line:
+
+```tsx
+<th className="...">
+  Customer          ← invisible to the guard
+</th>
+```
+
+so the vocabulary check saw almost no real JSX text for the whole life of the
+guard. Fixing the extractor turned 0 findings into 50, including every column
+heading on the Orders, Couriers, Stores and Metrics tables. If you add a check
+here, test it against a *multi-line* fixture.
+
+**Single-word visible strings.** The check skipped any string with no space, on
+the reasoning that a bare token is an identifier or a fixed enum value. True for
+a quoted literal, false for a JSX text node: `<th>Product</th>` is a column
+heading. The exemption is now scoped to `kind == "literal"`.
+
+**Tool return payloads.** The guard's own comment asserted that "what the
+assistant actually says to a customer is governed by `agent.system_prompt`". It
+is not. The tools hand the model JSON keyed by wire field names and the model
+renders the keys, so `has_perishable_items` reached a bank as "Has Perishable
+Items: Yes". `web/src` had solved this at render time since white-labeling
+landed; `agents/src` had no equivalent. See [The agent's read
+paths](#the-agents-read-paths).
+
+The lesson each time: a guard that reads *source* cannot see what a *runtime*
+assembles. `tools/audit_agent.py` closes that loop by driving the agent and
+grepping its replies with the same term list `label-leaks` uses.
 
 `dead-keys` is the cheap proxy for "did anyone wire this up?" — when it was first
 run it found 3 page bundles, 7 enum maps and 9 of 10 `vocabulary` entries that no

@@ -4,7 +4,6 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ViewDefinitionResponse } from "../api/client";
 import { aliasView } from "../label";
-
 /** Materialize console. Defaults to the emulator's console port; override with
  *  VITE_MZ_CONSOLE_URL when pointing the demo at Cloud or a tunnelled backend. */
 export const MZ_CONSOLE_URL =

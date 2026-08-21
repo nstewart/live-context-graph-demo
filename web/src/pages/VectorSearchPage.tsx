@@ -6,7 +6,6 @@ import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { searchApi, queryStatsApi, QueryStatsOrder } from "../api/client";
 import { Schema } from "../schema";
 import { entity, pageText } from "../label";
-
 // Must never match a real order_id — parks the Zero query until one is picked
 const EMPTY_QUERY_SENTINEL = "$$EMPTY_QUERY$$";
 

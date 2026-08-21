@@ -3,8 +3,7 @@ import { ChevronUp, ChevronDown, ChevronRight, Trash2, Database } from 'lucide-r
 import { usePropagation, PropagationEvent, SourceWriteEvent } from '../contexts/PropagationContext';
 import { useLayout } from '../contexts/LayoutContext';
 import { useChat } from '../contexts/ChatContext';
-import { aliasColumn, aliasPredicate } from '../label'
-
+import { aliasColumn, aliasPredicate, aliasSubject } from '../label'
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('en-US', {
     hour12: false,
@@ -247,7 +246,7 @@ function SourceWriteItem({ write }: { write: SourceWriteEvent }) {
 
   return (
     <div className="flex items-center gap-2 px-3 py-1 text-xs">
-      <span className="font-mono text-cyan-400">{write.subject_id}</span>
+      <span className="font-mono text-cyan-400">{aliasSubject(write.subject_id)}</span>
       <span className="text-gray-500">.</span>
       <span className="font-mono text-purple-400">{aliasPredicate(write.predicate)}</span>
       <span className="text-gray-500">:</span>
@@ -293,7 +292,7 @@ function SourceWriteBatch({
         {writes.length === 1 ? (
           // Single write - show inline
           <>
-            <span className="font-mono text-xs text-cyan-400">{firstWrite.subject_id}</span>
+            <span className="font-mono text-xs text-cyan-400">{aliasSubject(firstWrite.subject_id)}</span>
             <span className="text-gray-500">.</span>
             <span className="font-mono text-xs text-purple-400">{aliasPredicate(firstWrite.predicate)}</span>
             <span className="text-gray-500">:</span>

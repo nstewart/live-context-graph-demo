@@ -6,6 +6,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -32,7 +33,7 @@ async def search_orders(
     Returns:
         List of matching orders with full details including:
         - Customer and store information
-        - Order status and delivery windows
+        - Order status and scheduling windows
         - Promotion information (code, discount, discounted total)
         - Line items with product names, quantities, and prices
         - Line item count and special-handling flags
@@ -93,7 +94,7 @@ async def search_orders(
             data = response.json()
 
             hits = data.get("hits", {}).get("hits", [])
-            return [
+            return alias_payload([
                 {
                     "order_id": hit["_source"]["order_id"],
                     "order_number": hit["_source"].get("order_number"),
@@ -114,6 +115,6 @@ async def search_orders(
                     "score": hit.get("_score"),
                 }
                 for hit in hits
-            ]
+            ])
         except httpx.HTTPError as e:
             return [{"error": f"Search failed: {str(e)}"}]

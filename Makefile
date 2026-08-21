@@ -1,4 +1,4 @@
-.PHONY: help setup label labels label-check label-leaks label-lint label-data label-ci up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
+.PHONY: help setup label labels label-check label-leaks label-lint label-data label-agent label-ci up up-agent up-agent-bundling down logs clean clean-network migrate seed reset-db test lint init-mz init-checkpointer setup-load-gen load-gen load-gen-demo load-gen-standard load-gen-peak load-gen-stress load-gen-demand load-gen-supply load-gen-health test-load-gen up-aws up-agent-aws up-agent-bundling-aws down-aws aws-tunnel aws-ssh aws-logs aws-status aws-debug
 
 # Detect docker compose command (prefer "docker compose" over "$(DOCKER_COMPOSE)")
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "$(DOCKER_COMPOSE)"; fi)
@@ -46,6 +46,7 @@ help:
 	@echo "    make label-leaks         - a label that inherited the default wording"
 	@echo "    make label-lint          - source that ignores the label"
 	@echo "    make label-data          - seeded rows that ignore it (needs a running stack)"
+	@echo "    make label-agent         - what the agent SAYS (needs a running agent)"
 	@echo ""
 	@echo "Setup & Run:"
 	@echo "  make setup             - Initial setup (copy .env, build containers)"
@@ -149,6 +150,13 @@ label-ci: label-check label-leaks label-lint
 # checks above cannot see what a seeder or generator wrote into Postgres, which
 # is where leaks have survived longest (ontology descriptions, generated
 # addresses). Run it after `make up LABEL=<name>`.
+# Fourth axis: what the AGENT says. The static guards read source; this drives
+# the running agent and greps its replies with the same term list label-leaks
+# uses, because tool return payloads are assembled at runtime and no amount of
+# source reading can see them. Needs `make up-agent LABEL=<name>`.
+label-agent:
+	@$(LABEL_PY) tools/check_agent_replies.py "$(LABEL)"
+
 label-data:
 	@$(LABEL_PY) tools/check_seeded_data.py
 

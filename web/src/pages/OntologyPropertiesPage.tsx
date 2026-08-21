@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ontologyApi, OntologyProperty, OntologyPropertyCreate, OntologyClass } from '../api/client'
 import { ArrowRight, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { aliasClass, aliasPredicate } from '../label'
-
 const rangeKindOptions = ['string', 'int', 'float', 'bool', 'timestamp', 'date', 'entity_ref']
 
 interface PropertyFormData {

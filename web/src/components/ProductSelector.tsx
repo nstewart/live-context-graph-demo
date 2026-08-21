@@ -2,8 +2,7 @@ import { useState, useMemo } from 'react'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Search, Package, Snowflake } from 'lucide-react'
-import { Entity, entity, enumLabel, placeholder, words } from '../label'
-
+import { Entities, entity, Entity, enumLabel, placeholder, words } from '../label'
 export interface ProductWithStock {
   product_id: string
   product_name: string | null
@@ -178,7 +177,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
           <Package className="h-12 w-12 mx-auto mb-3 text-gray-300" />
           <p className="text-gray-500 font-medium">Select a {entity('store')} to view {entity('product', 'many')}</p>
           <p className="text-sm text-gray-400 mt-1">
-            Products will be filtered based on store inventory
+            {`${Entities('product')} will be filtered based on ${entity('store')} ${entity('inventory')}`}
           </p>
         </div>
       )}

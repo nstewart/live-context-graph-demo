@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { ontologyApi } from '../api/client'
 import { Plus, Database } from 'lucide-react'
 import { aliasClass } from '../label'
-
 export default function OntologyClassesPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)

@@ -19,7 +19,7 @@ import { Schema } from '../schema'
 import { apiClient } from '../api/client'
 
 // Feature status type
-import { Entities, Entity, entity, enumLabel, page } from '../label'
+import { Entities, entity, Entity, enumLabel, page, pageText } from '../label'
 interface FeatureStatus {
   feature: string
   enabled: boolean
@@ -283,8 +283,8 @@ export default function BundlingPage() {
                 Feature Not Enabled
               </h3>
               <p className="text-amber-700 mb-4">
-                Delivery bundling uses Materialize's <code className="bg-amber-100 px-1 rounded">WITH MUTUALLY RECURSIVE</code> to
-                group compatible orders. This feature is disabled by default because it's CPU intensive
+                {pageText('bundling', 'title')} uses Materialize's <code className="bg-amber-100 px-1 rounded">WITH MUTUALLY RECURSIVE</code> to
+                group compatible {entity('order', 'many')}. This feature is disabled by default because it's CPU intensive
                 (~460 seconds of compute time).
               </p>
               <div className="bg-gray-900 rounded-lg p-4 mb-4">
@@ -297,7 +297,7 @@ export default function BundlingPage() {
                 </code>
               </div>
               <p className="text-sm text-amber-600">
-                This will create the recursive materialized views for order bundling optimization.
+                {`This will create the recursive materialized views for ${entity('order')} bundling optimization.`}
               </p>
             </div>
           </div>
@@ -574,7 +574,7 @@ export default function BundlingPage() {
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <Check className="h-3 w-3 text-green-600" />
-                                    <span className="text-gray-600">Inventory:</span>
+                                    <span className="text-gray-600">{Entities('inventory')}:</span>
                                     <span className="font-medium text-gray-900">All {entity('product', 'many')} available</span>
                                   </div>
                                   <div className="flex items-center gap-2">

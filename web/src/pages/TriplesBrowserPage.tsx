@@ -2,10 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { triplesApi, ontologyApi, Triple, TripleCreate, OntologyProperty, OntologyClass } from '../api/client'
 import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
-// Predicates are aliased for DISPLAY only. Every value submitted to the API --
-// formData.predicate, the <option value>, deleteConfirm.predicate -- stays raw.
-import { aliasClass, aliasPredicate, displayValue, placeholder } from '../label'
-
+// Predicates and subject-id prefixes are aliased for DISPLAY only. Every value
+// submitted to the API -- formData.predicate, formData.object_value, the
+// <option value>, deleteConfirm.predicate, setSubjectId's argument -- stays raw.
+// The prefix drives ontology validation, which is a reason to keep it on the
+// wire, not a reason to show it: `order:` is a word a customer reads.
+import { aliasClass, aliasPredicate, aliasSubject, displayValue, placeholder } from '../label'
 interface TripleFormData {
   subject_id: string
   predicate: string
@@ -197,7 +199,7 @@ function TripleFormModal({
               >
                 <option value="">Select an entity...</option>
                 {entityRefSubjects.map(s => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>{aliasSubject(s)}</option>
                 ))}
               </select>
             ) : selectedProperty?.range_kind === 'bool' ? (
@@ -519,7 +521,7 @@ export default function TriplesBrowserPage() {
             <div className="bg-white rounded-lg shadow">
               <div className="p-4 border-b flex justify-between items-start">
                 <div>
-                  <h2 className="font-semibold text-lg">{subjectInfo.subject_id}</h2>
+                  <h2 className="font-semibold text-lg">{aliasSubject(subjectInfo.subject_id)}</h2>
                   {subjectInfo.class_name && (
                     <span className="text-sm bg-green-100 text-green-700 px-2 py-0.5 rounded">
                       {aliasClass(subjectInfo.class_name)}
@@ -570,7 +572,7 @@ export default function TriplesBrowserPage() {
                               onClick={() => setSubjectId(triple.object_value)}
                               className="text-green-600 hover:underline"
                             >
-                              {triple.object_value}
+                              {aliasSubject(triple.object_value)}
                             </button>
                           ) : (
                             <span className="break-all">

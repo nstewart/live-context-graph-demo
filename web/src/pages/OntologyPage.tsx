@@ -4,7 +4,6 @@ import { ontologyApi, OntologyProperty, OntologyPropertyCreate, OntologyClass } 
 import { ArrowRight, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight, Database } from 'lucide-react'
 import { OntologyGraph } from '../components/OntologyGraph'
 import { aliasClass, aliasPredicate } from '../label'
-
 const rangeKindOptions = ['string', 'int', 'float', 'bool', 'timestamp', 'date', 'entity_ref']
 
 interface PropertyFormData {

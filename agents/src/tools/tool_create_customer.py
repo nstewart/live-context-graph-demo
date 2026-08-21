@@ -24,7 +24,7 @@ async def create_customer(
     Args:
         name: Customer's full name (required)
         email: Customer's email address (optional)
-        address: Customer's delivery address (optional)
+        address: Customer's address (optional)
         home_store_id: Customer's preferred store (default: store:BK-01)
 
     Returns:

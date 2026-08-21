@@ -4,6 +4,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -81,7 +82,7 @@ async def find_customer(name: str) -> list[dict]:
             }
         ]
 
-    return [
+    return alias_payload([
         {
             "customer_id": c.get("customer_id"),
             "customer_name": c.get("customer_name"),
@@ -89,4 +90,4 @@ async def find_customer(name: str) -> list[dict]:
             "customer_address": c.get("customer_address"),
         }
         for _, c in matches[:10]
-    ]
+    ])
