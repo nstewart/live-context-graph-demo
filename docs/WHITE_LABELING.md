@@ -99,6 +99,17 @@ make label        # re-resolves freshmart, restoring the committed artifact
 
 `make label-check` fails in CI with that instruction if you forget.
 
+It is worth knowing the second symptom, because it looks like something else
+entirely: **`vitest` imports that same artifact**, so a stale one makes the web
+suite look badly broken. Running a non-default label and then testing reports
+tens of extra failures — every assertion on a word the label changed — with
+nothing wrong in the code. If the failure count jumps after you ran the demo,
+check the artifact before you debug anything:
+
+```bash
+python3 -c "import json; print(json.load(open('web/src/generated/label.json'))['label'])"
+```
+
 ---
 
 ## Adding a new label
