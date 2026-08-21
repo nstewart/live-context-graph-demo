@@ -16,10 +16,9 @@ async def get_context_graph() -> dict:
     in the knowledge graph. Returns:
     - Classes: Entity types (Customer, Order, Store, Courier, etc.)
 
-    Each class and property carries both names. Use `display_name` whenever you
-    describe one to a person -- NEVER show `class_name` or `prop_name` to a user,
-    not even in parentheses beside the display name. They are identifiers for
-    write_triples, which validates against them, and nothing else.
+    `name` is what this business calls the class or property and is the only one
+    to show a user. `prefix` and `prop_name` are identifiers -- use them to build
+    subject ids and to pass predicates to write_triples, and never show them.
     - Properties: Attributes and relationships for each class
 
     Returns:
@@ -38,18 +37,20 @@ async def get_context_graph() -> dict:
 
             # Simplify for the agent.
             #
-            # `class_name` and `prefix` are the fixed shape -- write_triples and
-            # ontology validation both key on them, so they stay. `display_name`
-            # is what this deployment calls the class, and without it the model
-            # answers "what entity types exist?" by reading the wire schema
-            # aloud: Courier, DeliveryTask, InventoryItem on a mortgage demo.
+            # `class_name` is deliberately ABSENT. Nothing in the agent consumes
+            # it -- write_triples validates server-side from subject_id and
+            # predicate, and the model builds subject ids from `prefix` -- so its
+            # only effect was that the model read it aloud. Asked what entity
+            # types exist it answered "Courier, DeliveryTask, InventoryItem" on a
+            # mortgage demo, and it kept doing so through a display_name beside
+            # it, display_name first, and an explicit instruction not to. The
+            # word cannot be spoken if it is not sent.
+            #
+            # `prefix` and `prop_name` stay: those the model genuinely needs to
+            # pass back, and both are identifier-shaped rather than prose.
             classes_summary = [
                 {
-                    # display_name FIRST: the model narrates the first name it
-                    # sees, and with class_name leading it answered "what entity
-                    # types exist?" with Courier / DeliveryTask / InventoryItem.
-                    "display_name": alias_class(c["class_name"]),
-                    "class_name": c["class_name"],
+                    "name": alias_class(c["class_name"]),
                     "prefix": c["prefix"],
                     "description": c.get("description"),
                 }
@@ -58,11 +59,16 @@ async def get_context_graph() -> dict:
 
             properties_summary = [
                 {
-                    "display_name": alias_column(p["prop_name"]),
+                    "name": alias_column(p["prop_name"]),
                     "prop_name": p["prop_name"],
                     "domain": alias_class(p.get("domain_class_name") or ""),
-                    "domain_class_name": p.get("domain_class_name"),
-                    "range": p.get("range_class_name") or p["range_kind"],
+                    # range_class_name is a class name too, so it needs the
+                    # same treatment; range_kind ("string", "int") is a type.
+                    "range": (
+                        alias_class(p["range_class_name"])
+                        if p.get("range_class_name")
+                        else p["range_kind"]
+                    ),
                     "required": p["is_required"],
                 }
                 for p in schema.get("properties", [])
