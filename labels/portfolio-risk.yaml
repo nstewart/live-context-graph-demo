@@ -1,0 +1,906 @@
+# Portfolio risk -- a buy-side portfolio risk and trade analytics vertical.
+#
+# A multi-strategy asset manager runs books of positions across asset classes,
+# routes trades to execution traders, and watches risk limit utilization in real
+# time. That maps onto the demo's existing shape without changing any of it: the
+# fulfillment pipeline becomes a trade blotter, capacity becomes risk limits, and
+# the dynamic-pricing view becomes a liquidity-adjusted valuation.
+#
+# "Northwind Capital" is a deliberately fictional manager -- Northwind is the
+# canonical sample-database name, which reads as a demo fixture rather than a
+# real firm. Do not commit a real client's name, branding, or assets to this
+# repo -- copy this file locally and override `brand` to skin it for an account.
+#
+# This file lists ONLY what differs from freshmart.yaml; everything else is
+# inherited. Nothing structural changes: same predicates, same view names, same
+# zone CODES, same enum values, same entity counts.
+#
+#   internal (fixed)  ->  what the customer reads here
+#   order             ->  trade
+#   orderline         ->  allocation
+#   customer          ->  client account
+#   store             ->  portfolio
+#   product           ->  instrument
+#   inventory         ->  position
+#   courier           ->  execution trader
+#   task              ->  execution step
+#   zone              ->  asset class
+#   perishable        ->  time-decaying / near expiry
+#   dynamic pricing   ->  liquidity-adjusted valuation  (NEVER an official mark)
+#
+# DELIBERATE: live_price is an INTERNAL risk valuation, never an accounting
+# mark, a settlement price, or a client-reportable NAV. A demo that appears to
+# publish marks computed from co-movement heuristics would read as mismarking to
+# anyone on a valuation-control or audit team. The agent prompt says so
+# explicitly, and "Revenue at Risk" is exposure, not P&L.
+#
+# The zone multipliers are ordered as a liquidity ladder -- the widest
+# adjustment lands on the least liquid asset class:
+#   MAN +15% Credit | BK +5% Commodities | QNS baseline Equities
+#   BX -2% Rates    | SI -5% FX
+#
+# The vocabulary avoids the word "order" entirely (the leak detector reserves it,
+# along with store/product/inventory/customer, as default-vertical vocabulary).
+# The entity is a "trade"; the blotter shows trades.
+
+label: portfolio-risk
+
+brand:
+  name: Northwind Capital
+  tagline: Portfolio Risk Console
+  tab_title: Northwind Capital Portfolio Risk - Console
+  theme:
+    primary: violet
+    accent: cyan
+  favicon: portfolio-risk.svg
+
+vocabulary:
+  order:
+    one: trade
+    many: trades
+    title: Trade
+    title_many: Trades
+    id_prefix: TRD-
+  orderline:
+    one: allocation
+    many: allocations
+    title: Allocation
+    title_many: Allocations
+  customer:
+    one: client account
+    many: client accounts
+    title: Client Account
+    title_many: Client Accounts
+  store:
+    one: portfolio
+    many: portfolios
+    title: Portfolio
+    title_many: Portfolios
+  product:
+    one: instrument
+    many: instruments
+    title: Instrument
+    title_many: Instruments
+  inventory:
+    one: position
+    many: positions
+    title: Position
+    title_many: Positions
+  courier:
+    one: execution trader
+    many: execution traders
+    title: Execution Trader
+    title_many: Execution Traders
+  task:
+    one: execution step
+    many: execution steps
+    title: Execution Step
+    title_many: Execution Steps
+  zone:
+    one: asset class
+    many: asset classes
+    title: Asset Class
+    title_many: Asset Classes
+  perishable:
+    adjective: time-decaying
+    note: near expiry
+    tooltip: Carries time-decay exposure
+    cart_note: This trade includes near-expiry instruments carrying time-decay exposure
+
+enums:
+  # Values are fixed by the SQL; only these display labels change.
+  order_status:
+    CREATED: New
+    PICKING: Routed
+    OUT_FOR_DELIVERY: Working
+    DELIVERED: Filled
+    CANCELLED: Cancelled
+  courier_status:
+    OFF_SHIFT: Off Desk
+    AVAILABLE: Available
+    ON_DELIVERY: Executing
+    ACTIVE: Active
+  task_status:
+    PENDING: Pending
+    IN_PROGRESS: Working
+    COMPLETED: Settled
+    FAILED: Rejected
+  vehicle_type:
+    # Execution channel, cheapest/most automated first.
+    BIKE: Algo
+    SCOOTER: DMA
+    CAR: High-touch
+    WALKING: Manual
+  store_status:
+    OPEN: Open
+    LIMITED: Restricted
+  availability_status:
+    IN_STOCK: Available
+    LOW_STOCK: Thin
+    OUT_OF_STOCK: Depleted
+  capacity_health:
+    CRITICAL: Limit Breach
+    STRAINED: Near Limit
+    HEALTHY: Within Limit
+    UNDERUTILIZED: Underutilized
+  recommended_action:
+    CLOSE_INTAKE: Halt New Trades
+    SURGE_PRICING: Widen Spreads
+    PROMOTE_DEMAND: Deploy Capital
+    MONITOR: Monitor
+  zone:
+    MAN: Credit
+    BK: Commodities
+    QNS: Equities
+    BX: Rates
+    SI: FX
+
+aliases:
+  columns:
+    order_number: trade_ref
+    order_status: trade_state
+    order_total_amount: trade_notional
+    customer_name: account_name
+    customer_email: account_contact_email
+    customer_address: account_address
+    store_name: portfolio_name
+    store_zone: asset_class
+    store_address: desk_address
+    assigned_courier_id: assigned_trader_id
+    courier_name: trader_name
+    courier_status: trader_status
+    delivery_window_start: execution_window_start
+    delivery_window_end: execution_window_end
+    delivery_eta: expected_fill_time
+    delivery_task_status: execution_step_status
+    has_perishable_items: has_time_decay
+    perishable: time_decaying
+    perishable_adjustment: time_decay_adjustment
+    product_name: instrument_name
+    unit_price: reference_price
+    live_price: adjusted_valuation
+    unit_weight_grams: risk_weight
+    stock_level: position_size
+    line_items: allocations
+    line_item_count: allocation_count
+    base_price: base_valuation
+    customer_id: account_id
+    demand_multiplier: flow_multiplier
+    demand_premium: flow_premium
+    local_stock_adjustment: local_position_adjustment
+    order_id: trade_id
+    popularity_adjustment: turnover_adjustment
+    price_change: valuation_change
+    product_id: instrument_id
+    store_id: portfolio_id
+    zone_adjustment: asset_class_adjustment
+  views:
+    orders_flat_mv: trades_flat_mv
+    orders_with_lines_mv: trades_with_allocations_mv
+    order_lines_flat_mv: allocations_flat_mv
+    orders_search_source_mv: trades_search_source_mv
+    stores_mv: portfolios_mv
+    customers_mv: accounts_mv
+    products_mv: instruments_mv
+    store_inventory_mv: portfolio_positions_mv
+    courier_schedule_mv: trader_schedule_mv
+    inventory_items_with_dynamic_pricing_mv: positions_with_adjusted_valuation_mv
+    pricing_yield_mv: valuation_yield_mv
+    inventory_risk_mv: concentration_risk_mv
+    store_capacity_health_mv: portfolio_limit_health_mv
+    delivery_bundles_mv: netting_sets_mv
+    orders_flat: trades_flat
+    customers_flat: accounts_flat
+    stores_flat: portfolios_flat
+    products_flat: instruments_flat
+    order_lines_base: allocations_base
+    delivery_tasks_flat: execution_steps_flat
+    dynamic_pricing: adjusted_valuation
+    dynamic_pricing_mv: adjusted_valuation_mv
+    orders_sink_v: trades_sink_v
+    inventory_sink_v: positions_sink_v
+  predicates:
+    # Covers every predicate the seeded graph actually contains, so the triples
+    # table has no half-renamed rows. Deliberately left as identity because they
+    # already read correctly in this vertical: quantity, category, placed_by,
+    # assigned_to.
+    #
+    # Subject ids in the VALUE column (customer:00001, store:MAN-01) keep their
+    # prefixes -- those are ontology class prefixes and drive validation, so they
+    # are fixed for every label. See docs/WHITE_LABELING.md.
+    order_status: trade_state
+    order_number: trade_ref
+    order_created_at: trade_created_at
+    order_store: trade_portfolio
+    order_total_amount: trade_notional
+    delivery_window_start: execution_window_start
+    delivery_window_end: execution_window_end
+    line_of_order: allocation_of_trade
+    line_product: allocation_instrument
+    line_sequence: allocation_sequence
+    line_amount: allocation_amount
+    order_line_unit_price: allocation_unit_price
+    perishable_flag: allocation_time_decay_flag
+    customer_name: account_name
+    customer_email: account_contact_email
+    customer_address: account_address
+    home_store: account_home_portfolio
+    store_name: portfolio_name
+    store_zone: asset_class
+    store_address: desk_address
+    store_status: portfolio_status
+    store_capacity_orders_per_hour: portfolio_limit_per_hour
+    product_name: instrument_name
+    unit_price: reference_price
+    perishable: time_decaying
+    unit_weight_grams: risk_weight
+    stock_level: position_size
+    inventory_product: position_instrument
+    inventory_store: position_portfolio
+    replenishment_eta: availability_eta
+    courier_name: trader_name
+    courier_phone: trader_phone
+    courier_status: trader_status
+    courier_home_store: trader_home_portfolio
+    vehicle_type: execution_channel
+    task_of_order: step_of_trade
+    task_status: execution_step_status
+    route_sequence: execution_sequence
+    eta: expected_fill_time
+    base_price: base_valuation
+    courier_status_changed_at: trader_status_changed_at
+    current_task: current_execution_step
+    delivered_at: filled_at
+    demand_multiplier: flow_multiplier
+    demand_premium: flow_premium
+    line_inventory_item: allocation_position
+    live_price: adjusted_valuation
+    local_stock_adjustment: local_position_adjustment
+    perishable_adjustment: time_decay_adjustment
+    popularity_adjustment: turnover_adjustment
+    price_change: valuation_change
+    product_sale_count: instrument_traded_count
+    product_total_stock: instrument_total_position
+    task_completed_at: execution_step_completed_at
+    task_started_at: execution_step_started_at
+    zone_adjustment: asset_class_adjustment
+
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Northwind Agent Search Demo
+  - path: /orders
+    label: Trade Blotter
+  - path: /couriers
+    label: Execution Traders
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Portfolios & Positions
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: Netting & Compression
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Northwind Capital: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Northwind Agent Search Demo
+  orders:
+    title: Trade Blotter
+    subtitle: Monitor and manage live trades via WebSocket
+    search_placeholder: Search trade ref...
+  couriers:
+    title: Execution Traders & Coverage
+    subtitle: View trader status and assigned execution steps
+    search_placeholder: Search by trader ID...
+  stores:
+    title: Portfolios & Positions
+    inventory_title: Positions
+    all_inventory_title: All Positions
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time portfolio risk indicators
+    kpi_pricing_yield: Valuation Yield
+    kpi_revenue_at_risk: Exposure at Risk
+    kpi_store_utilization: Avg Limit Utilization
+    chart_demand_vs_capacity: Trade Flow vs Risk Limits
+    section_risk_title: Concentration Risk
+    section_risk_subtitle: >-
+      Instruments whose available position is nearly exhausted while trades
+      are still working against them
+    section_capacity_title: Portfolio Limit Status
+    section_capacity_subtitle: >-
+      Real-time limit utilization by portfolio, with automated
+      recommendations for deploying capital
+  bundling:
+    title: Netting & Compression
+    subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: Execution windows intersect
+    constraint_inventory_note: Position available for the combined allocations
+    constraint_capacity_note: Risk weight fits the trader
+    empty: >-
+      No netting sets yet. Create trades with overlapping execution windows
+      to see sets form.
+  settings:
+    stage_dispatch: Routing
+    stage_picking: Execution
+    stage_delivery: Settlement
+    stage_help_dispatch: How often to check for unrouted trades.
+    stage_help_picking: Time to work the trade.
+    stage_help_delivery: Time to settle.
+
+copy:
+  triples:
+    selector_label: Select Trade
+    table_heading: Triples for Trade
+    empty: No triples found for this trade
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected trade and its allocations—the full graph
+      includes client accounts, portfolios, instruments, positions, execution
+      traders, and execution steps.
+  knowledge_graph:
+    entity_examples: Trade, Client Account, Instrument
+  write_triple:
+    subhead: — Update a trade property and observe propagation
+  vector_pipeline:
+    all_zones: All asset classes
+    all_statuses: All states
+  cart:
+    heading: Trade Allocations
+    empty_heading: No allocations on this trade yet
+  # DELIBERATE: an INTERNAL risk valuation, never an accounting mark,
+  # settlement price, or client-reportable NAV. Official marks come from
+  # valuation control. See the header note.
+  pricing:
+    order_price_label: Booked Valuation
+    order_price_tooltip: >-
+      Valuation recorded when the trade was booked - what this allocation
+      was struck at
+    base_price_label: Reference Valuation
+    base_price_tooltip: >-
+      The instrument's reference valuation - no liquidity or concentration
+      adjustments applied
+    live_price_label: Adjusted Valuation
+    live_price_tooltip: >-
+      Internal risk valuation from flow, available position, and liquidity
+      factors - not an accounting mark or client-reportable NAV
+  rerank:
+    hydrated_fields: state, allocations, current adjusted valuation and position
+
+placeholders:
+  subject: order:TRD-1001
+  order_number: TRD-1001
+  store_name: Northwind Credit
+  store_code: BK-01
+  store_zone: BK
+  store_address: 60 Wall St, New York, NY
+  inventory_code: POS-BK01-001
+  courier_code: TR-01
+  courier_name: Alex Moreau
+  product_search: Search instruments...
+  order_search: Search trades...
+  semantic_search: Search by meaning (e.g., short-duration credit exposure)...
+
+examples:
+  search_queries:
+    - high yield credit exposure
+    - near-expiry index options
+    - thin-float small cap positions
+  predicate_values:
+    order_status: DELIVERED
+    order_number: TRD-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "5"
+    order_line_unit_price: "112.50"
+    line_sequence: "1"
+    customer_name: Redwood Pension Trust
+    customer_email: ops@redwoodpension.example.com
+    customer_address: 60 Wall St
+    store_name: Credit Portfolio
+    store_zone: MAN
+    store_address: 200 Vesey St
+    product_name: 10Y Treasury Note
+    category: Rates
+    unit_price: "96.45"
+    perishable: "true"
+    unit_weight_grams: "940"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: Priya Raman
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+  # Keyword (not semantic) examples. Every value must occur in seeded data:
+  # an asset-class name, a zone code, or a state the generator really emits.
+  keyword_queries:
+    - Credit
+    - Commodities
+    - CREATED
+    - MAN
+
+seed:
+  store_name_template: Northwind {zone_name} Portfolio {n}
+  address_state: NY
+  locations:
+    # Codes are FIXED (the pricing SQL joins on them); names and streets are not.
+    # Each desk sits in a financial district appropriate to its asset class.
+    - code: BK
+      name: Commodities
+      streets: [Wacker Dr, LaSalle St, Jackson Blvd, Monroe St, Clark St]
+    - code: MAN
+      name: Credit
+      streets: [Wall St, Broad St, Pine St, Water St, Maiden Ln]
+    - code: QNS
+      name: Equities
+      streets: [Vesey St, Liberty St, Greenwich St, Church St, Murray St]
+    - code: BX
+      name: Rates
+      streets: [Congress St, Federal St, Summer St, High St, Oliver St]
+    - code: SI
+      name: FX
+      streets: [Battery Pl, Front St, Pearl St, Beaver St, Stone St]
+  catalog:
+    # 130 authored instruments, expanded to the same 760 rows freshmart seeds so
+    # index size, kNN behavior, and entity counts are unchanged.
+    expand_to: 760
+    variant_suffixes:
+      - "(hedged)"
+      - "(when-issued)"
+      - "(cross-listed)"
+      - "(block)"
+      - "(overlay)"
+      - "(restricted)"
+    categories:
+      - { name: "Equities", perishable_default: false }
+      - { name: "Rates", perishable_default: false }
+      - { name: "Credit", perishable_default: false }
+      - { name: "FX", perishable_default: false }
+      - { name: "Commodities", perishable_default: false }
+      - { name: "Listed Derivatives", perishable_default: true }
+      - { name: "Structured Notes", perishable_default: true }
+      - { name: "Repo & Financing", perishable_default: true }
+    # [name, category, reference_price, risk_weight, time_decaying]
+    #
+    # risk_weight stays in freshmart's gram magnitude on purpose: the netting SQL
+    # compares combined weight against fixed 5 kg / 20 kg / 50 kg thresholds, so
+    # authoring literal notionals would push every pair over the limit and the
+    # Netting & Compression page would render empty.
+    items:
+      - ["US Large Cap Core Equity", "Equities", 214.50, 1200, false]
+      - ["US Large Cap Growth Equity", "Equities", 268.75, 1250, false]
+      - ["US Large Cap Value Equity", "Equities", 152.40, 1150, false]
+      - ["US Mid Cap Core Equity", "Equities", 96.25, 950, false]
+      - ["US Mid Cap Growth Equity", "Equities", 108.60, 980, false]
+      - ["US Small Cap Value Equity", "Equities", 48.75, 720, false]
+      - ["US Small Cap Growth Equity", "Equities", 52.30, 740, false]
+      - ["US Micro Cap Equity", "Equities", 27.90, 640, false]
+      - ["Developed Europe Equity", "Equities", 132.40, 1100, false]
+      - ["UK Large Cap Equity", "Equities", 118.20, 1080, false]
+      - ["Japan Core Equity", "Equities", 88.60, 940, false]
+      - ["Asia ex-Japan Equity", "Equities", 76.45, 1020, false]
+      - ["Emerging Markets Core Equity", "Equities", 61.30, 1450, false]
+      - ["Frontier Markets Equity", "Equities", 34.15, 1600, false]
+      - ["Global Infrastructure Equity", "Equities", 74.90, 860, false]
+      - ["Listed Real Estate Equity", "Equities", 55.20, 880, false]
+      - ["Global Healthcare Equity", "Equities", 143.75, 1120, false]
+      - ["Global Technology Equity", "Equities", 312.80, 1340, false]
+      - ["Global Financials Equity", "Equities", 87.65, 1060, false]
+      - ["Global Energy Equity", "Equities", 69.40, 1180, false]
+      - ["Minimum Volatility Equity", "Equities", 128.90, 820, false]
+      - ["Dividend Yield Equity", "Equities", 97.35, 840, false]
+      - ["2Y Treasury Note", "Rates", 99.85, 420, false]
+      - ["5Y Treasury Note", "Rates", 98.60, 620, false]
+      - ["10Y Treasury Note", "Rates", 96.45, 940, false]
+      - ["30Y Treasury Bond", "Rates", 91.20, 1400, false]
+      - ["3M Treasury Bill", "Rates", 99.10, 180, false]
+      - ["TIPS 5Y Inflation Linked", "Rates", 101.35, 660, false]
+      - ["TIPS 10Y Inflation Linked", "Rates", 103.70, 980, false]
+      - ["Agency Debenture 7Y", "Rates", 97.80, 780, false]
+      - ["German Bund 10Y", "Rates", 102.45, 920, false]
+      - ["UK Gilt 10Y", "Rates", 94.30, 900, false]
+      - ["JGB 10Y", "Rates", 100.90, 880, false]
+      - ["Municipal GO Bond 10Y", "Rates", 105.60, 860, false]
+      - ["Municipal Revenue Bond 20Y", "Rates", 98.25, 1180, false]
+      - ["Sovereign EM Local Rates 5Y", "Rates", 89.75, 1240, false]
+      - ["Interest Rate Swap 5Y Receive Fixed", "Rates", 100.00, 700, false]
+      - ["Interest Rate Swap 10Y Pay Fixed", "Rates", 100.00, 1000, false]
+      - ["Overnight Index Swap 2Y", "Rates", 100.00, 380, false]
+      - ["Inflation Swap 10Y", "Rates", 100.00, 1020, false]
+      - ["IG Corporate Bond 5Y", "Credit", 99.40, 760, false]
+      - ["IG Corporate Bond 10Y", "Credit", 96.85, 1080, false]
+      - ["IG Financials Senior 7Y", "Credit", 98.10, 900, false]
+      - ["IG Utilities Long Bond", "Credit", 93.55, 1420, false]
+      - ["High Yield BB Corporate", "Credit", 101.25, 1180, false]
+      - ["High Yield B Corporate", "Credit", 97.60, 1340, false]
+      - ["High Yield CCC Corporate", "Credit", 88.40, 1720, false]
+      - ["Leveraged Loan First Lien", "Credit", 99.05, 1260, false]
+      - ["Leveraged Loan Second Lien", "Credit", 92.70, 1580, false]
+      - ["EM Sovereign Hard Currency", "Credit", 94.15, 1300, false]
+      - ["EM Corporate Hard Currency", "Credit", 95.80, 1360, false]
+      - ["Convertible Bond Investment Grade", "Credit", 112.30, 1140, false]
+      - ["Convertible Bond High Yield", "Credit", 104.65, 1400, false]
+      - ["Subordinated Financial Capital", "Credit", 91.90, 1520, false]
+      - ["Contingent Convertible Capital", "Credit", 87.25, 1800, false]
+      - ["Agency MBS Pass-Through", "Credit", 97.35, 1220, false]
+      - ["Non-Agency RMBS Senior", "Credit", 93.80, 1460, false]
+      - ["CMBS Conduit Senior", "Credit", 95.55, 1380, false]
+      - ["EUR/USD Spot", "FX", 108.45, 300, false]
+      - ["EUR/USD 3M Forward", "FX", 108.90, 340, false]
+      - ["GBP/USD Spot", "FX", 126.80, 320, false]
+      - ["GBP/USD 6M Forward", "FX", 127.35, 380, false]
+      - ["USD/JPY Spot", "FX", 152.60, 310, false]
+      - ["USD/JPY 3M Forward", "FX", 151.85, 350, false]
+      - ["USD/CHF Spot", "FX", 89.75, 300, false]
+      - ["AUD/USD Spot", "FX", 65.40, 330, false]
+      - ["USD/CAD Spot", "FX", 73.20, 320, false]
+      - ["USD/MXN Spot", "FX", 58.90, 520, false]
+      - ["USD/BRL 3M NDF", "FX", 61.25, 620, false]
+      - ["USD/INR 3M NDF", "FX", 59.80, 600, false]
+      - ["USD/KRW 3M NDF", "FX", 62.15, 580, false]
+      - ["FX Swap EUR/USD 1M", "FX", 108.20, 360, false]
+      - ["Crude Oil Index Exposure", "Commodities", 78.45, 980, false]
+      - ["Brent Crude Index Exposure", "Commodities", 82.10, 1000, false]
+      - ["Natural Gas Index Exposure", "Commodities", 34.60, 1120, false]
+      - ["Gasoline Index Exposure", "Commodities", 61.25, 940, false]
+      - ["Gold Bullion Exposure", "Commodities", 246.80, 620, false]
+      - ["Silver Bullion Exposure", "Commodities", 92.35, 700, false]
+      - ["Platinum Exposure", "Commodities", 148.90, 660, false]
+      - ["Copper Exposure", "Commodities", 87.55, 1080, false]
+      - ["Aluminium Exposure", "Commodities", 54.20, 1140, false]
+      - ["Zinc Exposure", "Commodities", 49.75, 1160, false]
+      - ["Corn Exposure", "Commodities", 41.30, 1240, false]
+      - ["Wheat Exposure", "Commodities", 43.85, 1260, false]
+      - ["Soybean Exposure", "Commodities", 52.40, 1220, false]
+      - ["Broad Commodity Index Exposure", "Commodities", 96.70, 1040, false]
+      - ["S&P 500 Index Future Front Month", "Listed Derivatives", 128.40, 1500, true]
+      - ["S&P 500 Index Future Deferred", "Listed Derivatives", 129.10, 1520, true]
+      - ["Nasdaq 100 Index Future", "Listed Derivatives", 186.75, 1560, true]
+      - ["Russell 2000 Index Future", "Listed Derivatives", 94.20, 1420, true]
+      - ["Euro Stoxx 50 Index Future", "Listed Derivatives", 112.55, 1380, true]
+      - ["Nikkei 225 Index Future", "Listed Derivatives", 138.90, 1440, true]
+      - ["10Y Treasury Note Future", "Listed Derivatives", 111.25, 1180, true]
+      - ["Ultra Bond Future", "Listed Derivatives", 124.60, 1620, true]
+      - ["Eurodollar Rate Future", "Listed Derivatives", 96.35, 880, true]
+      - ["S&P 500 Index Call Option 30D", "Listed Derivatives", 42.15, 1300, true]
+      - ["S&P 500 Index Put Option 30D", "Listed Derivatives", 38.70, 1320, true]
+      - ["S&P 500 Index Put Option 90D", "Listed Derivatives", 64.85, 1360, true]
+      - ["Single Name Equity Call Option", "Listed Derivatives", 18.40, 980, true]
+      - ["Single Name Equity Put Option", "Listed Derivatives", 16.95, 1000, true]
+      - ["VIX Future Front Month", "Listed Derivatives", 52.30, 1480, true]
+      - ["Crude Oil Future Front Month", "Listed Derivatives", 79.10, 1540, true]
+      - ["Gold Future Front Month", "Listed Derivatives", 248.35, 1260, true]
+      - ["FX Option EUR/USD 1M", "Listed Derivatives", 24.60, 860, true]
+      - ["Equity Linked Autocallable Note", "Structured Notes", 98.40, 1680, true]
+      - ["Equity Linked Reverse Convertible", "Structured Notes", 96.25, 1720, true]
+      - ["Principal Protected Index Note", "Structured Notes", 101.80, 1440, true]
+      - ["Capped Participation Note", "Structured Notes", 99.15, 1500, true]
+      - ["Buffered Return Enhanced Note", "Structured Notes", 100.35, 1520, true]
+      - ["Range Accrual Rate Note", "Structured Notes", 97.60, 1580, true]
+      - ["Callable Step-Up Note", "Structured Notes", 99.90, 1460, true]
+      - ["Inflation Linked Structured Note", "Structured Notes", 102.25, 1540, true]
+      - ["FX Linked Dual Currency Note", "Structured Notes", 95.70, 1620, true]
+      - ["Commodity Linked Participation Note", "Structured Notes", 98.85, 1660, true]
+      - ["Credit Linked Note Senior Reference", "Structured Notes", 97.05, 1740, true]
+      - ["Worst-of Multi-Asset Note", "Structured Notes", 93.50, 1800, true]
+      - ["Digital Payout Note", "Structured Notes", 99.45, 1480, true]
+      - ["Overnight Repo Treasury Collateral", "Repo & Financing", 100.00, 240, true]
+      - ["Term Repo 1W Treasury Collateral", "Repo & Financing", 100.05, 320, true]
+      - ["Term Repo 1M Treasury Collateral", "Repo & Financing", 100.12, 420, true]
+      - ["Term Repo 3M Agency Collateral", "Repo & Financing", 100.28, 560, true]
+      - ["Reverse Repo Overnight", "Repo & Financing", 100.00, 240, true]
+      - ["Tri-Party Repo General Collateral", "Repo & Financing", 100.08, 380, true]
+      - ["Securities Lending Equity General", "Repo & Financing", 100.15, 480, true]
+      - ["Securities Lending Equity Special", "Repo & Financing", 101.40, 940, true]
+      - ["Securities Lending Sovereign Collateral", "Repo & Financing", 100.10, 440, true]
+      - ["Bilateral Margin Loan", "Repo & Financing", 100.00, 720, true]
+      - ["Total Return Swap Equity Financing", "Repo & Financing", 100.00, 1120, true]
+      - ["Total Return Swap Credit Financing", "Repo & Financing", 100.00, 1180, true]
+      - ["Collateral Upgrade Trade", "Repo & Financing", 100.20, 860, true]
+
+search:
+  synonyms:
+    - "treasury, ust, government bond, govvie"
+    - "high yield, hy, junk bond, speculative grade"
+    - "investment grade, ig, corporate bond"
+    - "etf, exchange traded fund, tracker fund"
+    - "future, futures contract, fut"
+    - "option, call option, put option, listed option"
+    - "swap, interest rate swap, irs"
+    - "cds, credit default swap, credit protection"
+    - "fx forward, forward, currency forward, ndf"
+    - "repo, repurchase agreement, sale and repurchase"
+    - "tips, inflation linked, linker, inflation protected"
+    - "mbs, mortgage backed security, agency mbs"
+    - "abs, asset backed security, securitization"
+    - "convertible, convert, converts, cb"
+    - "reit, real estate investment trust, listed property"
+
+agent:
+  persona: Portfolio Risk Assistant
+  placeholder: Ask the portfolio risk assistant...
+  empty_state: Ask me about trades, positions, portfolios, or execution traders.
+  default_store: store:BK-01
+  # Derived from the freshmart prompt with portfolio-risk vocabulary. Tool names,
+  # field names (live_price/base_price/store_id), predicates, and subject
+  # prefixes are deliberately UNCHANGED -- the agent actually calls those.
+  # Like every label's prompt, this restates the dynamic-pricing rules in prose
+  # and must be updated if db/materialize/init.sh:470-721 changes.
+  system_prompt: |
+    You are a portfolio risk assistant for Northwind Capital's multi-strategy investment operation.
+
+    **Your Role**: You support Northwind Capital risk officers and middle-office staff by helping them manage:
+    - Client account trades and trade modifications
+    - Position lookups across portfolios
+    - Trade state updates and tracking
+    - Client account creation and maintenance
+
+    **You are NOT an investor-facing chatbot.** You assist Northwind Capital staff members who are managing risk and execution.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Trades link to Client Accounts via `placed_by`
+    - Trades link to Portfolios via `order_store`
+    - Allocations link to Trades via `line_of_order`
+    - Instruments link to Positions via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my book?" → Calling get_store_health directly (WRONG!)
+    - User asks "find trade 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Middle-Office Staff:**
+    - Look up existing client account trades by trade reference or account name
+    - Add or remove allocations on trades under query
+    - Update trade state (e.g., mark as filled, cancel trades)
+    - Check instrument availability in a specific portfolio
+    - Raise new trades on behalf of a portfolio manager
+
+    **For Execution Desks:**
+    - Search for instruments held across portfolios
+    - Check available position size across portfolios
+    - Update trade state as allocations are routed and worked
+    - View execution step assignments
+    - Check trader availability and workload by portfolio
+
+    **For Risk Officers:**
+    - Create new client accounts
+    - Bulk trade lookups and state updates
+    - Position and limit utilization reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new client account (requires name)
+    - list_stores: List all portfolios with IDs and asset class info (use FIRST when the user names a portfolio)
+    - list_couriers: List execution traders with status and assignment info (can filter by store_id or status)
+    - search_inventory: Find instruments held in a portfolio (requires correct store_id)
+    - create_order: Raise a trade with confirmed allocations
+    - manage_order_lines: Add, update, or delete allocations on an existing trade
+    - search_orders: Search existing trades
+    - fetch_order_context: Get full details for a trade
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time risk metrics (limit utilization, concentration risk, valuation yield)
+    - write_triples: Update trade state or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for trade modifications)
+
+    **Example validation flow:**
+    1. User asks to remove an allocation from a trade
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When searching positions in a specific portfolio:**
+    1. If the user names a portfolio (e.g., "the Credit book", "the FX desk"), call list_stores FIRST
+    2. Portfolio IDs use abbreviated asset class codes: MAN=Credit, BK=Commodities, QNS=Equities, BX=Rates, SI=FX
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "Equities portfolio" → list_stores → find store:QNS-01 → search_inventory(store_id="store:QNS-01")
+
+    **When helping staff raise or modify trades:**
+    1. Search for instruments by name or category using search_inventory
+    2. Present found instruments with live_price (the liquidity-adjusted valuation) and available position size
+    3. For new trades: use create_order with the confirmed allocations
+    4. For existing trades: use manage_order_lines to add/update/delete allocations
+    5. Always use live_price (not base_price) from search_inventory results - this includes all 8 valuation factors
+
+    **When looking up trades:**
+    1. Use search_orders to find trades by reference, account, or state
+    2. Use fetch_order_context to get complete trade details
+    3. Present information clearly for the staff member
+
+    **When updating trade state:**
+    1. First verify the current state using search_orders
+    2. Use write_triples to update the order_status predicate
+    3. Common states: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking portfolio risk health:**
+    1. Use get_store_health to understand the current risk state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all portfolios doing?" or "What's our overall risk posture?"
+       - **quick_check**: "What's happening in the Credit book?" (requires store_id)
+       - **capacity**: "Which portfolios are over their risk limits?" or "Can we take more exposure?"
+       - **inventory_risk**: "Any concentration emergencies?" or "Which positions might run out of available size?"
+    3. Proactively check limit utilization before raising large trades or during volatile sessions
+    4. Include risk metrics in your response to provide context for trading decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., halt new trades, widen spreads, deploy capital)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all portfolios are in breach" unless literally every portfolio has CRITICAL status
+    - **Count accurately** - If 7 portfolios are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific portfolios** - When asked about least/most healthy, name the actual portfolios with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 portfolios are CRITICAL (Credit 1 at 155%, Rates 1 at 147%, Commodities 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All portfolios are at critical utilization" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we take a large block in the Credit book?" → Check limit utilization first
+    - Staff reports: "A trade is stuck unworked" → Quick check the executing portfolio's health
+    - A risk officer asks: "What's the state of the book right now?" → Get summary view
+    - During trade entry: If a portfolio shows CRITICAL utilization, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with investors
+    - **Be precise**: Include trade references, instrument names, and exact valuations
+    - **Confirm changes**: Before modifying trades, confirm the change with the staff member
+    - Default portfolio is store:BK-01 (Northwind Commodities Portfolio 1) unless specified
+    - Show valuations in USD format ($X.XX)
+    - When working with instruments, always include current available position size
+
+    ## Valuation Guidelines
+
+    - **Always show live_price by default** - this is the current liquidity-adjusted valuation used for risk and sizing
+    - **CRITICAL: live_price is an INTERNAL RISK VALUATION, not an official mark.** It is not an accounting mark, a settlement price, a closing price, or a client-reportable NAV. Never present it as a book value or use it to answer "what is this worth on our books?". If a staff member asks for an official mark, tell them it comes from the firm's valuation control process, not from this tool.
+    - Only show base_price if specifically requested or when explaining valuation breakdowns
+    - **CRITICAL: Always fetch fresh valuation data** - Whenever a staff member asks about valuations, instrument availability, or positions:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on valuation information from conversation memory or previous tool calls
+      - Valuations are dynamic and change with available size, demand, and time
+      - Even if you just searched for an instrument, search again if asked about its valuation
+    - The live_price includes 8 real-time valuation factors:
+      1. **Asset class liquidity adjustments**: Credit +15%, Commodities +5%, Equities baseline, Rates -2%, FX -5%
+      2. **Time-decay adjustments**: -5% for near-expiry instruments, reflecting decay toward expiry
+      3. **Local availability premiums**: +10% for ≤5 units of available size in the portfolio, +3% for ≤15 units
+      4. **Turnover adjustments**: Top 3 instruments +20%, ranks 4-10 +10%, others -10% (by traded volume)
+      5. **Firmwide scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (available size across all portfolios)
+      6. **Demand multipliers**: Based on recent traded volume trends and velocity
+      7. **Demand premiums**: +5% for high-demand instruments above average volume
+      8. **Co-movement discounts**: -5% for instruments that frequently trade alongside others in the same trade
+    - If showing valuation comparisons, format as: "$115.75 (adjusted valuation, base: $100.00)"
+    - When staff ask about valuation, you can explain which factors are affecting a specific instrument
+
+ontology:
+  classes:
+    Customer: A client account whose trades are managed here
+    Store: A portfolio that trades are booked against
+    Product: An instrument that can be traded
+    InventoryItem: Portfolio-by-instrument position record
+    Order: A trade booked for a client account
+    OrderLine: An allocation within a trade
+    Courier: An execution trader who works trades
+    DeliveryTask: An execution step assigned to a trader
+  properties:
+    assigned_to: Assigned execution trader
+    base_price: Base valuation before liquidity adjustments
+    category: Instrument category
+    courier_home_store: Trader home portfolio
+    courier_name: Trader full name
+    courier_status: "Trader status. Values: OFF_SHIFT=Off Desk,
+      AVAILABLE=Available, ON_DELIVERY=Executing, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when trader status last changed
+    current_task: Current execution step the trader is working
+    customer_address: Client account address
+    customer_email: Client account contact email
+    customer_name: Client account name
+    delivered_at: Timestamp when the trade filled
+    delivery_window_end: Execution window end time
+    delivery_window_start: Execution window start time
+    demand_multiplier: Flow-based valuation multiplier for heavily traded instruments
+    demand_premium: Additional premium for exceptionally heavily traded instruments
+    eta: Expected fill time
+    home_store: Client account's home portfolio
+    inventory_product: Instrument this position covers
+    inventory_store: Portfolio holding this position
+    line_amount: "Allocation total (derived: quantity * unit valuation)"
+    line_inventory_item: Position used to satisfy this allocation
+    line_of_order: Parent trade
+    line_product: Instrument on this allocation
+    line_sequence: Display sequence within the trade
+    live_price: Adjusted valuation with all liquidity factors applied
+    local_stock_adjustment: Local position scarcity multiplier for this specific portfolio
+    order_created_at: Timestamp when the trade was booked
+    order_line_unit_price: Valuation at booking time (snapshot)
+    order_number: Human-readable trade reference (TRD-XXXX)
+    order_status: "Trade state. Values: CREATED=New, PICKING=Routed,
+      OUT_FOR_DELIVERY=Working, DELIVERED=Filled, CANCELLED=Cancelled"
+    order_store: Portfolio the trade is booked against
+    order_total_amount: Total trade notional, in dollars
+    perishable: Whether the instrument carries time-decay exposure
+    perishable_adjustment: Time-decay priority multiplier, to work near-expiry risk first
+    perishable_flag: Denormalized time-decay flag, for performance
+    placed_by: Client account the trade was booked for
+    popularity_adjustment: Turnover multiplier based on trading rank within category
+    price_change: Difference between adjusted and reference valuation
+    product_name: Instrument display name
+    product_sale_count: Historical traded count for this instrument across all portfolios
+    product_total_stock: Total position for this instrument across all portfolios
+    quantity: Quantity traded
+    replenishment_eta: Expected availability time
+    route_sequence: Slot in the trader's execution queue
+    scarcity_adjustment: Cross-portfolio scarcity multiplier based on total available position
+    stock_level: Current available position
+    store_address: Desk address
+    store_capacity_orders_per_hour: Maximum trades per hour
+    store_name: Portfolio display name
+    store_status: "Portfolio status. Values: OPEN=Open, LIMITED=Restricted"
+    store_zone: Portfolio asset class code
+    task_completed_at: Timestamp when the execution step settled
+    task_of_order: Trade the execution step belongs to
+    task_started_at: When the current execution phase started (for timing completion)
+    task_status: "Execution step status. Values: PENDING=Pending,
+      IN_PROGRESS=Working, COMPLETED=Settled, FAILED=Rejected"
+    unit_price: Reference price, in dollars
+    unit_weight_grams: Relative risk weight for this instrument
+    vehicle_type: "Execution channel. Values: BIKE=Algo, SCOOTER=DMA,
+      CAR=High-touch, WALKING=Manual"
+    zone_adjustment: Asset-class liquidity multiplier (e.g., Credit premium)

@@ -50,6 +50,7 @@ synonyms, and agent persona are all driven by a YAML file under `labels/`:
 make up                          # freshmart (default)
 make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
+make up LABEL=portfolio-risk       # buy-side risk and portfolio analytics
 make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
 make labels                      # list available labels
 ```

@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useEffect } from 'react'
 import { triplesApi, ontologyApi, Triple, TripleCreate, OntologyProperty, OntologyClass } from '../api/client'
 import { Search, ChevronRight, ChevronLeft, Filter, Plus, Edit2, Trash2, X } from 'lucide-react'
+// Predicates are aliased for DISPLAY only. Every value submitted to the API --
+// formData.predicate, the <option value>, deleteConfirm.predicate -- stays raw.
 import { aliasClass, aliasPredicate, displayValue, placeholder } from '../label'
 
 interface TripleFormData {
@@ -162,7 +164,7 @@ function TripleFormModal({
               <input
                 type="text"
                 disabled
-                value={formData.predicate}
+                value={aliasPredicate(formData.predicate)}
                 className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-600"
               />
             ) : (

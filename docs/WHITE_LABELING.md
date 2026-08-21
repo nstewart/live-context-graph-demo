@@ -41,6 +41,7 @@ make labels                      # list what's available
 make up                          # freshmart (the default)
 make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
+make up LABEL=portfolio-risk       # buy-side risk and portfolio analytics
 make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
 ```
 
@@ -61,7 +62,8 @@ Every `up*` target depends on `make label`, so an unknown or malformed label
 ```
 $ make up LABEL=nope
 error: unknown label 'nope'.
-Available: freshmart, life-insurance, logistics, mortgage-underwriting
+Available: freshmart, life-insurance, logistics, mortgage-underwriting,
+           portfolio-risk
 ```
 
 ### Switching labels
@@ -350,11 +352,11 @@ Rows are `[name, category, price, weight_grams, perishable]`. The last two are
 mandatory in every vertical because the dynamic-pricing and bundling SQL key on
 them — reinterpret them rather than dropping them:
 
-| Column | freshmart | life-insurance | logistics | mortgage-underwriting |
-|---|---|---|---|---|
-| `price` | item price | cost to serve | freight rate | cost to underwrite |
-| `weight_grams` | grams | handling effort | billable handling weight | review effort |
-| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires |
+| Column | freshmart | life-insurance | logistics | mortgage-underwriting | portfolio-risk |
+|---|---|---|---|---|---|
+| `price` | item price | cost to serve | freight rate | cost to underwrite | reference price / adjusted valuation |
+| `weight_grams` | grams | handling effort | billable handling weight | review effort | risk weight |
+| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires | is near expiry |
 
 Keep `weight_grams` in freshmart's magnitude whatever it means in your vertical.
 The bundling SQL compares it against fixed gram thresholds, so authoring literal
@@ -585,6 +587,14 @@ lines, and comments in `api/`, `load-generator/`, and `db/scripts/` still say
 FreshMart. They are developer-facing. `label-lint` scans only the
 customer-visible surfaces: `web/src`, `agents/src`, and the OpenAPI metadata in
 `api/src/main.py`.
+
+**Comments, within those surfaces.** The guard catches the brand being typed
+into a component instead of read from the active label, so a whole-line comment
+that names freshmart to *explain* the mechanism is documentation, not
+hardcoding — the label loaders themselves could not describe their own default
+otherwise. Only a leading comment marker is skipped: a trailing comment on a
+real code line (`const p = "FM-" // default`) is still a hit, and so is a brand
+string in the body of a multi-line comment.
 
 Note the distinction: those files' *comments* are out of scope, but anything they
 **write into the database is not**. `db/scripts/apply_ontology_labels.py` and the

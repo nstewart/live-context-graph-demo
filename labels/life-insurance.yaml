@@ -229,17 +229,17 @@ aliases:
     courier_phone: case_manager_phone
     courier_status: case_manager_status
     task_status: work_item_status
-    base_price: base_cost_to_serve
+    base_price: standard_cost_to_serve
     courier_home_store: case_manager_home_center
     courier_status_changed_at: case_manager_status_changed_at
     current_task: current_work_item
     delivered_at: settled_at
     demand_multiplier: volume_multiplier
     demand_premium: volume_premium
-    eta: projected_settlement
-    home_store: home_center
+    eta: projected_completion
+    home_store: policyholder_home_center
     inventory_product: capacity_transaction_type
-    inventory_store: capacity_center
+    inventory_store: capacity_service_center
     line_amount: requirement_amount
     line_inventory_item: requirement_capacity_pool
     line_of_order: requirement_of_case
@@ -249,23 +249,23 @@ aliases:
     local_stock_adjustment: local_capacity_adjustment
     order_created_at: case_created_at
     order_line_unit_price: requirement_unit_cost
-    order_store: case_center
+    order_store: case_service_center
     order_total_amount: case_cost_to_serve
     perishable_adjustment: deadline_adjustment
-    perishable_flag: deadline_bound_flag
-    placed_by: filed_by
+    perishable_flag: requirement_deadline_bound_flag
+    placed_by: submitted_by
     popularity_adjustment: frequency_adjustment
     price_change: cost_change
     product_sale_count: transaction_type_volume
     product_total_stock: transaction_type_total_capacity
     replenishment_eta: capacity_refresh_eta
-    route_sequence: queue_sequence
-    store_capacity_orders_per_hour: center_capacity_cases_per_hour
-    store_status: center_status
+    route_sequence: work_item_sequence
+    store_capacity_orders_per_hour: service_center_cases_per_hour
+    store_status: service_center_status
     task_completed_at: work_item_completed_at
     task_of_order: work_item_of_case
     task_started_at: work_item_started_at
-    vehicle_type: handling_class
+    vehicle_type: handling_type
     zone_adjustment: region_adjustment
 
 nav:

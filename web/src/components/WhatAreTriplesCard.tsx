@@ -189,6 +189,8 @@ export const WhatAreTriplesCard = ({
                         <td className="px-4 py-2 font-mono text-xs text-gray-700">
                           {triple.subject_id}
                         </td>
+                        {/* Display only -- onTripleClick above gets the raw
+                            predicate, which is what the write API expects. */}
                         <td className="px-4 py-2 font-mono text-xs text-gray-700">
                           {aliasPredicate(triple.predicate)}
                         </td>

@@ -232,19 +232,19 @@ aliases:
     courier_phone: driver_phone
     courier_status: driver_status
     task_status: dispatch_leg_status
-    base_price: base_rate
+    base_price: standard_rate
     courier_home_store: driver_home_terminal
     courier_status_changed_at: driver_status_changed_at
     current_task: current_dispatch_leg
     demand_multiplier: lane_demand_multiplier
     demand_premium: lane_demand_premium
     eta: projected_arrival
-    home_store: home_terminal
-    inventory_product: dock_commodity
-    inventory_store: dock_terminal
+    home_store: shipper_home_terminal
+    inventory_product: dock_capacity_commodity
+    inventory_store: dock_capacity_terminal
     line_amount: freight_line_amount
     line_inventory_item: freight_line_dock_capacity
-    line_of_order: freight_line_of_shipment
+    line_of_order: line_of_shipment
     line_product: freight_line_commodity
     line_sequence: freight_line_sequence
     live_price: current_rate
@@ -254,18 +254,18 @@ aliases:
     order_store: shipment_terminal
     order_total_amount: shipment_charges
     perishable_adjustment: temp_controlled_adjustment
-    perishable_flag: temp_controlled_flag
-    placed_by: tendered_by
+    perishable_flag: freight_line_temp_controlled_flag
+    placed_by: booked_by
     popularity_adjustment: lane_volume_adjustment
     price_change: rate_change
     product_sale_count: commodity_shipment_count
     product_total_stock: commodity_total_dock_capacity
-    replenishment_eta: dock_capacity_refresh_eta
+    replenishment_eta: dock_release_eta
     route_sequence: stop_sequence
-    store_capacity_orders_per_hour: terminal_capacity_shipments_per_hour
+    store_capacity_orders_per_hour: terminal_shipments_per_hour
     store_status: terminal_status
     task_completed_at: dispatch_leg_completed_at
-    task_of_order: dispatch_leg_of_shipment
+    task_of_order: leg_of_shipment
     task_started_at: dispatch_leg_started_at
     vehicle_type: equipment_type
     zone_adjustment: lane_adjustment

@@ -3,7 +3,7 @@ import { ChevronUp, ChevronDown, ChevronRight, Trash2, Database } from 'lucide-r
 import { usePropagation, PropagationEvent, SourceWriteEvent } from '../contexts/PropagationContext';
 import { useLayout } from '../contexts/LayoutContext';
 import { useChat } from '../contexts/ChatContext';
-import { aliasPredicate } from '../label'
+import { aliasColumn, aliasPredicate } from '../label'
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('en-US', {
@@ -57,7 +57,7 @@ function FieldDiff({ field, change }: { field: string; change: { old: string | n
     // Show that something changed even if the summary is the same
     return (
       <div className="flex items-center gap-2 text-xs font-mono py-0.5">
-        <span className="text-gray-400 min-w-[120px]">{field}:</span>
+        <span className="text-gray-400 min-w-[120px]">{aliasColumn(field)}:</span>
         <span className="text-yellow-400">{newFormatted} (modified)</span>
       </div>
     );
@@ -65,7 +65,7 @@ function FieldDiff({ field, change }: { field: string; change: { old: string | n
 
   return (
     <div className="flex items-center gap-2 text-xs font-mono py-0.5">
-      <span className="text-gray-400 min-w-[120px]">{field}:</span>
+      <span className="text-gray-400 min-w-[120px]">{aliasColumn(field)}:</span>
       {change.old !== null && <span className="text-red-400 break-all">{oldFormatted}</span>}
       <span className="text-gray-500">→</span>
       {change.new !== null && <span className="text-green-400 break-all">{newFormatted}</span>}

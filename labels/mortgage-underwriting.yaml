@@ -240,7 +240,7 @@ aliases:
     courier_phone: underwriter_phone
     courier_status: underwriter_status
     task_status: verification_status
-    base_price: base_underwriting_cost
+    base_price: standard_underwriting_cost
     courier_home_store: underwriter_home_center
     courier_status_changed_at: underwriter_status_changed_at
     current_task: current_verification_task
