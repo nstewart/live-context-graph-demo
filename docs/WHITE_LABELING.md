@@ -41,6 +41,7 @@ make labels                      # list what's available
 make up                          # freshmart (the default)
 make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
+make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
 ```
 
 `LABEL` is optional everywhere and defaults to `freshmart`. It works on:
@@ -60,7 +61,7 @@ Every `up*` target depends on `make label`, so an unknown or malformed label
 ```
 $ make up LABEL=nope
 error: unknown label 'nope'.
-Available: freshmart, life-insurance, logistics
+Available: freshmart, life-insurance, logistics, mortgage-underwriting
 ```
 
 ### Switching labels
@@ -349,16 +350,43 @@ Rows are `[name, category, price, weight_grams, perishable]`. The last two are
 mandatory in every vertical because the dynamic-pricing and bundling SQL key on
 them — reinterpret them rather than dropping them:
 
-| Column | freshmart | life-insurance | logistics |
-|---|---|---|---|
-| `price` | item price | cost to serve | freight rate |
-| `weight_grams` | grams | handling effort | billable handling weight |
-| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment |
+| Column | freshmart | life-insurance | logistics | mortgage-underwriting |
+|---|---|---|---|---|
+| `price` | item price | cost to serve | freight rate | cost to underwrite |
+| `weight_grams` | grams | handling effort | billable handling weight | review effort |
+| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires |
 
 Keep `weight_grams` in freshmart's magnitude whatever it means in your vertical.
-The bundling SQL compares it against fixed gram thresholds (5 kg / 20 kg / 50 kg),
-so authoring literal pallet weights would push every pair over the limit and the
-Load Consolidation page would render empty.
+The bundling SQL compares it against fixed gram thresholds, so authoring literal
+pallet weights or real underwriter-hours would push every pair over the limit and
+the Load Consolidation page would render empty.
+
+The number to author against is **20 kg per pair**, and it is tighter than the
+thresholds alone suggest. `order_weights` sums `quantity * unit_weight_grams`
+over a whole file, and the pair filter runs on the sum of two of those. The outer
+guard is 50 kg, but the courier `EXISTS` clause only clears a pair via
+`CAR` (≤ 20 kg) or `BIKE` (≤ 5 kg) — the `VAN` branch is dead, because
+`generate_load_test_data.py` only ever seeds `BIKE / SCOOTER / CAR / WALKING`,
+and `SCOOTER` and `WALKING` satisfy no branch at all.
+
+The seeder gives an order 1–6 lines at quantity 1–4, so expected order weight is
+about **8.75 × the catalog's median item weight**, and a pair is twice that. That
+puts the usable ceiling at a median item weight of roughly 1,100 — freshmart sits
+at 454, logistics at 525, mortgage-underwriting at 540. Check yours before you
+commit:
+
+```bash
+python3 -c "
+import statistics, sys; sys.path[:0] = ['db/scripts', 'tools']
+import demo_label; from resolve_label import resolve
+cat = resolve('<your-label>')['seed']['catalog']
+rows = demo_label.expand_catalog(cat['items'], cat['expand_to'], cat.get('variant_suffixes', []))
+med = statistics.median(r[3] for r in rows)
+print(f'median {med:.0f}  est. pair {2 * 8.75 * med:.0f}g  (CAR cap 20000, BIKE cap 5000)')"
+```
+
+Note that `variant_suffixes` scale weight *up* — round 1 is ×1.25, round 5 is
+×2.25 — so author against the expanded median, not the median you typed.
 
 `freshmart` authors all 760 rows so its seeded data is byte-identical to the
 pre-white-labeling demo. Other labels author a compact list (~130 is plenty) and

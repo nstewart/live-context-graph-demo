@@ -6,6 +6,7 @@ Each `*.yaml` here is a white-label skin for the demo. Pick one at start time:
 make up                          # freshmart (default)
 make up LABEL=life-insurance
 make up LABEL=logistics
+make up LABEL=mortgage-underwriting
 make labels                      # list what's available
 make label LABEL=life-insurance  # resolve + validate without starting anything
 ```
