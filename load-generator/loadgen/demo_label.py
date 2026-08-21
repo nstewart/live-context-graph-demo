@@ -33,6 +33,28 @@ def load_label() -> dict[str, Any] | None:
 
 
 @lru_cache(maxsize=1)
+def locations() -> list[tuple[str, str, list[str]]]:
+    """(code, name, streets) per zone, from the active label.
+
+    Zone CODES are join keys in the pricing SQL and never change; the display
+    names and street pools are label-driven, so generated addresses land in the
+    label's own geography instead of the default vertical's.
+    """
+    label = load_label()
+    if not label:
+        return []
+    return [
+        (loc["code"], loc["name"], list(loc.get("streets") or [loc["name"]]))
+        for loc in (label.get("seed", {}).get("locations") or [])
+    ]
+
+
+def address_state() -> str:
+    """State/region code used for generated postal codes."""
+    label = load_label()
+    return (label or {}).get("seed", {}).get("address_state", "NY")
+
+
 def order_prefix() -> str:
     label = load_label()
     if not label:

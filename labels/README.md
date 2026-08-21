@@ -6,6 +6,8 @@ Each `*.yaml` here is a white-label skin for the demo. Pick one at start time:
 make up                          # freshmart (default)
 make up LABEL=life-insurance
 make up LABEL=logistics
+make up LABEL=portfolio-risk
+make up LABEL=mortgage-underwriting
 make labels                      # list what's available
 make label LABEL=life-insurance  # resolve + validate without starting anything
 ```
@@ -15,9 +17,16 @@ Every other label lists only what it changes and inherits the rest.
 
 **Adding a label?** Follow the step-by-step in
 [`docs/WHITE_LABELING.md#adding-a-new-label`](../docs/WHITE_LABELING.md#adding-a-new-label)
-— there is a skeleton, a key reference, and a checklist. The two steps people
+— there is a skeleton, a key reference, and a checklist. The three steps people
 miss are overriding `agent.system_prompt` (otherwise your assistant introduces
-itself as a grocery service) and adding the favicon file under `web/public/`.
+itself as a grocery service), writing the `ontology` block (68 class and property
+descriptions, shown on the Knowledge Graph tab — omit it and you inherit
+FreshMart's, which `make label-leaks` will report), and adding the favicon file
+under `web/public/`.
+
+Once the stack is up, `make label-data` checks the seeded rows themselves: the
+static checks cannot see what a seeder or generator wrote into Postgres, and that
+is where leaks have survived longest.
 
 ## Merge semantics
 

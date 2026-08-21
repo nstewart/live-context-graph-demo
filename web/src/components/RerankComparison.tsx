@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { searchApi, RerankResponse } from "../api/client";
-
+import { copy, Entity } from "../label";
 const fmtMs = (ms?: number) => (ms == null ? "—" : `${ms} ms`);
 
 function Delta({ delta }: { delta: number }) {
@@ -78,6 +78,7 @@ function StageLatency({ timings }: { timings: Record<string, number | undefined>
  *  Row-per-candidate: ① where kNN ranked it · ② the document the reranker read
  *  (assembled live from Materialize) + the cross-encoder score · ③ new rank. */
 export function RerankComparison({ query }: { query: string }) {
+  const r = copy("rerank");
   const [data, setData] = useState<RerankResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +129,7 @@ export function RerankComparison({ query }: { query: string }) {
           <table className="w-full border-collapse" style={{ fontSize: "12px" }}>
             <thead>
               <tr className="text-left text-gray-400 border-b border-gray-100">
-                <th className="pb-1 pr-3 font-medium whitespace-nowrap">Order</th>
+                <th className="pb-1 pr-3 font-medium whitespace-nowrap">{Entity('order')}</th>
                 <th className="pb-1 pr-3 font-medium whitespace-nowrap">① kNN</th>
                 <th className="pb-1 pr-3 font-medium">② Reranker input — scored doc (MZ) vs what kNN matched (index)</th>
                 <th className="pb-1 font-medium whitespace-nowrap">③ Reranked</th>
@@ -178,7 +179,7 @@ export function RerankComparison({ query }: { query: string }) {
         <p className="mt-2 text-xs text-gray-400">
           OpenSearch picks the candidates by matching <span className="text-gray-500 font-medium">indexed text</span> (kNN
           recall). The cross-encoder then scores a <span className="text-purple-600 font-medium">document read live from
-          Materialize</span> — status, items, current price and stock, hydrated in <b>{fmtMs(t.feature_fetch_ms)}</b> — so
+          Materialize</span> — {r.hydrated_fields}, hydrated in <b>{fmtMs(t.feature_fetch_ms)}</b> — so
           editing a triple changes the ranking immediately, before the index catches up.
         </p>
         </div>

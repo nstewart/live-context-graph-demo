@@ -45,3 +45,13 @@ def brand_name() -> str:
 
 def api_title() -> str:
     return f"{brand_name()} Digital Twin API"
+
+
+def entity_title(kind: str, fallback: str) -> str:
+    """Display name for an entity type, e.g. entity_title("courier", "Courier").
+
+    Used only by the OpenAPI description. Falls back to the default label's word
+    so the docs page still reads sensibly if the label file is missing.
+    """
+    words = load_label().get("vocabulary", {}).get(kind, {})
+    return words.get("title") or fallback

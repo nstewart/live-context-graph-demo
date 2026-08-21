@@ -4,6 +4,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -11,7 +12,7 @@ async def list_couriers(store_id: str = None, status: str = None) -> list[dict]:
     """
     List couriers with their current status and task information.
 
-    Use this tool to find couriers, check their availability, or see their delivery schedules.
+    Use this tool to find couriers, check their availability, or see their schedules.
     Can filter by home store or current status.
 
     Args:
@@ -26,22 +27,22 @@ async def list_couriers(store_id: str = None, status: str = None) -> list[dict]:
         - home_store_name: Name of the home store
         - vehicle_type: WALKING, BIKE, or SCOOTER
         - courier_status: Current status (OFF_SHIFT, AVAILABLE, ON_DELIVERY)
-        - active_tasks: Number of currently active delivery tasks
+        - active_tasks: Number of currently active tasks
         - completed_tasks: Number of completed tasks
 
     Status values:
         - OFF_SHIFT: Courier is not currently working
-        - AVAILABLE: Courier is on shift and ready for deliveries
+        - AVAILABLE: Courier is on shift and ready for work
         - ON_DELIVERY: Courier is currently delivering an order
 
     Example workflows:
-        1. "Who's available at the Queens store?"
+        1. "Who's available at the QNS location?"
            -> list_couriers(store_id="store:QNS-01", status="AVAILABLE")
 
-        2. "Show me all couriers on delivery"
+        2. "Show me everyone currently assigned to a task"
            -> list_couriers(status="ON_DELIVERY")
 
-        3. "List couriers for Manhattan stores"
+        3. "List couriers for the MAN zone"
            -> First call list_stores(zone="MAN") to get store IDs
            -> Then call list_couriers(store_id="store:MAN-01") for each store
     """
@@ -81,7 +82,7 @@ async def list_couriers(store_id: str = None, status: str = None) -> list[dict]:
                     "completed_tasks": completed_tasks,
                 })
 
-            return result
+            return alias_payload(result)
 
         except httpx.HTTPError as e:
             return [{"error": f"Failed to fetch couriers: {str(e)}"}]

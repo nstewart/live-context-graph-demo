@@ -173,6 +173,17 @@ aliases:
     stock_level: available_capacity
     line_items: requirements
     line_item_count: requirement_count
+    base_price: base_cost_to_serve
+    customer_id: policyholder_id
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
+    local_stock_adjustment: local_capacity_adjustment
+    order_id: case_id
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_id: transaction_type_id
+    store_id: center_id
+    zone_adjustment: region_adjustment
   views:
     orders_flat_mv: cases_flat_mv
     orders_with_lines_mv: cases_with_requirements_mv
@@ -199,53 +210,63 @@ aliases:
     orders_sink_v: cases_sink_v
     inventory_sink_v: capacity_sink_v
   predicates:
-    # Covers every predicate the seeded graph actually contains, so the triples
-    # table has no half-renamed rows. Deliberately left as identity because they
-    # already read correctly in this vertical: quantity, category, assigned_to.
-    #
-    # Subject ids in the VALUE column (customer:00001, store:BK-01) keep their
-    # prefixes -- those are ontology class prefixes and drive validation, so they
-    # are fixed for every label. See docs/WHITE_LABELING.md.
     order_status: case_status
     order_number: case_number
-    order_created_at: case_created_at
-    order_store: case_service_center
-    order_total_amount: case_cost_to_serve
-    placed_by: submitted_by
     delivery_window_start: sla_window_start
     delivery_window_end: sla_window_end
-    line_of_order: requirement_of_case
-    line_product: requirement_transaction_type
-    line_sequence: requirement_sequence
-    line_amount: requirement_amount
-    order_line_unit_price: requirement_unit_cost
-    perishable_flag: requirement_deadline_bound_flag
     customer_name: policyholder_name
     customer_email: policyholder_email
     customer_address: policyholder_address
-    home_store: policyholder_home_center
     store_name: service_center_name
     store_zone: region
     store_address: service_center_address
-    store_status: service_center_status
-    store_capacity_orders_per_hour: service_center_cases_per_hour
     product_name: transaction_type
     unit_price: base_cost_to_serve
     perishable: deadline_bound
     unit_weight_grams: handling_effort
     stock_level: available_capacity
-    inventory_product: capacity_transaction_type
-    inventory_store: capacity_service_center
-    replenishment_eta: capacity_refresh_eta
     courier_name: case_manager_name
     courier_phone: case_manager_phone
     courier_status: case_manager_status
-    courier_home_store: case_manager_home_center
-    vehicle_type: handling_type
-    task_of_order: work_item_of_case
     task_status: work_item_status
-    route_sequence: work_item_sequence
+    base_price: standard_cost_to_serve
+    courier_home_store: case_manager_home_center
+    courier_status_changed_at: case_manager_status_changed_at
+    current_task: current_work_item
+    delivered_at: settled_at
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
     eta: projected_completion
+    home_store: policyholder_home_center
+    inventory_product: capacity_transaction_type
+    inventory_store: capacity_service_center
+    line_amount: requirement_amount
+    line_inventory_item: requirement_capacity_pool
+    line_of_order: requirement_of_case
+    line_product: requirement_transaction_type
+    line_sequence: requirement_sequence
+    live_price: current_cost_to_serve
+    local_stock_adjustment: local_capacity_adjustment
+    order_created_at: case_created_at
+    order_line_unit_price: requirement_unit_cost
+    order_store: case_service_center
+    order_total_amount: case_cost_to_serve
+    perishable_adjustment: deadline_adjustment
+    perishable_flag: requirement_deadline_bound_flag
+    placed_by: submitted_by
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_sale_count: transaction_type_volume
+    product_total_stock: transaction_type_total_capacity
+    replenishment_eta: capacity_refresh_eta
+    route_sequence: work_item_sequence
+    store_capacity_orders_per_hour: service_center_cases_per_hour
+    store_status: service_center_status
+    task_completed_at: work_item_completed_at
+    task_of_order: work_item_of_case
+    task_started_at: work_item_started_at
+    vehicle_type: handling_type
+    zone_adjustment: region_adjustment
 
 nav:
   - path: /
@@ -293,9 +314,30 @@ pages:
     kpi_revenue_at_risk: SLA Breach Exposure
     kpi_store_utilization: Avg Center Utilization
     chart_demand_vs_capacity: Case Volume vs Capacity
+    section_risk_title: At-Risk Capacity
+    section_risk_subtitle: >-
+      Transaction types whose handling capacity is nearly exhausted while
+      cases are still queued against them
+    section_capacity_title: Service Center Capacity Status
+    section_capacity_subtitle: >-
+      Real-time center workload with automated recommendations for routing
+      volume
   bundling:
     title: Case Batching
     subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: SLA windows intersect
+    constraint_inventory_note: Handling capacity available for the combined work
+    constraint_capacity_note: Effort fits the case manager
+    empty: >-
+      No batches yet. Create servicing cases with overlapping SLA windows to
+      see batches form.
+  settings:
+    stage_dispatch: Routing
+    stage_picking: Review
+    stage_delivery: Settlement
+    stage_help_dispatch: How often to check for unrouted cases.
+    stage_help_picking: Time to review requirements.
+    stage_help_delivery: Time to settle.
 
 copy:
   triples:
@@ -317,6 +359,31 @@ copy:
   vector_pipeline:
     all_zones: All regions
     all_statuses: All statuses
+  cart:
+    heading: Case Requirements
+    empty_heading: No requirements on this case yet
+  # DELIBERATE: cost to serve, never benefit or settlement amounts. A demo
+  # that appears to vary what a policyholder is paid would be indefensible.
+  pricing:
+    order_price_label: Booked Cost
+    order_price_tooltip: >-
+      Cost to serve locked in when the case was opened - what this
+      requirement was booked at
+    base_price_label: Standard Cost
+    base_price_tooltip: >-
+      The transaction type's standard cost to serve - no handling adjustments
+      applied
+    live_price_label: Current Cost
+    live_price_tooltip: >-
+      Current cost to serve based on case volume, available capacity, and
+      other handling factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Booked
+    base_price_short: Standard
+    live_price_short: Current
+  rerank:
+    hydrated_fields: status, requirements, current cost to serve and capacity
 
 placeholders:
   subject: order:SC-1001
@@ -337,6 +404,11 @@ examples:
     - beneficiary disputes
     - annuity income start
     - deadline-bound death claims
+  keyword_queries:
+    - Northeast
+    - Mid-Atlantic
+    - CREATED
+    - MAN
   predicate_values:
     order_status: DELIVERED
     order_number: SC-1234
@@ -364,6 +436,18 @@ examples:
     task_status: COMPLETED
     assigned_to: courier:C-001
     eta: "2025-01-15T11:00:00"
+
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - Policy Admin
+      - Claims
+      - Billing
+      - Agent Portal
 
 seed:
   store_name_template: Acme Life {zone_name} Service Center {n}
@@ -569,6 +653,27 @@ agent:
   system_prompt: |
     You are a servicing assistant for Acme Life's in-force policy servicing operation.
 
+    ## Vocabulary (say it this way)
+
+    Tool payloads carry fixed field names. Never read a field name, class
+    name, enum value or subject id back to a user as prose -- translate it:
+
+    - `order_number, order_status` describe a **servicing case** (plural: servicing cases)
+    - `line_of_order, line_amount` describe a **case requirement** (plural: case requirements)
+    - `customer_name, placed_by` describe a **policyholder** (plural: policyholders)
+    - `store_name, store_zone` describe a **service center** (plural: service centers)
+    - `product_name, unit_price` describe a **transaction type** (plural: transaction types)
+    - `stock_level, inventory_product` describe a **capacity pool** (plural: capacity pools)
+    - `courier_name, assigned_to` describe a **case manager** (plural: case managers)
+    - `task_status, task_of_order` describe a **work item** (plural: work items)
+    - `delivery_window_start` and `delivery_window_end` are the **SLA window**
+
+    This governs the headings and field labels you invent when you summarise a
+    record, not only your sentences: a tool returning `sla_window_start` is
+    reporting the SLA window, so call it that rather than inventing a label from
+    the field name. Where a tool gives a display name beside an identifier, the
+    display name is the only one a user should ever see.
+
     **Your Role**: You support Acme Life servicing staff and policyholder support agents by helping them manage:
     - Policyholder servicing cases and case modifications
     - Handling-capacity lookups across service centers
@@ -628,6 +733,7 @@ agent:
     ## Available Tools
 
     - create_customer: Create a new policyholder account (requires name)
+    - find_customer: Resolve a person's NAME to their real policyholder id (use FIRST when the user names a person)
     - list_stores: List all service centers with IDs and zone info (use FIRST when user mentions a service center by name)
     - list_couriers: List case managers with status and work item info (can filter by store_id or status)
     - search_inventory: Find transaction types in a service center's capacity (requires correct store_id)
@@ -659,6 +765,28 @@ agent:
     4. Use manage_order_lines with action="delete" instead
 
     ## Workflow Guidelines
+
+    **When the user names a person instead of giving an id:**
+
+    1. Call find_customer with the name and use the id it returns
+
+    2. Subject ids are opaque -- NEVER build one from a name. `policyholder:jane_doe` does not exist,
+
+       and a case pointing at it loses the link to the person: the name goes blank
+
+       on every screen that joins the two, and create_order will reject it
+
+    3. If find_customer returns no match, the person is not on file -- use create_customer,
+
+       then pass the id it gives you
+
+    4. If it returns several, ask which one they mean rather than guessing
+
+
+    **Status values:** say the status in this deployment's words if you like -- the
+
+    write path maps it back to the fixed value. Never invent a new status.
+
 
     **When searching capacity for a specific service center:**
     1. If user mentions a center by name (e.g., "Midwest center", "Northeast location"), call list_stores FIRST
@@ -738,3 +866,80 @@ agent:
          appear alongside others in the same case
     - If showing cost comparisons, format as: "$115.75 (current cost to serve, base: $100.00)"
     - When staff ask about cost, you can explain which factors are affecting a specific transaction type
+
+ontology:
+  classes:
+    Customer: A policyholder whose in-force policy is being serviced
+    Store: A service center that handles casework
+    Product: A servicing transaction type that can be requested
+    InventoryItem: Center-by-transaction-type handling capacity record
+    Order: A servicing case opened against a policy
+    OrderLine: A requirement within a servicing case
+    Courier: A case manager who works cases
+    DeliveryTask: A work item assigned to a case manager
+  properties:
+    assigned_to: Assigned case manager
+    base_price: Standard cost to serve before handling adjustments
+    category: Transaction type category
+    courier_home_store: Case manager home center
+    courier_name: Case manager full name
+    courier_status: "Case manager status. Values: OFF_SHIFT=Off Shift,
+      AVAILABLE=Available, ON_DELIVERY=On Case, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when case manager status last changed
+    current_task: Current work item the case manager is handling
+    customer_address: Policyholder mailing address
+    customer_email: Policyholder email address
+    customer_name: Policyholder full name
+    delivered_at: Timestamp when the case was settled
+    delivery_window_end: SLA window end time
+    delivery_window_start: SLA window start time
+    demand_multiplier: Volume-based cost multiplier for high-volume transaction types
+    demand_premium: Additional premium for exceptionally high-volume transaction types
+    eta: Projected settlement time
+    home_store: Policyholder servicing center
+    inventory_product: Transaction type this capacity pool covers
+    inventory_store: Center holding this capacity
+    line_amount: "Requirement total (derived: quantity * unit cost)"
+    line_inventory_item: Capacity pool used to satisfy this requirement
+    line_of_order: Parent servicing case
+    line_product: Transaction type on this requirement
+    line_sequence: Display sequence within the case
+    live_price: Current cost to serve with all handling adjustments applied
+    local_stock_adjustment: Local capacity scarcity multiplier for this specific center
+    order_created_at: Timestamp when the case was opened
+    order_line_unit_price: Cost to serve at case open time (snapshot)
+    order_number: Human-readable case number (SC-XXXX)
+    order_status: "Case status. Values: CREATED=Received, PICKING=In Review,
+      OUT_FOR_DELIVERY=Awaiting Settlement, DELIVERED=Settled, CANCELLED=Withdrawn"
+    order_store: Center handling the case
+    order_total_amount: Total cost to serve the case, in dollars
+    perishable: Whether the transaction type carries a statutory deadline
+    perishable_adjustment: Deadline-priority multiplier, to clear time-bound work first
+    perishable_flag: Denormalized statutory-deadline flag, for performance
+    placed_by: Policyholder the case was opened for
+    popularity_adjustment: Frequency multiplier based on request rank within category
+    price_change: Difference between current and standard cost to serve
+    product_name: Transaction type display name
+    product_sale_count: Historical request count for this transaction type across all centers
+    product_total_stock: Total handling capacity for this transaction type across all centers
+    quantity: Quantity requested
+    replenishment_eta: Expected capacity refresh time
+    route_sequence: Position in the case manager's queue
+    scarcity_adjustment: Cross-center scarcity multiplier based on total available capacity
+    stock_level: Current available handling capacity
+    store_address: Center physical address
+    store_capacity_orders_per_hour: Maximum cases per hour
+    store_name: Center display name
+    store_status: "Center operational status. Values: OPEN=Open,
+      LIMITED=Reduced capacity"
+    store_zone: Center region code
+    task_completed_at: Timestamp when the work item was completed
+    task_of_order: Case the work item belongs to
+    task_started_at: When the current work phase started (for timing completion)
+    task_status: "Work item status. Values: PENDING=Pending,
+      IN_PROGRESS=In Progress, COMPLETED=Completed, FAILED=Failed"
+    unit_price: Standard cost to serve, in dollars
+    unit_weight_grams: Relative handling effort for this transaction type
+    vehicle_type: "Handling class. Values: BIKE=Standard handling,
+      SCOOTER=Priority handling, CAR=Complex handling, WALKING=Manual review"
+    zone_adjustment: Region-based cost multiplier (e.g., Northeast premium)

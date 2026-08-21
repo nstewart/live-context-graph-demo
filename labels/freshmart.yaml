@@ -186,9 +186,32 @@ pages:
     kpi_revenue_at_risk: Revenue at Risk
     kpi_store_utilization: Avg Store Utilization
     chart_demand_vs_capacity: Store Demand vs Capacity
+    section_risk_title: High-Risk Inventory
+    section_risk_subtitle: >-
+      Products with low stock levels that have pending customer orders (may
+      cause stockouts)
+    section_capacity_title: Store Capacity Status
+    section_capacity_subtitle: >-
+      Real-time store workload with automated recommendations for demand
+      management
   bundling:
     title: Delivery Bundling
     subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: Delivery windows intersect
+    constraint_inventory_note: Stock available for combined qty
+    constraint_capacity_note: Weight fits courier vehicle
+    empty: >-
+      No bundles yet. Create orders with overlapping delivery windows to see
+      bundles form.
+  # Load-generator lifecycle stages. The stage NAMES are fixed in the
+  # generator; these are only what the operator reads next to each duration.
+  settings:
+    stage_dispatch: Dispatch
+    stage_picking: Picking
+    stage_delivery: Delivery
+    stage_help_dispatch: How often to check for pending orders.
+    stage_help_picking: Time to pick items.
+    stage_help_delivery: Time to deliver.
 
 copy:
   triples:
@@ -229,6 +252,31 @@ copy:
     search_heading: Hybrid Search
     all_zones: All zones
     all_statuses: All statuses
+  cart:
+    heading: Shopping Cart
+    empty_heading: Your cart is empty
+  # The three prices the demo compares. A label that must not imply variable
+  # customer pricing (see life-insurance.yaml) reinterprets these as cost.
+  pricing:
+    order_price_label: Order Price
+    order_price_tooltip: >-
+      Price locked in when the order was placed - what the customer was
+      charged for this item
+    base_price_label: Base Price
+    base_price_tooltip: >-
+      Product's current static catalog price - no dynamic adjustments applied
+    live_price_label: Live Price
+    live_price_tooltip: >-
+      Current dynamically-calculated price based on demand, stock levels, and
+      other factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Order
+    base_price_short: Base
+    live_price_short: Live
+  rerank:
+    # The fields the cross-encoder reads live from Materialize.
+    hydrated_fields: status, items, current price and stock
 
 placeholders:
   subject: order:FM-1001
@@ -249,6 +297,18 @@ examples:
     - organic produce
     - dairy products
     - perishable delivery
+  # Keyword (not semantic) examples. These execute a literal multi_match against
+  # the orders index, so every value must actually occur in seeded data: a
+  # location name, a zone code, or a status the generator really produces
+  # (CREATED / DELIVERED / CANCELLED -- NOT PICKING or OUT_FOR_DELIVERY, which
+  # the seeder never emits). Verify with:
+  #   curl -s localhost:9200/orders/_count -H 'Content-Type: application/json' \
+  #     -d '{"query":{"multi_match":{"query":"<value>","fields":["store_name","store_zone","order_status"]}}}'
+  keyword_queries:
+    - Brooklyn
+    - Manhattan
+    - CREATED
+    - BK
   # Sample values for the "Write a Triple" form, keyed by predicate. Predicate
   # names themselves are fixed by the ontology.
   predicate_values:
@@ -278,6 +338,18 @@ examples:
     task_status: COMPLETED
     assigned_to: courier:C-001
     eta: "2025-01-15T11:00:00"
+
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - CRM
+      - ERP
+      - Apps
+      - External Data
 
 seed:
   # {zone_name} and {n} are substituted per store.
@@ -1167,6 +1239,7 @@ agent:
     ## Available Tools
 
     - create_customer: Create a new customer account (requires name)
+    - find_customer: Resolve a person's NAME to their real customer id (use FIRST when the user names a person)
     - list_stores: List all stores with IDs and zone info (use FIRST when user mentions a store by name)
     - list_couriers: List couriers with status and task info (can filter by store_id or status)
     - search_inventory: Find products in a store's inventory (requires correct store_id)
@@ -1199,6 +1272,28 @@ agent:
 
     ## Workflow Guidelines
 
+    **When the user names a person instead of giving an id:**
+
+    1. Call find_customer with the name and use the id it returns
+
+    2. Subject ids are opaque -- NEVER build one from a name. `customer:jane_doe` does not exist,
+
+       and a order pointing at it loses the link to the person: the name goes blank
+
+       on every screen that joins the two, and create_order will reject it
+
+    3. If find_customer returns no match, the person is not on file -- use create_customer,
+
+       then pass the id it gives you
+
+    4. If it returns several, ask which one they mean rather than guessing
+
+
+    **Status values:** say the status in this deployment's words if you like -- the
+
+    write path maps it back to the fixed value. Never invent a new status.
+
+
     **When searching inventory for a specific store:**
     1. If user mentions a store by name (e.g., "Queens store", "Manhattan location"), call list_stores FIRST
     2. Store IDs use abbreviated zone codes: MAN=Manhattan, BK=Brooklyn, QNS=Queens, BX=Bronx, SI=Staten Island
@@ -1210,7 +1305,7 @@ agent:
     2. Present found items with live_price (dynamic pricing) and stock levels
     3. For new orders: use create_order with the confirmed items
     4. For existing orders: use manage_order_lines to add/update/delete items
-    5. Always use live_price (not base_price) from inventory search results - this includes all 7 dynamic pricing factors
+    5. Always use live_price (not base_price) from inventory search results - this includes all 8 dynamic pricing factors
 
     **When looking up orders:**
     1. Use search_orders to find orders by number, customer, or status
@@ -1277,3 +1372,80 @@ agent:
          co-occur with other purchases
     - If showing price comparisons, format as: "$5.75 (live price, base: $5.00)"
     - When staff ask about pricing, you can explain which factors are affecting a specific product's price
+
+# Ontology descriptions. Keys are the FIXED class and property names;
+# only the prose is label-driven. These are seeded into Postgres and shown
+# on the Knowledge Graph tab, so a label that omits one inherits the
+# default vertical's wording -- `make label-leaks` fails on that.
+
+ontology:
+  classes:
+    Customer: A customer who places orders
+    Store: A FreshMart store location
+    Product: A product available for sale
+    InventoryItem: Store-product inventory record
+    Order: A customer order
+    OrderLine: A line item within an order
+    Courier: A delivery courier
+    DeliveryTask: A delivery task assigned to a courier
+  properties:
+    assigned_to: Assigned courier
+    base_price: Base price before dynamic adjustments
+    category: Product category
+    courier_home_store: Courier home store
+    courier_name: Courier full name
+    courier_status: Courier status (OFF_SHIFT, AVAILABLE, ON_DELIVERY, ACTIVE)
+    courier_status_changed_at: Timestamp when courier status last changed
+    current_task: Current delivery task the courier is working on
+    customer_address: Customer delivery address
+    customer_email: Customer email address
+    customer_name: Customer full name
+    delivered_at: Timestamp when the order was delivered
+    delivery_window_end: Delivery window end time
+    delivery_window_start: Delivery window start time
+    demand_multiplier: Demand-based pricing multiplier for high-demand products
+    demand_premium: Additional demand premium for exceptionally high-demand products
+    eta: Estimated delivery time
+    home_store: Customer preferred store
+    inventory_product: Product in inventory
+    inventory_store: Store holding this inventory
+    line_amount: "Line total amount (derived: quantity * unit_price)"
+    line_inventory_item: Inventory item used to fulfill this order line
+    line_of_order: Parent order
+    line_product: Product on this line
+    line_sequence: Display sequence within order
+    live_price: Current dynamically-calculated price with all adjustments applied
+    local_stock_adjustment: Local stock scarcity multiplier for this specific store
+    order_created_at: Timestamp when the order was created
+    order_line_unit_price: Unit price at order time (price snapshot)
+    order_number: Human-readable order number (FM-XXXX)
+    order_status: Order status (CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED)
+    order_store: Store fulfilling the order
+    order_total_amount: Total order amount in dollars
+    perishable: Whether product is perishable
+    perishable_adjustment: Perishability discount multiplier to move inventory faster
+    perishable_flag: Denormalized perishable flag from product for performance
+    placed_by: Customer who placed the order
+    popularity_adjustment: Product popularity multiplier based on sales rank within category
+    price_change: Difference between live price and base price
+    product_name: Product display name
+    product_sale_count: Historical sales count for this product across all stores
+    product_total_stock: Total stock level for this product across all stores
+    quantity: Quantity ordered
+    replenishment_eta: Expected restock time
+    route_sequence: Position in courier route
+    scarcity_adjustment: Cross-store scarcity multiplier based on total available stock
+    stock_level: Current stock quantity
+    store_address: Store physical address
+    store_capacity_orders_per_hour: Maximum orders per hour
+    store_name: Store display name
+    store_status: Store operational status (OPEN, LIMITED)
+    store_zone: Store delivery zone code
+    task_completed_at: Timestamp when the delivery task was completed
+    task_of_order: Order being delivered
+    task_started_at: When the current task phase started (for timing task completion)
+    task_status: Task status (PENDING, IN_PROGRESS, COMPLETED, FAILED)
+    unit_price: Product unit price in dollars
+    unit_weight_grams: Product weight in grams
+    vehicle_type: Vehicle type (BIKE, SCOOTER, CAR, WALKING)
+    zone_adjustment: Zone-based pricing multiplier (e.g., Manhattan premium)

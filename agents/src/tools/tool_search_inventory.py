@@ -6,6 +6,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -23,11 +24,12 @@ async def search_inventory(
     Use this tool to:
     - Find products by name or description
     - Check product availability and current prices
-    - See dynamic pricing adjustments (zone-based, perishable discounts, low stock premiums)
+    - See dynamic pricing adjustments (zone-based, handling-class, low stock premiums)
     - Verify what items are actually in stock before creating orders
 
     Args:
-        query: Product name or description to search for (e.g., "milk", "chicken", "bread")
+        query: Product name or description to search for, in this deployment's own
+            catalog vocabulary (see the system prompt for what the catalog contains)
         store_id: Store to search in (default: store:BK-01)
         limit: Maximum number of results (default: 10)
 
@@ -35,16 +37,18 @@ async def search_inventory(
         List of matching products ONLY from store inventory with:
         - product_id: Unique product identifier
         - product_name: Full product name
-        - category: Product category (Dairy, Produce, Meat, etc.)
+        - category: Product category, drawn from this deployment's own catalog
         - base_price: Original unit price
         - live_price: Current dynamic price (includes all 7 pricing factors)
         - price_change: Dollar difference between live and base price
         - quantity_available: Current stock level
-        - is_perishable: Whether product requires refrigeration
+        - is_perishable: Whether the product needs the special handling this
+            deployment applies (see the system prompt for what that means here)
         - store_id: The store where item is available
-        - store_zone: Store neighborhood (MAN=Manhattan, BK=Brooklyn, etc.)
+        - store_zone: Zone code (MAN, BK, QNS, BX, SI); the system prompt maps each
+            code to its display name
         - zone_adjustment: Zone-based pricing multiplier (if available)
-        - perishable_adjustment: Perishable discount multiplier (if available)
+        - perishable_adjustment: Special-handling price multiplier (if available)
         - local_stock_adjustment: Store-level scarcity multiplier (if available)
         - popularity_adjustment: Sales ranking multiplier (if available)
         - scarcity_adjustment: Global stock scarcity multiplier (if available)
@@ -52,8 +56,8 @@ async def search_inventory(
         - demand_premium: High demand premium multiplier (if available)
 
     Example:
-        search_inventory(query="chicken", store_id="store:BK-01")
-        # Returns only chicken products actually in stock at BK-01 with dynamic pricing
+        search_inventory(query="<catalog term>", store_id="store:BK-01")
+        # Returns only matching products actually in stock at BK-01 with dynamic pricing
     """
     settings = get_settings()
 
@@ -163,7 +167,7 @@ async def search_inventory(
                     results.append(result)
 
             # Return top results up to limit
-            return results[:limit]
+            return alias_payload(results[:limit])
 
         except httpx.HTTPError as e:
             return [{"error": f"Search failed: {str(e)}"}]

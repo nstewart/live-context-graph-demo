@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ontologyApi } from '../api/client'
 import { Plus, Database } from 'lucide-react'
-
+import { aliasClass } from '../label'
 export default function OntologyClassesPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -56,7 +56,7 @@ export default function OntologyClassesPage() {
                   value={formData.class_name}
                   onChange={e => setFormData({ ...formData, class_name: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  placeholder="e.g., Customer"
+                  placeholder={/* label-lint-ok: a fixed ontology class name, not a display word */ "e.g., Customer"}
                   required
                 />
               </div>
@@ -67,7 +67,7 @@ export default function OntologyClassesPage() {
                   value={formData.prefix}
                   onChange={e => setFormData({ ...formData, prefix: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                  placeholder="e.g., customer"
+                  placeholder={/* label-lint-ok: a fixed subject prefix, not a display word */ "e.g., customer"}
                   required
                 />
               </div>
@@ -121,7 +121,7 @@ export default function OntologyClassesPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <Database className="h-4 w-4 text-green-600" />
-                      <span className="font-medium">{cls.class_name}</span>
+                      <span className="font-medium">{aliasClass(cls.class_name)}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3">

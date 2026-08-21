@@ -9,6 +9,17 @@
     "predicates": {},
     "views": {}
   },
+  "architecture": {
+    "source_systems": {
+      "heading": "Source Systems",
+      "items": [
+        "CRM",
+        "ERP",
+        "Apps",
+        "External Data"
+      ]
+    }
+  },
   "brand": {
     "favicon": "freshmart.svg",
     "name": "FreshMart",
@@ -24,10 +35,28 @@
     }
   },
   "copy": {
+    "cart": {
+      "empty_heading": "Your cart is empty",
+      "heading": "Shopping Cart"
+    },
     "knowledge_graph": {
       "entity_examples": "Order, Customer, Product",
       "heading": "Leveraging Context Graphs",
       "subhead": "The relationships that give agents and humans understanding about what to do next and why"
+    },
+    "pricing": {
+      "base_price_label": "Base Price",
+      "base_price_short": "Base",
+      "base_price_tooltip": "Product's current static catalog price - no dynamic adjustments applied",
+      "live_price_label": "Live Price",
+      "live_price_short": "Live",
+      "live_price_tooltip": "Current dynamically-calculated price based on demand, stock levels, and other factors",
+      "order_price_label": "Order Price",
+      "order_price_short": "Order",
+      "order_price_tooltip": "Price locked in when the order was placed - what the customer was charged for this item"
+    },
+    "rerank": {
+      "hydrated_fields": "status, items, current price and stock"
     },
     "triples": {
       "closing": "Click any row to pre-populate the Write Triple form below. This view shows only triples for the selected order and its line items—the full graph includes customers, stores, products, inventory, couriers, and delivery tasks.",
@@ -108,6 +137,12 @@
     }
   },
   "examples": {
+    "keyword_queries": [
+      "Brooklyn",
+      "Manhattan",
+      "CREATED",
+      "BK"
+    ],
     "predicate_values": {
       "assigned_to": "courier:C-001",
       "category": "Produce",
@@ -187,6 +222,10 @@
   ],
   "pages": {
     "bundling": {
+      "constraint_capacity_note": "Weight fits courier vehicle",
+      "constraint_inventory_note": "Stock available for combined qty",
+      "constraint_time_note": "Delivery windows intersect",
+      "empty": "No bundles yet. Create orders with overlapping delivery windows to see bundles form.",
       "subtitle": "Mutually recursive constraint satisfaction",
       "title": "Delivery Bundling"
     },
@@ -203,6 +242,10 @@
       "kpi_pricing_yield": "Dynamic Pricing Yield",
       "kpi_revenue_at_risk": "Revenue at Risk",
       "kpi_store_utilization": "Avg Store Utilization",
+      "section_capacity_subtitle": "Real-time store workload with automated recommendations for demand management",
+      "section_capacity_title": "Store Capacity Status",
+      "section_risk_subtitle": "Products with low stock levels that have pending customer orders (may cause stockouts)",
+      "section_risk_title": "High-Risk Inventory",
       "subtitle": "Real-time business health indicators",
       "title": "Live Metrics Dashboard"
     },
@@ -210,6 +253,14 @@
       "search_placeholder": "Search order",
       "subtitle": "Monitor and manage FreshMart orders via WebSocket",
       "title": "Orders Dashboard"
+    },
+    "settings": {
+      "stage_delivery": "Delivery",
+      "stage_dispatch": "Dispatch",
+      "stage_help_delivery": "Time to deliver.",
+      "stage_help_dispatch": "How often to check for pending orders.",
+      "stage_help_picking": "Time to pick items.",
+      "stage_picking": "Picking"
     },
     "stores": {
       "all_inventory_title": "All Inventory Items",

@@ -3,7 +3,6 @@ import axios from "axios";
 import { Edit3 } from "lucide-react";
 import { queryStatsApi } from "../api/client";
 import { aliasPredicate, copy, placeholder, predicateSample } from "../label";
-
 // Turn a thrown write error into a human-readable message. Previously every
 // failure surfaced a generic "Write failed", and a stalled request produced no
 // feedback at all — making a hung write look like a no-op.

@@ -2,8 +2,7 @@ import { useState, useMemo } from 'react'
 import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Search, Package, Snowflake } from 'lucide-react'
-import { placeholder } from '../label'
-
+import { Entities, entity, Entity, enumLabel, placeholder, words } from '../label'
 export interface ProductWithStock {
   product_id: string
   product_name: string | null
@@ -82,7 +81,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
       <label className="block text-sm font-medium text-gray-700">
         Add Products
         {isDisabled && (
-          <span className="ml-2 text-xs text-gray-500">(Select a store first)</span>
+          <span className="ml-2 text-xs text-gray-500">(Select a {entity('store')} first)</span>
         )}
       </label>
 
@@ -109,13 +108,13 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
               {availableProducts.length === 0 ? (
                 <>
                   <Package className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                  <p className="font-medium">No products available</p>
-                  <p className="text-sm">This store has no products in stock</p>
+                  <p className="font-medium">No {entity('product', 'many')} available</p>
+                  <p className="text-sm">This {entity('store')} has no {entity('product', 'many')} available</p>
                 </>
               ) : (
                 <>
                   <Search className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                  <p className="font-medium">No products found</p>
+                  <p className="font-medium">No {entity('product', 'many')} found</p>
                   <p className="text-sm">Try a different search term</p>
                 </>
               )}
@@ -131,12 +130,12 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-900">
-                          {product.product_name || 'Unknown Product'}
+                          {product.product_name || `Unknown ${Entity('product')}`}
                         </span>
                         {product.perishable && (
                           <span
                             className="inline-flex items-center text-blue-600"
-                            title="Perishable - requires cold chain"
+                            title={`${words('perishable').tooltip} - ${words('perishable').note}`}
                           >
                             <Snowflake className="h-4 w-4" />
                           </span>
@@ -161,7 +160,7 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
                         {product.stock_level} in stock
                       </div>
                       {product.stock_level < 10 && (
-                        <div className="text-xs text-orange-600">Low stock</div>
+                        <div className="text-xs text-orange-600">{enumLabel('availability_status', 'LOW_STOCK')}</div>
                       )}
                     </div>
                   </button>
@@ -176,9 +175,9 @@ export function ProductSelector({ storeId, onProductSelect, disabled }: ProductS
       {!storeId && (
         <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center">
           <Package className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-          <p className="text-gray-500 font-medium">Select a store to view products</p>
+          <p className="text-gray-500 font-medium">Select a {entity('store')} to view {entity('product', 'many')}</p>
           <p className="text-sm text-gray-400 mt-1">
-            Products will be filtered based on store inventory
+            {`${Entities('product')} will be filtered based on ${entity('store')} ${entity('inventory')}`}
           </p>
         </div>
       )}

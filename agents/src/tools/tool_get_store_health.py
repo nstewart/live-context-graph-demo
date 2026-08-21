@@ -5,6 +5,31 @@ from typing import Optional
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload, entity_word
+
+# The recommendation prose below is read aloud to the operator by the model, so
+# its nouns come from the active label. Without this the assistant answers "how
+# are operations?" with "57 products at CRITICAL inventory risk - potential
+# stockouts imminent" on a mortgage demo. Counts pick singular vs plural.
+def _S(n: int = 2) -> str:
+    return entity_word("store", "one" if n == 1 else "many")
+
+
+def _P(n: int = 2) -> str:
+    return entity_word("product", "one" if n == 1 else "many")
+
+
+def _I(n: int = 2) -> str:
+    return entity_word("inventory", "one" if n == 1 else "many")
+
+
+def _O(n: int = 2) -> str:
+    return entity_word("order", "one" if n == 1 else "many")
+
+
+S, P, I, O = _S, _P, _I, _O
+
+
 
 
 @tool
@@ -32,7 +57,8 @@ async def get_store_health(
             - Required for "quick_check" view
             - Optional for other views to filter results
 
-        category: Filter inventory risk by product category (e.g., "Produce", "Dairy")
+        category: Filter inventory risk by product category. Categories come from
+            this deployment's catalog -- call search_inventory first if unsure.
             - Only applies to "inventory_risk" view
 
         risk_level: Filter inventory by risk level (CRITICAL, HIGH, MEDIUM, LOW)
@@ -55,16 +81,16 @@ async def get_store_health(
         # Find all critical inventory issues
         get_store_health(view="inventory_risk", risk_level="CRITICAL")
 
-        # Check Brooklyn store's high-risk produce items
-        get_store_health(view="inventory_risk", store_id="store:BK-01", category="Produce", risk_level="HIGH")
+        # Check one store's high-risk inventory items
+        get_store_health(view="inventory_risk", store_id="store:BK-01", risk_level="HIGH")
     """
     # Validate limit parameter
     if limit < 1 or limit > 100:
-        return {
+        return alias_payload({
             "view": view,
             "error": f"Invalid limit: {limit}. Must be between 1 and 100.",
             "recommendations": ["Please specify a limit between 1 and 100"],
-        }
+        })
 
     settings = get_settings()
 
@@ -110,14 +136,14 @@ async def get_store_health(
             await conn.close()
 
     except Exception as e:
-        return {
+        return alias_payload({
             "view": view,
             "error": f"Health check failed: {str(e)}",
             "recommendations": [
                 "Unable to access health metrics - please retry",
                 "If problem persists, check system status",
             ],
-        }
+        })
 
 
 async def _get_summary(conn: asyncpg.Connection) -> dict:
@@ -189,21 +215,21 @@ async def _get_summary(conn: asyncpg.Connection) -> dict:
     # Generate recommendations
     recommendations = []
     if critical_stores > 0:
-        recommendations.append(f"URGENT: {critical_stores} store(s) at CRITICAL capacity - consider closing intake or load balancing")
+        recommendations.append(f"URGENT: {critical_stores} {S(critical_stores)} at CRITICAL capacity - consider closing intake or load balancing")
     if strained_stores > 0:
-        recommendations.append(f"WARNING: {strained_stores} store(s) STRAINED - monitor closely and consider surge pricing")
+        recommendations.append(f"WARNING: {strained_stores} {S(strained_stores)} STRAINED - monitor closely and consider adding overflow capacity")
     if critical_items > 0:
-        recommendations.append(f"URGENT: {critical_items} product(s) at CRITICAL inventory risk - potential stockouts imminent")
+        recommendations.append(f"URGENT: {critical_items} {P(critical_items)} at CRITICAL {I()} risk - {I()} may be exhausted imminently")
     if high_risk_items > 5:
-        recommendations.append(f"WARNING: {high_risk_items} products at HIGH risk - prioritize replenishment")
+        recommendations.append(f"WARNING: {high_risk_items} {P(high_risk_items)} at HIGH risk - prioritize refreshing {I()}")
     if total_revenue_at_risk > 500:
-        recommendations.append(f"ALERT: ${total_revenue_at_risk:.2f} revenue at risk from inventory shortages")
+        recommendations.append(f"ALERT: ${total_revenue_at_risk:.2f} at risk from {I()} shortfalls")
     if pricing_yield_pct < 2:
-        recommendations.append("OPPORTUNITY: Pricing yield below target - review dynamic pricing strategy")
+        recommendations.append("OPPORTUNITY: Yield below target - review the dynamic pricing strategy")
     if not recommendations:
         recommendations.append("All systems operating within normal parameters")
 
-    return {
+    return alias_payload({
         "view": "summary",
         "timestamp": current_time.isoformat(),
         "capacity": {
@@ -225,7 +251,7 @@ async def _get_summary(conn: asyncpg.Connection) -> dict:
             "delivered_orders": pricing_summary['delivered_orders'],
         },
         "recommendations": recommendations,
-    }
+    })
 
 
 async def _get_capacity(conn: asyncpg.Connection, store_id: Optional[str], limit: int) -> dict:
@@ -259,21 +285,21 @@ async def _get_capacity(conn: asyncpg.Connection, store_id: Optional[str], limit
 
     if critical:
         store_names = ', '.join(s['store_name'] for s in critical[:3])
-        recommendations.append(f"URGENT: Close intake or redirect orders at {store_names}")
+        recommendations.append(f"URGENT: Close intake or redirect {O(2)} at {store_names}")
     if strained:
         store_names = ', '.join(s['store_name'] for s in strained[:3])
-        recommendations.append(f"WARNING: Consider surge pricing at {store_names}")
+        recommendations.append(f"WARNING: Consider adding overflow capacity at {store_names}")
     if not stores:
-        recommendations.append("No stores found matching criteria")
+        recommendations.append(f"No {S(2)} found matching criteria")
     elif not critical and not strained:
-        recommendations.append("All stores operating with healthy capacity levels")
+        recommendations.append(f"All {S(2)} operating with healthy capacity levels")
 
-    return {
+    return alias_payload({
         "view": "capacity",
         "store_count": len(stores),
         "stores": stores,
         "recommendations": recommendations,
-    }
+    })
 
 
 async def _get_inventory_risk(
@@ -393,24 +419,24 @@ async def _get_inventory_risk(
         if critical_items:
             top_critical = critical_items[:3]
             products = ', '.join(f"{i['product_name']} at {i['store_name']}" for i in top_critical)
-            recommendations.append(f"URGENT: Immediate replenishment needed for {products}")
+            recommendations.append(f"URGENT: {I()} needs refreshing immediately for {products}")
         if critical_count > len(critical_items):
             recommendations.append(f"WARNING: {critical_count} total CRITICAL items (showing top {len(critical_items)})")
     if total_revenue_at_risk > 1000:
-        recommendations.append(f"ALERT: ${total_revenue_at_risk:.2f} in pending orders at risk - prioritize fulfillment")
+        recommendations.append(f"ALERT: ${total_revenue_at_risk:.2f} in pending {O(2)} at risk - prioritize them")
     if total_count > 10:
-        recommendations.append(f"WARNING: {total_count} products showing inventory strain - review replenishment schedule")
+        recommendations.append(f"WARNING: {total_count} {P(total_count)} showing {I()} strain - review the refresh schedule")
     if total_count == 0:
-        recommendations.append("No high-risk inventory issues found - inventory levels healthy")
+        recommendations.append(f"No high-risk {I()} issues found - {I()} levels healthy")
 
-    return {
+    return alias_payload({
         "view": "inventory_risk",
         "item_count": len(items),
         "total_count": total_count,
         "total_revenue_at_risk": round(total_revenue_at_risk, 2),
         "items": items,
         "recommendations": recommendations,
-    }
+    })
 
 
 async def _get_quick_check(conn: asyncpg.Connection, store_id: str) -> dict:
@@ -432,12 +458,12 @@ async def _get_quick_check(conn: asyncpg.Connection, store_id: str) -> dict:
     """, store_id)
 
     if not capacity:
-        return {
+        return alias_payload({
             "view": "quick_check",
             "store_id": store_id,
             "error": f"Store not found: {store_id}",
             "recommendations": ["Verify store_id is correct (e.g., 'store:BK-01')"],
-        }
+        })
 
     # Query 2: High-risk inventory at this store
     risk_items = await conn.fetch("""
@@ -473,13 +499,13 @@ async def _get_quick_check(conn: asyncpg.Connection, store_id: str) -> dict:
     if risk_list:
         critical_count = sum(1 for i in risk_list if i['risk_level'] == 'CRITICAL')
         if critical_count > 0:
-            recommendations.append(f"URGENT: {critical_count} product(s) at CRITICAL inventory risk")
-        recommendations.append(f"Inventory risk: ${total_revenue_at_risk:.2f} in pending orders may be unfulfillable")
+            recommendations.append(f"URGENT: {critical_count} {P(critical_count)} at CRITICAL {I()} risk")
+        recommendations.append(f"{I().capitalize()} risk: ${total_revenue_at_risk:.2f} in pending {O(2)} may not be servable")
 
     if not recommendations:
-        recommendations.append(f"{capacity['store_name']} operating normally - {capacity['headroom']} orders headroom available")
+        recommendations.append(f"{capacity['store_name']} operating normally - {capacity['headroom']} {O(2)} headroom available")
 
-    return {
+    return alias_payload({
         "view": "quick_check",
         "store_id": store_id,
         "store_name": capacity['store_name'],
@@ -498,4 +524,4 @@ async def _get_quick_check(conn: asyncpg.Connection, store_id: str) -> dict:
             "top_risks": risk_list,
         },
         "recommendations": recommendations,
-    }
+    })

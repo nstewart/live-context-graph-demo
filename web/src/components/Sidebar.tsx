@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { useLayout } from '../contexts/LayoutContext'
 import { brand, navItems as labelNav } from '../label'
-
 // Icons stay in code and are keyed by route; the labels and their order come
 // from the active label so a vertical can rename or reorder the demo's sections.
 const iconsByPath: Record<string, typeof BarChart3> = {

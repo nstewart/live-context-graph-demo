@@ -5,8 +5,7 @@ import { ReferenceArchitectureCard } from "../components/ReferenceArchitectureCa
 import { WhatAreTriplesCard } from "../components/WhatAreTriplesCard";
 import { searchApi, queryStatsApi, QueryStatsOrder } from "../api/client";
 import { Schema } from "../schema";
-import { pageText } from "../label";
-
+import { entity, pageText } from "../label";
 // Must never match a real order_id — parks the Zero query until one is picked
 const EMPTY_QUERY_SENTINEL = "$$EMPTY_QUERY$$";
 
@@ -32,7 +31,7 @@ export default function VectorSearchPage() {
         setOrders(res.data);
         if (res.data.length > 0) setSelectedOrderId(res.data[0].order_id);
       })
-      .catch((err) => console.error("Failed to load orders:", err));
+      .catch((err) => console.error(`Failed to load ${entity("order", "many")}:`, err));
     return () => {
       cancelled = true;
     };

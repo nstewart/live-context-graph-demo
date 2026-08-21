@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
+import { aliasColumn, displayValue } from "../label";
 interface HighlightedJsonProps {
   data: object;
   trackingKey?: string;
@@ -8,6 +8,12 @@ interface HighlightedJsonProps {
 /**
  * JSON viewer component that highlights changed values with a yellow glow.
  * Useful for showing real-time data updates.
+ *
+ * Field names and enum values are rewritten for display through the active
+ * label, because this viewer is one of the on-screen surfaces a label is
+ * expected to skin (docs/WHITE_LABELING.md). The rewrite is cosmetic and
+ * happens at render time only: change tracking, the `data` prop, and the wire
+ * format all keep the real key.
  */
 export const HighlightedJson = ({ data, trackingKey }: HighlightedJsonProps) => {
   const prevDataRef = useRef<string>("");
@@ -123,7 +129,9 @@ export const HighlightedJson = ({ data, trackingKey }: HighlightedJsonProps) => 
       return <span className={`text-blue-400 ${glowClass}`}>{value}</span>;
     }
     if (typeof value === "string") {
-      return <span className={`text-green-400 ${glowClass}`}>"{value}"</span>;
+      const field = path.split(/[.[]/).pop() ?? "";
+      const shown = displayValue(field, value);
+      return <span className={`text-green-400 ${glowClass}`}>"{shown}"</span>;
     }
     if (Array.isArray(value)) {
       if (value.length === 0) return <span className={glowClass}>[]</span>;
@@ -157,7 +165,7 @@ export const HighlightedJson = ({ data, trackingKey }: HighlightedJsonProps) => 
             return (
               <span key={key}>
                 {spaces}{" "}
-                <span className={`text-gray-400 ${keyGlowClass}`}>"{key}"</span>:{" "}
+                <span className={`text-gray-400 ${keyGlowClass}`}>"{aliasColumn(key)}"</span>:{" "}
                 {renderValue(val, keyPath, indent + 1)}
                 {i < entries.length - 1 ? "," : ""}
                 {"\n"}

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ontologyApi, OntologyProperty, OntologyPropertyCreate, OntologyClass } from '../api/client'
 import { ArrowRight, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react'
-
+import { aliasClass, aliasPredicate } from '../label'
 const rangeKindOptions = ['string', 'int', 'float', 'bool', 'timestamp', 'date', 'entity_ref']
 
 interface PropertyFormData {
@@ -106,7 +106,7 @@ function PropertyFormModal({
                 <option value="">Select a class...</option>
                 {classes.map(cls => (
                   <option key={cls.id} value={cls.id}>
-                    {cls.class_name}
+                    {aliasClass(cls.class_name)}
                   </option>
                 ))}
               </select>
@@ -149,7 +149,7 @@ function PropertyFormModal({
                 <option value="">Select a class...</option>
                 {classes.map(cls => (
                   <option key={cls.id} value={cls.id}>
-                    {cls.class_name}
+                    {aliasClass(cls.class_name)}
                   </option>
                 ))}
               </select>
@@ -339,7 +339,7 @@ export default function OntologyPropertiesPage() {
 
       {properties && properties.length > 0 && (
         <div className="space-y-4">
-          {Object.keys(groupedProperties).sort().map(className => {
+          {Object.keys(groupedProperties).sort((a, b) => aliasClass(a).localeCompare(aliasClass(b))).map(className => {
             const classProperties = groupedProperties[className]
             const isExpanded = expandedClasses.has(className)
             const classInfo = classes.find(c => c.class_name === className)
@@ -362,7 +362,7 @@ export default function OntologyPropertiesPage() {
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-lg font-semibold text-gray-900">{className}</span>
+                          <span className="text-lg font-semibold text-gray-900">{aliasClass(className)}</span>
                           <span className="text-xs text-gray-500">Prefix:</span>
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-mono">
                             {classInfo?.prefix || '?'}:
@@ -385,7 +385,7 @@ export default function OntologyPropertiesPage() {
                         setShowModal(true)
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0"
-                      title={`Add property to ${className}`}
+                      title={`Add property to ${aliasClass(className)}`}
                     >
                       <Plus className="h-4 w-4" />
                       Add Property
@@ -409,7 +409,7 @@ export default function OntologyPropertiesPage() {
                       {classProperties.map(prop => (
                         <tr key={prop.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
-                            <code className="text-sm font-medium text-blue-600">{prop.prop_name}</code>
+                            <code className="text-sm font-medium text-blue-600">{aliasPredicate(prop.prop_name)}</code>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
@@ -417,7 +417,7 @@ export default function OntologyPropertiesPage() {
                                 <>
                                   <ArrowRight className="h-4 w-4 text-gray-400" />
                                   <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-sm">
-                                    {prop.range_class_name}
+                                    {aliasClass(prop.range_class_name)}
                                   </span>
                                 </>
                               ) : (
@@ -491,7 +491,7 @@ export default function OntologyPropertiesPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
             <h3 className="text-lg font-semibold mb-2">Delete Property</h3>
             <p className="text-gray-600 mb-4">
-              Are you sure you want to delete <strong>{deleteConfirm.prop_name}</strong>? This action cannot be undone.
+              Are you sure you want to delete <strong>{aliasPredicate(deleteConfirm.prop_name)}</strong>? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50">

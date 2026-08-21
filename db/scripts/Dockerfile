@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir \
 # seeder uses for the catalog, locations, and order-number prefix.
 COPY demo_label.py .
 COPY generate_load_test_data.py .
+COPY apply_ontology_labels.py .
 COPY seed_docker.sh /seed.sh
 RUN chmod +x /seed.sh
 

@@ -5,7 +5,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { Truck, Bike, Car, Coffee, Plus, Edit2, Trash2, X, Search, ExternalLink, Wifi, WifiOff } from 'lucide-react'
 import { CourierFormModal, CourierFormData } from '../components/CourierFormModal'
-
+import { aliasColumn, Entities, entity, Entity, enumLabel, pageText } from '../label'
 const vehicleIcons: Record<string, typeof Truck> = {
   BIKE: Bike,
   CAR: Car,
@@ -103,8 +103,8 @@ export default function CouriersSchedulePage() {
       setEditingCourier(undefined)
     },
     onError: (error) => {
-      console.error('Failed to create courier:', error)
-      alert('Failed to create courier. Check the console for details.')
+      console.error('Failed to create courier:', error)  // internal log: keep the fixed name
+      alert(`Failed to create ${entity('courier')}. Check the console for details.`)
     },
   })
 
@@ -137,7 +137,7 @@ export default function CouriersSchedulePage() {
     },
     onError: (error) => {
       console.error('Failed to update courier:', error)
-      alert('Failed to update courier. Check the console for details.')
+      alert(`Failed to update ${entity('courier')}. Check the console for details.`)
     },
   })
 
@@ -191,7 +191,7 @@ export default function CouriersSchedulePage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Couriers & Schedule</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{pageText('couriers', 'title')}</h1>
             {zeroConnected ? (
               <span className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                 <Wifi className="h-3 w-3" />
@@ -204,7 +204,7 @@ export default function CouriersSchedulePage() {
               </span>
             )}
           </div>
-          <p className="text-gray-600">View courier status and assigned tasks</p>
+          <p className="text-gray-600">{pageText('couriers', 'subtitle')}</p>
         </div>
         <button
           onClick={() => {
@@ -214,12 +214,12 @@ export default function CouriersSchedulePage() {
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
-          Add Courier
+          Add {Entity('courier')}
         </button>
       </div>
 
       {isLoading && (
-        <div className="text-center py-8 text-gray-500">Loading couriers...</div>
+        <div className="text-center py-8 text-gray-500">Loading {entity('courier', 'many')}...</div>
       )}
 
       {couriers.length > 0 && (
@@ -231,7 +231,7 @@ export default function CouriersSchedulePage() {
                 type="text"
                 value={courierIdSearch}
                 onChange={e => setCourierIdSearch(e.target.value)}
-                placeholder="Search by courier ID..."
+                placeholder={pageText('couriers', 'search_placeholder')}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -243,10 +243,10 @@ export default function CouriersSchedulePage() {
               }}
               className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
             >
-              <option value="">All Stores</option>
+              <option value="">All {Entities('store')}</option>
               {storesData.map(store => (
                 <option key={store.store_id} value={store.store_id}>
-                  {store.store_name} ({store.store_zone})
+                  {store.store_name} ({enumLabel('zone', store.store_zone)})
                 </option>
               ))}
             </select>
@@ -257,7 +257,7 @@ export default function CouriersSchedulePage() {
             )}
             {!courierIdSearch && couriers.length >= 1000 && (
               <div className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
-                ⚠️ Showing first 1000 couriers. Use search or filter by store.
+                {`\u26a0\ufe0f Showing first 1000 ${entity('courier', 'many')}. Use search or filter by ${entity('store')}.`}
               </div>
             )}
           </div>
@@ -268,7 +268,7 @@ export default function CouriersSchedulePage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Courier
+                      {Entity('courier')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -277,10 +277,10 @@ export default function CouriersSchedulePage() {
                       Vehicle
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Home Store
+                      {aliasColumn('home_store')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assigned Tasks
+                      Assigned {Entities('task')}
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Today
@@ -317,23 +317,23 @@ export default function CouriersSchedulePage() {
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             statusColors[courier.courier_status || ''] || 'bg-gray-100'
                           }`}>
-                            {courier.courier_status?.replace('_', ' ')}
+                            {enumLabel('courier_status', courier.courier_status)}
                           </span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{courier.vehicle_type}</div>
+                          <div className="text-sm text-gray-900">{enumLabel('vehicle_type', courier.vehicle_type)}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-sm text-gray-900">
                             {homeStore ? homeStore.store_name : 'Not assigned'}
                           </div>
-                          <div className="text-xs text-gray-500">{homeStore?.store_zone}</div>
+                          <div className="text-xs text-gray-500">{enumLabel('zone', homeStore?.store_zone)}</div>
                         </td>
                         <td className="px-4 py-3">
                           {courier.tasks.length === 0 ? (
                             <div className="flex items-center gap-2 text-gray-500 text-sm">
                               <Coffee className="h-4 w-4" />
-                              <span>No active tasks</span>
+                              <span>No active {entity('task', 'many')}</span>
                             </div>
                           ) : (
                             <div className="space-y-1">
@@ -378,7 +378,7 @@ export default function CouriersSchedulePage() {
                               <button
                                 onClick={() => setViewTasksCourier(courier)}
                                 className="text-purple-600 hover:text-purple-900"
-                                title="View all tasks"
+                                title={`View all ${entity('task', 'many')}`}
                               >
                                 <ExternalLink className="h-4 w-4" />
                               </button>
@@ -389,14 +389,14 @@ export default function CouriersSchedulePage() {
                                 setShowCourierModal(true)
                               }}
                               className="text-blue-600 hover:text-blue-900"
-                              title="Edit courier"
+                              title={`Edit ${entity('courier')}`}
                             >
                               <Edit2 className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => setDeleteCourierConfirm(courier)}
                               className="text-red-600 hover:text-red-900"
-                              title="Delete courier"
+                              title={`Delete ${entity('courier')}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -427,7 +427,7 @@ export default function CouriersSchedulePage() {
       {deleteCourierConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-2">Delete Courier</h3>
+            <h3 className="text-lg font-semibold mb-2">Delete {Entity('courier')}</h3>
             <p className="text-gray-600 mb-4">
               Are you sure you want to delete <strong>{deleteCourierConfirm.courier_name}</strong>? This action cannot be undone.
             </p>
@@ -454,7 +454,7 @@ export default function CouriersSchedulePage() {
             <div className="flex justify-between items-center p-4 border-b">
               <div>
                 <h2 className="text-lg font-semibold">
-                  {viewTasksCourier.courier_name} - All Tasks
+                  {viewTasksCourier.courier_name} - All {Entities('task')}
                 </h2>
                 <p className="text-sm text-gray-500">
                   {viewTasksCourier.courier_id.replace('courier:', '')} • {viewTasksCourier.tasks.length} total tasks
@@ -468,7 +468,7 @@ export default function CouriersSchedulePage() {
               {viewTasksCourier.tasks.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Coffee className="h-8 w-8 mx-auto mb-2" />
-                  <p>No tasks assigned</p>
+                  <p>No {entity('task', 'many')} assigned</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -490,7 +490,7 @@ export default function CouriersSchedulePage() {
                           task.task_status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {task.task_status}
+                          {enumLabel('task_status', task.task_status)}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm">

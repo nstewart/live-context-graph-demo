@@ -18,6 +18,7 @@ from src.tools import (
     create_customer,
     create_order,
     fetch_order_context,
+    find_customer,
     get_context_graph,
     get_store_health,
     list_couriers,
@@ -40,6 +41,7 @@ class AgentState(TypedDict):
 # Tools
 TOOLS = [
     create_customer,
+    find_customer,
     list_stores,
     list_couriers,
     search_inventory,

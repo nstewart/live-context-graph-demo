@@ -41,6 +41,8 @@ make labels                      # list what's available
 make up                          # freshmart (the default)
 make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
+make up LABEL=portfolio-risk       # buy-side risk and portfolio analytics
+make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
 ```
 
 `LABEL` is optional everywhere and defaults to `freshmart`. It works on:
@@ -60,7 +62,8 @@ Every `up*` target depends on `make label`, so an unknown or malformed label
 ```
 $ make up LABEL=nope
 error: unknown label 'nope'.
-Available: freshmart, life-insurance, logistics
+Available: freshmart, life-insurance, logistics, mortgage-underwriting,
+           portfolio-risk
 ```
 
 ### Switching labels
@@ -95,6 +98,17 @@ make label        # re-resolves freshmart, restoring the committed artifact
 ```
 
 `make label-check` fails in CI with that instruction if you forget.
+
+It is worth knowing the second symptom, because it looks like something else
+entirely: **`vitest` imports that same artifact**, so a stale one makes the web
+suite look badly broken. Running a non-default label and then testing reports
+tens of extra failures — every assertion on a word the label changed — with
+nothing wrong in the code. If the failure count jumps after you ran the demo,
+check the artifact before you debug anything:
+
+```bash
+python3 -c "import json; print(json.load(open('web/src/generated/label.json'))['label'])"
+```
 
 ---
 
@@ -241,7 +255,7 @@ make label && make label-ci
 | `brand.tab_title` / `favicon` | browser tab | `index.html`, build-time |
 | `brand.theme.primary` / `accent` | `brand-*` / `accent-*` Tailwind scales | buttons, active nav, focus rings |
 | `brand.qr` | QR modal URL and CTA | sidebar → Show QR Code |
-| `vocabulary.<entity>` | display words per entity type | everywhere, via `entity()` |
+| `vocabulary.<entity>` | display words per entity type | everywhere, via `entity()`; also names the eight ontology classes, via `aliasClass()` |
 | `vocabulary.order.id_prefix` | order-number prefix | seeder, load generator, agent |
 | `enums.<name>` | value → display label | dropdowns, status badges |
 | `aliases.columns` / `views` / `predicates` | **display-only** identifier renaming | SQL preview, lineage graph, predicate dropdown, raw JSON, OpenSearch examples |
@@ -249,14 +263,135 @@ make label && make label-ci
 | `pages.<page>` | titles, subtitles, search placeholders | each page header |
 | `copy.<block>` | narrative/explainer prose | the teaching cards |
 | `placeholders` | form input placeholders | all modals and forms |
-| `examples.search_queries` | "Try:" suggestions | Vector Pipeline |
+| `examples.search_queries` | "Try:" suggestions (semantic) | Vector Pipeline |
+| `examples.keyword_queries` | "Try:" suggestions (literal keyword match) | Agent-native Reads |
 | `examples.predicate_values` | sample values per predicate | Write a Triple |
 | `seed.store_name_template` | store naming (`{zone_name}`, `{n}`) | seeded data |
 | `seed.locations` | zone names and street pools | seeded addresses |
 | `seed.catalog` | the product catalog | seeded data, search results |
+| `architecture.source_systems` | the upstream systems feeding the context layer | reference-architecture diagram, via `sourceSystems()` |
 | `search.synonyms` | OpenSearch synonym filter | keyword half of hybrid search |
+| `ontology.classes` / `.properties` | descriptions for the 8 classes and 60 properties | Knowledge Graph tab (Classes and Properties) |
 | `agent.persona` / `placeholder` / `empty_state` | chat widget chrome | chat widget |
-| `agent.system_prompt` | the LLM's entire briefing | agent responses |
+| `agent.system_prompt` | the LLM's entire briefing, including the tool list and the resolve-names-first rule | agent responses |
+
+### Reading a key from the UI
+
+Everything in `web/src` goes through `web/src/label.ts`. There is no reason for a
+component to contain a literal a label could supply, and `make label-lint` fails
+if one does.
+
+| Helper | Use |
+|---|---|
+| `entity('courier', 'many')` | a display word; `Entity()` / `Entities()` are the capitalized forms |
+| `words('perishable')` | the forms `entity()` cannot express: `adjective`, `note`, `tooltip`, `cart_note` |
+| `enumLabel('order_status', v)` | a fixed SQL value → its display text; unknown values pass through |
+| `enumOptions('vehicle_type')` | the same map as `{value, label}` pairs, for a dropdown |
+| `aliasColumn` / `aliasView` / `aliasPredicate` | display-only identifier renaming |
+| `aliasClass('Courier')` | an ontology class name → its display word |
+| `aliasSubject('order:LN-1')` | a subject id's class prefix → its display word; the local part is untouched |
+| `page('metrics')` / `copy('cart')` | a string bundle; `pageText()` / `copyText()` fetch one field |
+| `placeholder('order_search')` | a form input placeholder |
+| `displayValue('order_status', v)` | a stored value as a human reads it, given the field it came from; free-text passes through |
+| `enumForField('store_zone')` | which enum a field's values are drawn from, when the names differ |
+
+A missing key renders `⟪pages.orders.no_such_field⟫` and warns on the console,
+rather than silently rendering an empty string — a half-wired screen should be
+obvious, not subtle.
+
+`aliasClass()` maps the eight seeded ontology class names (`Order`, `Courier`,
+`InventoryItem`, …) onto the `vocabulary` key that already names the same entity,
+so the ontology screens skin themselves and no label authors those words twice. A
+class created at runtime is unknown to the map and passes through unchanged.
+
+`HighlightedJson` runs field names through `aliasColumn()` and enum values through
+`enumLabel()`, because the JSON panes on the home page and the Agent-native Reads
+card are on-screen surfaces like any other. The rewrite is render-time only — the
+`data` prop, change tracking, and the wire format all keep the real key.
+
+### The agent's read paths
+
+A tool's return value is copy. The model is given `{"has_perishable_items": true}`
+and nothing else to call it by, so it writes "Has Perishable Items: Yes" — and no
+system prompt prevents that, because the key is the only name it has.
+
+`agents/src/demo_label.py` therefore exposes the same two maps `web/src` uses:
+
+| Helper | Does |
+|---|---|
+| `alias_column(name)` | `aliases.columns` lookup, then a compositional fallback that substitutes entity nouns inside a key, so synthetic aggregates like `total_stores` alias without any label authoring them |
+| `alias_class(name)` | ontology class name → display word |
+| `alias_subject(id)` | `order:LN-1001` → `loan_file:LN-1001` |
+| `display_enum(field, v)` | stored enum value → display word |
+| `alias_payload(obj)` | all of the above, recursively, over a whole return value |
+
+Every read tool wraps its successful return in `alias_payload()`. Two deliberate
+exceptions, both about the model needing to quote a value back:
+
+- **Id values pass through unchanged.** `store_id`'s *name* is aliased, its
+  *value* stays `store:BK-01`. Aliasing the value would leave the model unable to
+  pass it to the next tool. A raw prefix inside an id is structural, and
+  `label-leaks` strips id-shaped tokens for exactly that reason.
+- **`get_context_graph` keeps `class_name` and `prefix`**, and gains
+  `display_name` beside them. `write_triples` validates against the real class,
+  so removing it would break writes; adding the display name is what stops the
+  model listing `Courier / DeliveryTask / InventoryItem` when asked what entity
+  types exist.
+
+`tool_get_store_health.py` was the other half: eight recommendation strings
+hardcoded in English ("potential stockouts imminent", "prioritize
+replenishment"). Its nouns now come from the label, with count-aware
+singular/plural.
+
+### The agent's write paths
+
+The assistant's wording is label-driven (`agent.system_prompt`), and that creates
+a hazard the read paths do not have: a user speaks the label's vocabulary, and a
+tool may write it. Two guards exist because both failures happened.
+
+**Names never become ids.** A subject id is opaque — `customer:00002` is not
+derived from "James Spence". Asked to open a case for a named person, the model
+used to invent `customer:james_spence`, which has no triples, so `placed_by`
+pointed at nothing and the policyholder rendered blank on every view that joins
+the two. `find_customer` resolves a name to the real id, `create_order` probes
+the id and refuses a dangling reference, and every label's prompt carries the
+rule: resolve first, never construct an id from a name, ask when ambiguous.
+
+**Display words never become stored values.** "Mark it settled" used to store
+`order_status = SETTLED`. The enum is `CREATED / PICKING / OUT_FOR_DELIVERY /
+DELIVERED / CANCELLED`; "Settled" is only what this label *shows* for
+`DELIVERED`, so nothing keyed on it and the case dropped out of every
+status-filtered view. `write_triples` now maps display → stored via
+`stored_enum_value()` in `agents/src/demo_label.py`, reading the active label's
+`enums`. Matching ignores case and spacing, so "on case", "On Case" and
+`ON_CASE` all resolve to `ON_DELIVERY`. Unrecognised values pass through
+untouched — genuinely new data is never silently rewritten.
+
+The general rule when adding a tool that writes: **resolve to shape at the
+boundary.** Accept the label's words if you like, but store the fixed value.
+
+### Ontology descriptions
+
+`db/seed/demo_ontology_freshmart.sql` defines the ontology's *shape* — the eight
+classes, their prefixes, and the 60 properties with their domains and range
+kinds — and is identical for every label. It seeds every `description` as **NULL**
+on purpose, because the prose is what a customer reads on the Knowledge Graph tab.
+`db/scripts/apply_ontology_labels.py` writes the descriptions from
+`labels/<name>.yaml` immediately afterwards, and fails the seed if the active
+label is missing any. A blank column beats silently showing the wrong vertical's
+wording.
+
+Keys are the fixed `class_name` and `prop_name`; only the prose changes. Because
+they live in the label, `make label-leaks` already covers them — a label that
+forgets one inherits FreshMart's wording and the check reports the exact path.
+
+Descriptions that list a fixed enum pair the stored value with what the UI shows,
+since a triple-writer needs the real value:
+
+```yaml
+order_status: "Case status. Stored/shown: CREATED=Received, PICKING=In Review,
+  OUT_FOR_DELIVERY=Awaiting Settlement, DELIVERED=Settled, CANCELLED=Withdrawn"
+```
 
 ### The catalog
 
@@ -264,16 +399,43 @@ Rows are `[name, category, price, weight_grams, perishable]`. The last two are
 mandatory in every vertical because the dynamic-pricing and bundling SQL key on
 them — reinterpret them rather than dropping them:
 
-| Column | freshmart | life-insurance | logistics |
-|---|---|---|---|
-| `price` | item price | cost to serve | freight rate |
-| `weight_grams` | grams | handling effort | billable handling weight |
-| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment |
+| Column | freshmart | life-insurance | logistics | mortgage-underwriting | portfolio-risk |
+|---|---|---|---|---|---|
+| `price` | item price | cost to serve | freight rate | cost to underwrite | reference price / adjusted valuation |
+| `weight_grams` | grams | handling effort | billable handling weight | review effort | risk weight |
+| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires | is near expiry |
 
 Keep `weight_grams` in freshmart's magnitude whatever it means in your vertical.
-The bundling SQL compares it against fixed gram thresholds (5 kg / 20 kg / 50 kg),
-so authoring literal pallet weights would push every pair over the limit and the
-Load Consolidation page would render empty.
+The bundling SQL compares it against fixed gram thresholds, so authoring literal
+pallet weights or real underwriter-hours would push every pair over the limit and
+the Load Consolidation page would render empty.
+
+The number to author against is **20 kg per pair**, and it is tighter than the
+thresholds alone suggest. `order_weights` sums `quantity * unit_weight_grams`
+over a whole file, and the pair filter runs on the sum of two of those. The outer
+guard is 50 kg, but the courier `EXISTS` clause only clears a pair via
+`CAR` (≤ 20 kg) or `BIKE` (≤ 5 kg) — the `VAN` branch is dead, because
+`generate_load_test_data.py` only ever seeds `BIKE / SCOOTER / CAR / WALKING`,
+and `SCOOTER` and `WALKING` satisfy no branch at all.
+
+The seeder gives an order 1–6 lines at quantity 1–4, so expected order weight is
+about **8.75 × the catalog's median item weight**, and a pair is twice that. That
+puts the usable ceiling at a median item weight of roughly 1,100 — freshmart sits
+at 454, logistics at 525, mortgage-underwriting at 540. Check yours before you
+commit:
+
+```bash
+python3 -c "
+import statistics, sys; sys.path[:0] = ['db/scripts', 'tools']
+import demo_label; from resolve_label import resolve
+cat = resolve('<your-label>')['seed']['catalog']
+rows = demo_label.expand_catalog(cat['items'], cat['expand_to'], cat.get('variant_suffixes', []))
+med = statistics.median(r[3] for r in rows)
+print(f'median {med:.0f}  est. pair {2 * 8.75 * med:.0f}g  (CAR cap 20000, BIKE cap 5000)')"
+```
+
+Note that `variant_suffixes` scale weight *up* — round 1 is ×1.25, round 5 is
+×2.25 — so author against the expanded median, not the median you typed.
 
 `freshmart` authors all 760 rows so its seeded data is byte-identical to the
 pre-white-labeling demo. Other labels author a compact list (~130 is plenty) and
@@ -327,7 +489,104 @@ reorder an inherited entry.
 |---|---|
 | `make label-check` | the committed web artifact drifting from `freshmart.yaml` |
 | `make label-leaks` | a label that inherited the default vertical's wording |
-| `make label-lint` | the brand hardcoded back into application source |
+| `make label-lint` | source that ignores the label (three checks, below) |
+| `make label-data` | seeded rows a producer wrote without consulting the label (needs a running stack) |
+
+`label-data` (`tools/check_seeded_data.py`) is the third axis and is deliberately
+outside `label-ci`, because it needs a seeded database. Both static checks are blind to what a seeder or
+generator *wrote*, and that is where leaks have survived longest: 63 ontology
+descriptions, and 30 policyholder addresses in Brooklyn and Queens minted by the
+load generator, whose address builder ignored `seed.locations` entirely. Run it
+after `make up LABEL=<name>`. It skips when the active label is the default,
+whose data is *supposed* to be grocery.
+
+`label-leaks` reads in one direction — it proves a *label's copy* is clean.
+`label-lint` (`tools/check_source_leaks.py`) reads the other, which is the
+direction white-labeling actually regresses in: `labels/` can author "case
+manager" perfectly while a component still renders the literal `Courier`, so the
+key is authored, correct, and never read.
+
+| Check | Catches | Scope |
+|---|---|---|
+| `brand` | `FreshMart` or the `FM-` prefix typed into code | all scanned source |
+| `vocabulary` | the default vertical's words in a user-visible string | entity nouns in `web/src`; grocery-specific words everywhere |
+| `raw-fields` | a database field rendered without its label helper | `web/src` `.tsx` |
+| `dead-keys` | a label key the UI could read but no component reads | `web/src` |
+
+`vocabulary` and `raw-fields` are two halves of one problem and you need both.
+`vocabulary` reads *string literals*, so it catches a hardcoded
+`Couriers & Schedule` but is blind to `{triple.predicate}` — a binding that
+renders whatever Postgres holds. That blind spot is why the "Agent Writes and
+Memories" card still showed raw grocery predicates after every literal on it had
+been fixed: the leak was in the data path, not the copy.
+
+`raw-fields` flags a render of `predicate`, `class_name`, `order_status`,
+`store_zone` and friends when the expression is not wrapped in a label helper. It
+deliberately ignores positions where the raw value is required: `value=` and
+`key=` attributes, `className` lookups like `healthStatusColors[x.health_status]`,
+triple-write payloads (`{ predicate: …, object_value: … }`), and `${…}` template
+interpolations, which build React keys and dedup keys rather than display text.
+
+### What the guards could not see
+
+Three blind spots, all found by auditing a running demo rather than reading code.
+Each is fixed; they are recorded because the *shape* of the mistake recurs.
+
+**JSX text on its own line.** `visible_strings()` matched text nodes with
+`>([^<>{}]{3,})<` — `>` and `<` on one line. Prettier puts a heading on its own
+line:
+
+```tsx
+<th className="...">
+  Customer          ← invisible to the guard
+</th>
+```
+
+so the vocabulary check saw almost no real JSX text for the whole life of the
+guard. Fixing the extractor turned 0 findings into 50, including every column
+heading on the Orders, Couriers, Stores and Metrics tables. If you add a check
+here, test it against a *multi-line* fixture.
+
+**Single-word visible strings.** The check skipped any string with no space, on
+the reasoning that a bare token is an identifier or a fixed enum value. True for
+a quoted literal, false for a JSX text node: `<th>Product</th>` is a column
+heading. The exemption is now scoped to `kind == "literal"`.
+
+**Tool return payloads.** The guard's own comment asserted that "what the
+assistant actually says to a customer is governed by `agent.system_prompt`". It
+is not. The tools hand the model JSON keyed by wire field names and the model
+renders the keys, so `has_perishable_items` reached a bank as "Has Perishable
+Items: Yes". `web/src` had solved this at render time since white-labeling
+landed; `agents/src` had no equivalent. See [The agent's read
+paths](#the-agents-read-paths).
+
+The lesson each time: a guard that reads *source* cannot see what a *runtime*
+assembles. `tools/audit_agent.py` closes that loop by driving the agent and
+grepping its replies with the same term list `label-leaks` uses.
+
+`dead-keys` is the cheap proxy for "did anyone wire this up?" — when it was first
+run it found 3 page bundles, 7 enum maps and 9 of 10 `vocabulary` entries that no
+component had ever read.
+
+The `vocabulary` check scans JSX text and string literals, skipping comments. It
+does **not** skip docstrings under `agents/src/tools`, because LangChain ships
+those to the model as tool descriptions and a customer hears the result. Entity
+nouns are only flagged in `web/src`: in `agents/src` the tool names and
+parameters *are* `create_order` and `store_id`, fixed by the same rule that fixes
+predicate names, so a docstring describing `create_order` has to say "order". The
+assistant's own wording comes from `agent.system_prompt`, which each label
+authors in full.
+
+When a literal genuinely has to stay, mark it and say why:
+
+```tsx
+{/* label-lint-ok: real index name, these must run as pasted */}
+<div className="text-purple-600">GET orders/_search</div>
+```
+
+The pragma applies to its own line and the line below it. Reach for it rarely —
+the ones in the tree today are a real OpenSearch index name and an ontology class
+name the user actually types.
 
 ---
 
@@ -420,6 +679,25 @@ hardcoding — the label loaders themselves could not describe their own default
 otherwise. Only a leading comment marker is skipped: a trailing comment on a
 real code line (`const p = "FM-" // default`) is still a hit, and so is a brand
 string in the body of a multi-line comment.
+
+Note the distinction: those files' *comments* are out of scope, but anything they
+**write into the database is not**. `db/scripts/apply_ontology_labels.py` and the
+load generator's address builder both read the active label, because their output
+is on screen. `make label-data` is what enforces that.
+
+**`SHOW CREATE` output.** The View Definition modal (click a lineage-graph node)
+shows the real object name and the real SQL Materialize returns, with grocery
+identifiers intact. That is deliberate: the modal exists so a field engineer can
+copy a runnable `SHOW CREATE` and open it in the SQL shell, and aliasing it would
+produce object names that do not exist. Note the consequence — the node you click
+is *labelled* `cases_flat_mv` and the modal it opens is titled `orders_flat_mv`.
+If that mismatch is a problem in front of a prospect, show `aliasView(name)` as
+the modal heading and keep the real name only on the copyable `SHOW CREATE` line.
+
+**The seeder's console banner.** `db/scripts` prints `FreshMart Load Test Data
+Generator` while it seeds, and the Postgres database is named `freshmart` under
+every label. Both are deploy-log and DB-client text, not demo UI — but they are
+the one place the default brand surfaces if you screen-share a terminal.
 
 ---
 

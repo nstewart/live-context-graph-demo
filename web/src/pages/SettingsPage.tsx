@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { healthApi, loadgenApi, LoadGenProfile, LoadGenProfileInfo } from '../api/client'
 import { CheckCircle, XCircle, Server, Database, Search, ExternalLink, BarChart3, FileText, Layers, Play, Square, Loader2, ShoppingCart, Truck, QrCode } from 'lucide-react'
 import { QR_URL_KEY, QR_CTA_KEY, DEFAULT_QR_URL, DEFAULT_QR_CTA } from '../qrConfig'
-
+import { entity, page } from '../label'
 export default function SettingsPage() {
+  const s = page('settings')
   const queryClient = useQueryClient()
 
   // Demo presentation state
@@ -223,7 +224,7 @@ export default function SettingsPage() {
           </div>
 
           <p className="text-sm text-gray-600 mb-4">
-            Creates orders, customers, and inventory updates
+            {`Creates ${entity('order', 'many')}, ${entity('customer', 'many')}, and ${entity('inventory')} updates`}
           </p>
 
           {/* Running Info */}
@@ -355,7 +356,7 @@ export default function SettingsPage() {
           </div>
 
           <p className="text-sm text-gray-600 mb-4">
-            Dispatches couriers and advances deliveries
+            {`Dispatches ${entity('courier', 'many')} and advances ${entity('task', 'many')}`}
           </p>
 
           {/* Running Info */}
@@ -387,7 +388,7 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Dispatch (sec)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{s.stage_dispatch} (sec)</label>
                 <input
                   type="number"
                   value={dispatchInterval}
@@ -404,7 +405,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Picking (sec)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{s.stage_picking} (sec)</label>
                 <input
                   type="number"
                   value={pickingDuration}
@@ -421,7 +422,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Delivery (sec)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{s.stage_delivery} (sec)</label>
                 <input
                   type="number"
                   value={deliveryDuration}
@@ -439,7 +440,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <p className="text-xs text-gray-500">
-              <strong>Dispatch:</strong> How often to check for pending orders. <strong>Picking:</strong> Time to pick items. <strong>Delivery:</strong> Time to deliver.
+              <strong>{s.stage_dispatch}:</strong> {s.stage_help_dispatch} <strong>{s.stage_picking}:</strong> {s.stage_help_picking} <strong>{s.stage_delivery}:</strong> {s.stage_help_delivery}
             </p>
 
             <div>
@@ -587,7 +588,7 @@ export default function SettingsPage() {
         </h2>
         <div className="space-y-4 text-sm">
           <p className="text-gray-700">
-            OpenSearch Dashboards provides powerful search and visualization capabilities for your indexed order data.
+            {`OpenSearch Dashboards provides powerful search and visualization capabilities for your indexed ${entity('order')} data.`}
           </p>
 
           <div className="border-l-4 border-orange-500 bg-orange-50 p-4 rounded">
@@ -603,7 +604,8 @@ export default function SettingsPage() {
             <h3 className="font-semibold text-gray-900 mb-2">Example Queries</h3>
             <div className="space-y-3">
               <div className="bg-gray-50 p-3 rounded font-mono text-xs">
-                <div className="text-gray-500 mb-1"># Search all orders</div>
+                <div className="text-gray-500 mb-1"># Search all {entity('order', 'many')}</div>
+                {/* label-lint-ok: real index name, these must run as pasted */}
                 <div className="text-purple-600">GET orders/_search</div>
                 <div>{'{'}</div>
                 <div className="ml-4">"size": 10</div>
@@ -611,7 +613,8 @@ export default function SettingsPage() {
               </div>
 
               <div className="bg-gray-50 p-3 rounded font-mono text-xs">
-                <div className="text-gray-500 mb-1"># Find orders by status</div>
+                <div className="text-gray-500 mb-1"># Find {entity('order', 'many')} by status</div>
+                {/* label-lint-ok: real index name, these must run as pasted */}
                 <div className="text-purple-600">GET orders/_search</div>
                 <div>{'{'}</div>
                 <div className="ml-4">"query": {'{'}</div>
@@ -623,7 +626,8 @@ export default function SettingsPage() {
               </div>
 
               <div className="bg-gray-50 p-3 rounded font-mono text-xs">
-                <div className="text-gray-500 mb-1"># Search by customer name</div>
+                <div className="text-gray-500 mb-1"># Search by {entity('customer')} name</div>
+                {/* label-lint-ok: real index name, these must run as pasted */}
                 <div className="text-purple-600">GET orders/_search</div>
                 <div>{'{'}</div>
                 <div className="ml-4">"query": {'{'}</div>
@@ -635,7 +639,8 @@ export default function SettingsPage() {
               </div>
 
               <div className="bg-gray-50 p-3 rounded font-mono text-xs">
-                <div className="text-gray-500 mb-1"># Count total orders</div>
+                <div className="text-gray-500 mb-1"># Count total {entity('order', 'many')}</div>
+                {/* label-lint-ok: real index name, these must run as pasted */}
                 <div className="text-purple-600">GET orders/_count</div>
               </div>
             </div>
@@ -645,14 +650,17 @@ export default function SettingsPage() {
             <h3 className="font-semibold text-blue-900 mb-2">Alternative: Discover (Visual)</h3>
             <ol className="list-decimal list-inside space-y-1 text-gray-700">
               <li>Click "Discover" in the left sidebar</li>
+              {/* label-lint-ok: real index pattern, typed into OpenSearch as-is */}
               <li>Create an index pattern: <code className="bg-white px-2 py-0.5 rounded">orders*</code></li>
               <li>Browse and filter your data visually</li>
             </ol>
           </div>
 
           <div className="text-xs text-gray-500 pt-2 border-t">
-            <strong>Note:</strong> All orders are automatically synced to OpenSearch for full-text search capabilities.
-            Currently indexing orders with customer names, addresses, and order details.
+            <strong>Note:</strong>{' '}
+            {`All ${entity('order', 'many')} are automatically synced to OpenSearch for full-text
+            search capabilities. Currently indexing ${entity('order', 'many')} with
+            ${entity('customer')} names, addresses, and ${entity('order')} details.`}
           </div>
         </div>
       </div>

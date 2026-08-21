@@ -40,7 +40,7 @@ async def manage_order_lines(
         manage_order_lines(
             order_id="order:FM-1001",
             action="add",
-            product_id="product:MILK-001",
+            product_id="product:P-0001",
             quantity=2,
             unit_price=3.99
         )

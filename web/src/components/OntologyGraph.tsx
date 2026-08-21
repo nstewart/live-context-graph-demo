@@ -18,6 +18,7 @@ import { ontologyApi } from '../api/client'
 import { X } from 'lucide-react'
 
 // Node colors by category
+import { aliasClass, aliasPredicate } from '../label'
 const nodeColors = {
   connected: { bg: '#10b981', border: '#059669', text: '#ffffff' }, // Green - has relationships
   standalone: { bg: '#64748b', border: '#475569', text: '#ffffff' }, // Slate - no relationships
@@ -185,7 +186,7 @@ function OntologyGraphInner() {
           data: {
             label: (
               <div className="text-center">
-                <div className="font-semibold">{cls.class_name}</div>
+                <div className="font-semibold">{aliasClass(cls.class_name)}</div>
                 <div className="text-xs opacity-75 mt-0.5">{cls.prefix}:</div>
                 {scalarCount > 0 && (
                   <div className="text-xs opacity-60">{scalarCount} props</div>
@@ -206,7 +207,7 @@ function OntologyGraphInner() {
       id: `edge-${rel.id}`,
       source: `class-${rel.domain_class_id}`,
       target: `class-${rel.range_class_id}`,
-      label: rel.prop_name,
+      label: aliasPredicate(rel.prop_name),
       labelStyle: {
         fontSize: '10px',
         fontWeight: 500,
@@ -273,7 +274,7 @@ function OntologyGraphInner() {
   const selectedClassName = useMemo(() => {
     if (!selectedClassId) return ''
     const cls = classes.find(c => c.id === selectedClassId)
-    return cls?.class_name || ''
+    return aliasClass(cls?.class_name)
   }, [classes, selectedClassId])
 
   // Update nodes and edges when computed values change
@@ -368,11 +369,11 @@ function OntologyGraphInner() {
                       key={prop.id}
                       className="px-2 py-1.5 text-xs rounded hover:bg-gray-50"
                     >
-                      <div className="font-medium text-gray-800">{prop.prop_name}</div>
+                      <div className="font-medium text-gray-800">{aliasPredicate(prop.prop_name)}</div>
                       <div className="text-gray-500">
                         {prop.range_kind === 'entity_ref' ? (
                           <span className="text-indigo-600">
-                            → {classes.find(c => c.id === prop.range_class_id)?.class_name || 'Unknown'}
+                            → {aliasClass(classes.find(c => c.id === prop.range_class_id)?.class_name) || 'Unknown'}
                           </span>
                         ) : (
                           <span>{prop.range_kind}</span>

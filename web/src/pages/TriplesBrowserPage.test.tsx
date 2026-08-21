@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import TriplesBrowserPage from './TriplesBrowserPage'
 
 // Mock the API client
+import { displayValue } from '../label'
 vi.mock('../api/client', () => ({
   triplesApi: {
     listSubjects: vi.fn(),
@@ -151,7 +152,9 @@ describe('TriplesBrowserPage', () => {
       await waitFor(() => {
         expect(screen.getByText('order_status')).toBeInTheDocument()
       })
-      expect(screen.getByText('CREATED')).toBeInTheDocument()
+      expect(
+        screen.getByText(displayValue('order_status', 'CREATED')),
+      ).toBeInTheDocument()
     })
 
     it('displays entity_ref values as clickable links', async () => {

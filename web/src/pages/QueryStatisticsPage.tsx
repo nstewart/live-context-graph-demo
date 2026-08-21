@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { HighlightedJson } from "../components/HighlightedJson";
 import {
   LineChart,
   Line,
@@ -44,8 +45,7 @@ import { WriteTripleForm } from "../components/WriteTripleForm";
 import { ViewDefinitionModal } from "../components/ViewDefinitionModal";
 import { usePropagation } from "../contexts/PropagationContext";
 import { useViewDefinitionSelection } from "../hooks/useViewDefinitions";
-import { aliasColumn, aliasView, pageText } from "../label";
-
+import { aliasColumn, aliasView, copy, copyText, Entity, entity, enumLabel, pageText, words } from "../label";
 // Columns shown in the read-path SQL preview. Rendered through the active
 // label's display aliases; the query the API actually runs is untouched.
 const SQL_PREVIEW_ROWS: string[][] = [
@@ -87,152 +87,6 @@ const predicatesBySubjectType: Record<string, string[]> = {
 
 
 // Highlighted JSON component that glows when values change
-const HighlightedJson = ({ data, trackingKey }: { data: object; trackingKey?: string }) => {
-  const prevDataRef = useRef<string>('');
-  const prevTrackingKeyRef = useRef<string | undefined>(undefined);
-  const changedPathsRef = useRef<Map<string, number>>(new Map());
-  const [, forceUpdate] = useState(0);
-
-  const HIGHLIGHT_DURATION = 1500; // ms
-
-  // Find changed paths by comparing JSON
-  useEffect(() => {
-    // Reset when tracking key changes (e.g., different order selected)
-    if (trackingKey !== prevTrackingKeyRef.current) {
-      prevTrackingKeyRef.current = trackingKey;
-      prevDataRef.current = JSON.stringify(data);
-      changedPathsRef.current = new Map();
-      return;
-    }
-
-    const currentJson = JSON.stringify(data);
-    if (prevDataRef.current && prevDataRef.current !== currentJson) {
-      // Find which paths changed
-      const prevData = JSON.parse(prevDataRef.current);
-      const now = Date.now();
-
-      const findChanges = (current: unknown, previous: unknown, path: string) => {
-        if (typeof current !== typeof previous) {
-          changedPathsRef.current.set(path, now);
-          return;
-        }
-        if (current === null || previous === null) {
-          if (current !== previous) changedPathsRef.current.set(path, now);
-          return;
-        }
-        if (typeof current !== 'object') {
-          if (current !== previous) changedPathsRef.current.set(path, now);
-          return;
-        }
-        if (Array.isArray(current) && Array.isArray(previous)) {
-          if (current.length !== previous.length) {
-            changedPathsRef.current.set(path, now);
-          }
-          current.forEach((item, i) => {
-            findChanges(item, previous[i], `${path}[${i}]`);
-          });
-          return;
-        }
-        const currentObj = current as Record<string, unknown>;
-        const previousObj = previous as Record<string, unknown>;
-        const allKeys = new Set([...Object.keys(currentObj), ...Object.keys(previousObj)]);
-        allKeys.forEach(key => {
-          findChanges(currentObj[key], previousObj[key], path ? `${path}.${key}` : key);
-        });
-      };
-
-      findChanges(data, prevData, '');
-      forceUpdate(n => n + 1);
-
-      // Schedule cleanup of expired highlights
-      const timer = setTimeout(() => {
-        const now = Date.now();
-        for (const [path, timestamp] of changedPathsRef.current) {
-          if (now - timestamp >= HIGHLIGHT_DURATION) {
-            changedPathsRef.current.delete(path);
-          }
-        }
-        forceUpdate(n => n + 1);
-      }, HIGHLIGHT_DURATION);
-
-      prevDataRef.current = currentJson;
-      return () => clearTimeout(timer);
-    }
-    prevDataRef.current = currentJson;
-  }, [data, trackingKey]);
-
-  // Check if a path is currently highlighted
-  const isHighlighted = (path: string): boolean => {
-    const timestamp = changedPathsRef.current.get(path);
-    if (!timestamp) return false;
-    return Date.now() - timestamp < HIGHLIGHT_DURATION;
-  };
-
-  // Render JSON with highlights
-  const renderValue = (value: unknown, path: string, indent: number): React.ReactNode => {
-    const isChanged = isHighlighted(path);
-    const glowClass = isChanged ? 'animate-pulse bg-yellow-500/30 rounded px-1 -mx-1' : '';
-    const spaces = '  '.repeat(indent);
-
-    if (value === null) {
-      return <span className={`text-gray-500 ${glowClass}`}>null</span>;
-    }
-    if (typeof value === 'boolean') {
-      return <span className={`text-purple-400 ${glowClass}`}>{value ? 'true' : 'false'}</span>;
-    }
-    if (typeof value === 'number') {
-      return <span className={`text-blue-400 ${glowClass}`}>{value}</span>;
-    }
-    if (typeof value === 'string') {
-      return <span className={`text-green-400 ${glowClass}`}>"{value}"</span>;
-    }
-    if (Array.isArray(value)) {
-      if (value.length === 0) return <span className={glowClass}>[]</span>;
-      return (
-        <>
-          {'[\n'}
-          {value.map((item, i) => (
-            <span key={i}>
-              {spaces}  {renderValue(item, `${path}[${i}]`, indent + 1)}
-              {i < value.length - 1 ? ',' : ''}{'\n'}
-            </span>
-          ))}
-          {spaces}{']'}
-        </>
-      );
-    }
-    if (typeof value === 'object') {
-      const entries = Object.entries(value as Record<string, unknown>);
-      if (entries.length === 0) return <span className={glowClass}>{'{}'}</span>;
-      return (
-        <>
-          {'{\n'}
-          {entries.map(([key, val], i) => {
-            const keyPath = path ? `${path}.${key}` : key;
-            const isKeyChanged = isHighlighted(keyPath);
-            const keyGlowClass = isKeyChanged ? 'animate-pulse bg-yellow-500/30 rounded px-1 -mx-1' : '';
-            return (
-              <span key={key}>
-                {spaces}  <span className={`text-gray-400 ${keyGlowClass}`}>"{key}"</span>: {renderValue(val, keyPath, indent + 1)}
-                {i < entries.length - 1 ? ',' : ''}{'\n'}
-              </span>
-            );
-          })}
-          {spaces}{'}'}
-        </>
-      );
-    }
-    return String(value);
-  };
-
-  return (
-    <pre className="text-xs font-mono text-gray-300 whitespace-pre">
-      {renderValue(data, '', 0)}
-    </pre>
-  );
-};
-
-// Status badge component
 const StatusBadge = ({ status }: { status: string | null }) => {
   const getStatusColor = (s: string | null) => {
     switch (s?.toUpperCase()) {
@@ -255,7 +109,7 @@ const StatusBadge = ({ status }: { status: string | null }) => {
 
   return (
     <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(status)}`}>
-      {status || "UNKNOWN"}
+      {enumLabel('order_status', status) || "UNKNOWN"}
     </span>
   );
 };
@@ -272,6 +126,7 @@ interface OrderCardProps {
 }
 
 const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading }: OrderCardProps) => {
+  const pr = copy('pricing');
   const [isExpanded, setIsExpanded] = useState(true);
   const prevOrderRef = useRef<OrderWithLinesData | null>(null);
   const [changedFields, setChangedFields] = useState<Set<string>>(new Set());
@@ -386,7 +241,7 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
               <div className="flex justify-between items-start">
                 <span className="text-gray-600 flex items-center gap-1">
                   <ShoppingCart className="h-3 w-3" />
-                  Order
+                  {Entity('order')}
                 </span>
                 <div className="text-right">
                   <div className="font-mono font-medium">{order.order_number || order.order_id}</div>
@@ -402,14 +257,14 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <User className="h-3 w-3" />
-                  Customer
+                  {Entity('customer')}
                 </span>
                 <span className={`text-right truncate max-w-[150px] ${highlightClass('customer')}`}>{order.customer_name || "-"}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600 flex items-center gap-1">
                   <Store className="h-3 w-3" />
-                  Store
+                  {Entity('store')}
                 </span>
                 <span className={`text-right truncate max-w-[150px] ${highlightClass('store')}`}>{order.store_name || "-"}</span>
               </div>
@@ -430,20 +285,20 @@ const OrderCard = ({ title, subtitle, icon, iconColor, bgColor, order, isLoading
                 >
                   {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   <Package className="h-3 w-3" />
-                  {order.line_item_count || order.line_items.length} items
+                  {order.line_item_count || order.line_items.length} {entity('orderline', 'many')}
                   {order.has_perishable_items && (
-                    <span className="ml-1 text-xs text-amber-600">*perishable</span>
+                    <span className="ml-1 text-xs text-amber-600">*{words('perishable').adjective}</span>
                   )}
                 </button>
                 {isExpanded && (
                   <div className="mt-2 space-y-1 max-h-[250px] overflow-y-auto">
                     {/* Header row */}
                     <div className="text-[10px] text-gray-500 px-2 py-1 border-b grid grid-cols-[1fr_40px_40px_40px_55px] gap-1">
-                      <span>Product</span>
-                      <span className="text-right" title="Price when order was placed">Order</span>
-                      <span className="text-right" title="Product catalog price">Base</span>
-                      <span className="text-right" title="Current dynamic price">Live</span>
-                      <span className="text-right" title="Quantity × Order Price">Subtotal</span>
+                      <span>{Entity('product')}</span>
+                      <span className="text-right" title={`${pr.order_price_label}`}>{copyText('pricing', 'order_price_short')}</span>
+                      <span className="text-right" title={`${pr.base_price_label}`}>{copyText('pricing', 'base_price_short')}</span>
+                      <span className="text-right" title={`${pr.live_price_label}`}>{copyText('pricing', 'live_price_short')}</span>
+                      <span className="text-right" title={`Quantity × ${pr.order_price_label}`}>Subtotal</span>
                     </div>
                     {order.line_items.map((item: OrderLineItem) => {
                       const lineHighlight = (field: string) => highlightClass(`line-${item.line_id}-${field}`);
@@ -693,7 +548,7 @@ export default function QueryStatisticsPage() {
         }
       } catch (err) {
         console.error("Failed to load data:", err);
-        setError("Failed to load orders");
+        setError(`Failed to load ${entity('order', 'many')}`);
       }
     };
     loadData();
@@ -1063,9 +918,9 @@ export default function QueryStatisticsPage() {
                     ))}
                     <div className="mt-1"><span className="text-purple-400">FROM</span> {aliasView("orders_with_lines_mv")} o</div>
                     <div><span className="text-purple-400">LEFT JOIN</span> {aliasView("inventory_items_with_dynamic_pricing_mv")} p</div>
-                    <div className="pl-4"><span className="text-purple-400">ON</span> p.product_id = o.product_id</div>
-                    <div className="pl-4"><span className="text-purple-400">AND</span> p.store_id = o.store_id</div>
-                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.order_id = <span className="text-green-400">:order_id</span></div>
+                    <div className="pl-4"><span className="text-purple-400">ON</span> p.{aliasColumn("product_id")} = o.{aliasColumn("product_id")}</div>
+                    <div className="pl-4"><span className="text-purple-400">AND</span> p.{aliasColumn("store_id")} = o.{aliasColumn("store_id")}</div>
+                    <div className="mt-1"><span className="text-purple-400">WHERE</span> o.{aliasColumn("order_id")} = <span className="text-green-400">:{aliasColumn("order_id")}</span></div>
                   </div>
                 </div>
                 {/* Right: JSON response */}
@@ -1074,7 +929,7 @@ export default function QueryStatisticsPage() {
                     {zeroMaterializeOrder ? (
                       <HighlightedJson data={zeroMaterializeOrder} trackingKey={selectedOrderId} />
                     ) : (
-                      <pre className="text-xs font-mono text-gray-500">Select an order to see live data...</pre>
+                      <pre className="text-xs font-mono text-gray-500">Select a {entity('order')} to see live data...</pre>
                     )}
                   </div>
                 </div>
@@ -1353,7 +1208,7 @@ export default function QueryStatisticsPage() {
                   <div className="text-left">
                     <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                       <BarChart3 className="h-5 w-5" />
-                      Query Statistics - Orders with Lines View
+                      {`Query Statistics - ${aliasView('orders_with_lines_mv')}`}
                     </h3>
                     <p className="text-xs text-gray-500 mt-1">
                       Response Time = query latency | Reaction Time = freshness (NOW - effective_updated_at) | QPS = queries/second throughput

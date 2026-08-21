@@ -3,8 +3,7 @@ import { useZero, useQuery } from '@rocicorp/zero/react'
 import { Schema } from '../schema'
 import { StoreInventory } from '../api/client'
 import { X } from 'lucide-react'
-import { placeholder } from '../label'
-
+import { Entity, aliasColumn, aliasPredicate, entity, placeholder } from '../label'
 export interface InventoryFormData {
   inventory_id: string
   store_id: string
@@ -64,7 +63,7 @@ export function InventoryFormModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
         <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">{inventory ? 'Edit Inventory' : 'Add Inventory Item'}</h2>
+          <h2 className="text-lg font-semibold">{inventory ? `Edit ${Entity('inventory')}` : `Add ${Entity('inventory')}`}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
@@ -78,7 +77,7 @@ export function InventoryFormModal({
         >
           {!inventory && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Inventory ID *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('inventory')} ID *</label>
               <input
                 type="text"
                 required
@@ -90,14 +89,14 @@ export function InventoryFormModal({
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{Entity('product')} *</label>
             <select
               required
               value={formData.product_id}
               onChange={e => setFormData({ ...formData, product_id: e.target.value })}
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
             >
-              <option value="">Select a product...</option>
+              <option value="">Select a {entity('product')}...</option>
               {products.map(p => (
                 <option key={p.product_id} value={p.product_id}>
                   {p.product_name || 'Unknown'} ({p.product_id})
@@ -106,7 +105,7 @@ export function InventoryFormModal({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stock Level *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{aliasColumn('stock_level')} *</label>
             <input
               type="number"
               required
@@ -117,7 +116,7 @@ export function InventoryFormModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Replenishment ETA</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{aliasPredicate('replenishment_eta')}</label>
             <input
               type="datetime-local"
               value={formData.replenishment_eta}

@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from "react";
 import { ChevronDown, ChevronRight, Search, Database } from "lucide-react";
 import { HighlightedJson } from "./HighlightedJson";
 import { searchApi, OpenSearchResponse } from "../api/client";
-
+import { aliasColumn, entity, keywordQueries, placeholder } from "../label";
 export const AgentNativeReadsCard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -62,7 +62,14 @@ export const AgentNativeReadsCard = () => {
       query: {
         multi_match: {
           query: submittedQuery,
-          fields: ["customer_name^2", "store_name^2", "store_zone", "order_number^3", "order_status"],
+          // Illustrative only -- this DSL is rendered, never executed, so the
+          // field names follow the label the same way the SQL preview does.
+          fields: ["customer_name^2", "store_name^2", "store_zone", "order_number^3", "order_status"].map(
+            (f) => {
+              const [name, boost] = f.split("^");
+              return boost ? `${aliasColumn(name)}^${boost}` : aliasColumn(name);
+            },
+          ),
           fuzziness: "AUTO",
         },
       },
@@ -99,12 +106,12 @@ export const AgentNativeReadsCard = () => {
           <div className="mb-4 text-sm text-gray-600 leading-relaxed space-y-2">
             <p>
               Traditional databases require agents to know exact IDs or query based on indexes
-              at scale. Search indexes let agents ask questions like "orders from the downtown
-              store" and get answers instantly. Materialize keeps the index perfectly
+              at scale. Search indexes let agents ask questions like "{entity('order', 'many')} from a
+              given {entity('store')}" and get answers instantly. Materialize keeps the index perfectly
               fresh&mdash;no stale data, no batch refresh lag.
             </p>
             <p className="text-xs text-gray-500">
-              In production, some customers add a vector index for improved semantic search
+              In production, some organizations add a vector index for improved semantic search
               and natural language queries.
             </p>
           </div>
@@ -128,7 +135,7 @@ export const AgentNativeReadsCard = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Search orders..."
+                  placeholder={placeholder("order_search")}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 />
                 <button
@@ -144,21 +151,17 @@ export const AgentNativeReadsCard = () => {
               {/* Example queries */}
               <div className="text-xs text-gray-500">
                 Try:{" "}
-                <button onClick={() => handleExampleClick("downtown")} className="text-green-600 hover:underline">
-                  downtown
-                </button>
-                ,{" "}
-                <button onClick={() => handleExampleClick("john")} className="text-green-600 hover:underline">
-                  john
-                </button>
-                ,{" "}
-                <button onClick={() => handleExampleClick("PICKING")} className="text-green-600 hover:underline">
-                  PICKING
-                </button>
-                ,{" "}
-                <button onClick={() => handleExampleClick("BKN")} className="text-green-600 hover:underline">
-                  BKN
-                </button>
+                {keywordQueries.map((q, i) => (
+                  <span key={q}>
+                    {i > 0 && ", "}
+                    <button
+                      onClick={() => handleExampleClick(q)}
+                      className="text-green-600 hover:underline"
+                    >
+                      {q}
+                    </button>
+                  </span>
+                ))}
               </div>
 
               {/* Query and Response - side by side */}
@@ -170,6 +173,7 @@ export const AgentNativeReadsCard = () => {
                       <div className="flex items-center gap-2 mb-2">
                         <Database className="h-4 w-4 text-blue-500" />
                         <span className="text-xs font-medium text-gray-600">
+                          {/* label-lint-ok: real OpenSearch index, must run as pasted */}
                           GET /orders/_search
                         </span>
                       </div>

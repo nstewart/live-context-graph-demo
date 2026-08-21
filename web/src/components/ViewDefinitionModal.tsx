@@ -3,7 +3,7 @@ import { Check, Code, Copy, ExternalLink, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ViewDefinitionResponse } from "../api/client";
-
+import { aliasView } from "../label";
 /** Materialize console. Defaults to the emulator's console port; override with
  *  VITE_MZ_CONSOLE_URL when pointing the demo at Cloud or a tunnelled backend. */
 export const MZ_CONSOLE_URL =
@@ -71,7 +71,14 @@ export const ViewDefinitionModal = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Code className="h-4 w-4 text-yellow-400" />
-              <span className="text-sm font-medium text-gray-200">View Definition</span>
+              <span className="text-sm font-medium text-gray-200">
+                View Definition
+                {viewName && (
+                  <span className="ml-2 font-mono text-xs text-gray-400">
+                    {aliasView(viewName)}
+                  </span>
+                )}
+              </span>
             </div>
             <button
               onClick={onClose}
@@ -82,6 +89,9 @@ export const ViewDefinitionModal = ({
             </button>
           </div>
           <div className="mt-2 flex items-center justify-between gap-3">
+            {/* The real object name, not the label's. This statement is meant
+                to be copied into the SQL shell, so aliasing it would name an
+                object that does not exist. label-lint-ok: runnable SQL */}
             <div className="font-mono text-xs text-gray-400">
               <span className="text-purple-400">SHOW CREATE</span>{' '}
               <span className="text-blue-400">{objectType}</span>{' '}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AgentNativeReadsCard } from './AgentNativeReadsCard'
+import { keywordQueries, placeholder } from '../label'
 
 // Mock the API client
 vi.mock('../api/client', () => ({
@@ -206,10 +207,9 @@ describe('AgentNativeReadsCard', () => {
       fireEvent.click(screen.getByRole('button'))
 
       await waitFor(() => {
-        expect(screen.getByText('downtown')).toBeInTheDocument()
-        expect(screen.getByText('john')).toBeInTheDocument()
-        expect(screen.getByText('PICKING')).toBeInTheDocument()
-        expect(screen.getByText('BKN')).toBeInTheDocument()
+        for (const q of keywordQueries) {
+          expect(screen.getByText(q)).toBeInTheDocument()
+        }
       })
     })
 
@@ -220,14 +220,14 @@ describe('AgentNativeReadsCard', () => {
       fireEvent.click(screen.getByRole('button'))
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('Search orders...')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText(placeholder('order_search'))).toBeInTheDocument()
       })
 
-      const downtownButton = screen.getByRole('button', { name: 'downtown' })
-      fireEvent.click(downtownButton)
+      const [first] = keywordQueries
+      fireEvent.click(screen.getByRole('button', { name: first }))
 
       await waitFor(() => {
-        expect(searchApi.searchOrders).toHaveBeenCalledWith('downtown', 3)
+        expect(searchApi.searchOrders).toHaveBeenCalledWith(first, 3)
       })
     })
 
@@ -238,14 +238,16 @@ describe('AgentNativeReadsCard', () => {
       fireEvent.click(screen.getByRole('button'))
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('Search orders...')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText(placeholder('order_search'))).toBeInTheDocument()
       })
 
-      const johnButton = screen.getByRole('button', { name: 'john' })
-      fireEvent.click(johnButton)
+      const [, second] = keywordQueries
+      fireEvent.click(screen.getByRole('button', { name: second }))
 
-      const input = screen.getByPlaceholderText('Search orders...') as HTMLInputElement
-      expect(input.value).toBe('john')
+      const input = screen.getByPlaceholderText(
+        placeholder('order_search'),
+      ) as HTMLInputElement
+      expect(input.value).toBe(second)
     })
   })
 

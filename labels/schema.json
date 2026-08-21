@@ -212,6 +212,14 @@
         },
         "predicate_values": {
           "$ref": "#/$defs/stringMap"
+        },
+        "keyword_queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Keyword search examples for the Agent-native Reads card. Unlike search_queries these run a literal keyword match against the orders index, so every value must occur in this label's seeded data (a location name, a fixed status value, or a zone code)."
         }
       }
     },
@@ -383,6 +391,60 @@
         "system_prompt": {
           "type": "string",
           "description": "Full LLM system prompt. Restates the dynamic-pricing rules in prose -- see docs/WHITE_LABELING.md; it must track db/materialize/init.sh."
+        }
+      }
+    },
+    "ontology": {
+      "type": "object",
+      "description": "Descriptions for the ontology, seeded into Postgres and shown on the Knowledge Graph tab. Keys are the FIXED class and property names; only the prose is label-driven. A label that omits an entry inherits the default vertical's wording, which check_label_leaks.py reports.",
+      "additionalProperties": false,
+      "properties": {
+        "classes": {
+          "type": "object",
+          "description": "class_name -> description. Keys are structural and must not be renamed.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "properties": {
+          "type": "object",
+          "description": "prop_name -> description. Keys are structural and must not be renamed.",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reference-architecture diagram copy. Shape is fixed; only the words change.",
+      "properties": {
+        "source_systems": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "heading",
+            "items"
+          ],
+          "properties": {
+            "heading": {
+              "type": "string",
+              "minLength": 1
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "description": "The upstream systems feeding the context layer. The box is sized for four.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       }
     }

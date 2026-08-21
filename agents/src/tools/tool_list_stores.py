@@ -4,6 +4,7 @@ import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.demo_label import alias_payload
 
 
 @tool
@@ -12,7 +13,8 @@ async def list_stores(zone: str = None) -> list[dict]:
     List all store locations with their IDs and details.
 
     Use this tool FIRST when a user mentions a store by name or zone to find the correct store_id.
-    Store IDs use abbreviated zone codes (e.g., QNS for Queens, MAN for Manhattan).
+    Store IDs use abbreviated zone codes; the system prompt maps each code to the
+    zone name this deployment uses. Do not assume the mapping -- read it there.
 
     Args:
         zone: Optional zone filter (MAN, BK, QNS, BX, SI). If provided, only returns stores in that zone.
@@ -24,17 +26,13 @@ async def list_stores(zone: str = None) -> list[dict]:
         - zone: Zone abbreviation (MAN, BK, QNS, BX, SI)
         - address: Store address
 
-    Zone abbreviations:
-        - MAN = Manhattan
-        - BK = Brooklyn
-        - QNS = Queens
-        - BX = Bronx
-        - SI = Staten Island
+    Zone codes are always MAN, BK, QNS, BX and SI. Their display names differ per
+    deployment and are listed in the system prompt.
 
     Example workflow:
-        1. User asks: "What vegetables are available at the Queens store?"
-        2. Call list_stores(zone="QNS") to find Queens store IDs (store:QNS-01, store:QNS-02)
-        3. Call search_inventory(query="vegetable", store_id="store:QNS-01")
+        1. User names a location, e.g. "the QNS site"
+        2. Call list_stores(zone="QNS") to find its store IDs (store:QNS-01, store:QNS-02)
+        3. Call search_inventory(query=..., store_id="store:QNS-01")
     """
     settings = get_settings()
 
@@ -52,7 +50,7 @@ async def list_stores(zone: str = None) -> list[dict]:
                 stores = [s for s in stores if s.get("store_zone") == zone]
 
             # Return simplified store info
-            return [
+            return alias_payload([
                 {
                     "store_id": store.get("store_id"),
                     "store_name": store.get("store_name"),
@@ -60,7 +58,7 @@ async def list_stores(zone: str = None) -> list[dict]:
                     "address": store.get("store_address"),
                 }
                 for store in stores
-            ]
+            ])
 
         except httpx.HTTPError:
             # Return empty list on error instead of error dict

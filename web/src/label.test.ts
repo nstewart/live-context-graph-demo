@@ -11,6 +11,11 @@ import {
   aliasColumn,
   aliasView,
   aliasPredicate,
+  aliasClass,
+  words,
+  keywordQueries,
+  displayValue,
+  enumForField,
   pageText,
   copyText,
   placeholder,
@@ -87,6 +92,60 @@ describe('label module', () => {
     // in tests and in the UI.
     expect(pageText('orders', 'no_such_field')).toBe('⟪pages.orders.no_such_field⟫')
     expect(copyText('no_such_block', 'x')).toBe('⟪copy.no_such_block.x⟫')
+  })
+
+  it('gives ontology class names a display word from the vocabulary', () => {
+    // The eight seeded class names are structural; only their display changes.
+    // freshmart's vocabulary happens to match them, so this is identity here --
+    // the point is that the mapping exists at all, since the ontology screens
+    // rendered class_name raw before.
+    expect(aliasClass('Courier')).toBe('Courier')
+    expect(aliasClass('InventoryItem')).toBe('Inventory Item')
+    expect(aliasClass('DeliveryTask')).toBe('Delivery Task')
+    // A class a user creates at runtime is unknown to the map and passes through.
+    expect(aliasClass('Warehouse')).toBe('Warehouse')
+    expect(aliasClass(null)).toBe('')
+    expect(aliasClass(undefined)).toBe('')
+  })
+
+  it('reaches the non-plural vocabulary forms', () => {
+    // `perishable` has no singular/plural, so entity() cannot express it.
+    const p = words('perishable')
+    expect(p.adjective).toBe('perishable')
+    expect(p.note).toBe('requires cold chain')
+    expect(p.tooltip).toBe('Has perishable items')
+    expect(p.cart_note).toContain('cold chain')
+    // Missing types warn rather than throwing mid-render.
+    expect(words('no_such_entity')).toEqual({ one: '', many: '' })
+  })
+
+  it('ships keyword examples that can actually match seeded data', () => {
+    // These execute a literal keyword search, unlike examples.search_queries.
+    expect(keywordQueries.length).toBeGreaterThan(0)
+    expect(keywordQueries).toContain('CREATED')
+    // A zone code, so the multi_match on store_zone hits.
+    expect(keywordQueries).toContain('BK')
+  })
+
+  it('maps a field to the enum its values come from', () => {
+    // Same-named fields resolve on their own...
+    expect(enumForField('order_status')).toBe('order_status')
+    // ...and the ones that differ are mapped explicitly.
+    expect(enumForField('store_zone')).toBe('zone')
+    expect(enumForField('delivery_task_status')).toBe('task_status')
+    expect(enumForField('health_status')).toBe('capacity_health')
+    // Free-text fields have no enum, so their values pass through.
+    expect(enumForField('customer_name')).toBeUndefined()
+  })
+
+  it('shows a stored value as a human reads it, given its field', () => {
+    expect(displayValue('order_status', 'OUT_FOR_DELIVERY')).toBe('Out for Delivery')
+    expect(displayValue('store_zone', 'BK')).toBe('Brooklyn')
+    // Free text is returned untouched.
+    expect(displayValue('customer_name', 'Jordan Ellis')).toBe('Jordan Ellis')
+    // An unknown value is never hidden -- live data always renders.
+    expect(displayValue('order_status', 'SOME_NEW_STATE')).toBe('SOME_NEW_STATE')
+    expect(displayValue('order_status', null)).toBe('')
   })
 
   it('carries no server-only sections into the browser bundle', () => {

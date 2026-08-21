@@ -62,10 +62,12 @@ REQUIRED_SECTIONS = (
     "seed",
     "search",
     "agent",
+    "ontology",
 )
 
-# What the browser actually needs. `seed` (760 catalog rows) and `search`
-# (synonyms) are server-side only, so they are omitted from the web artifact.
+# What the browser actually needs. `seed` (760 catalog rows), `search`
+# (synonyms) and `ontology` (68 seeded descriptions, which reach the browser
+# from Postgres via the API instead) are server-side only.
 WEB_SECTIONS = (
     "label",
     "brand",
@@ -77,6 +79,7 @@ WEB_SECTIONS = (
     "copy",
     "placeholders",
     "examples",
+    "architecture",
 )
 # Of the agent section, only what the chat widget renders.
 WEB_AGENT_KEYS = ("persona", "placeholder", "empty_state")

@@ -1,0 +1,984 @@
+# Mortgage underwriting -- a residential mortgage origination / underwriting vertical.
+#
+# The bank originates residential mortgages, so its business IS underwriting
+# operations at scale: loan files routed to underwriters across regional
+# fulfillment centers, worked against rate-lock and commitment deadlines. That
+# maps cleanly onto the demo's existing shape without changing any of it.
+#
+# "Cornerstone Federal" is a deliberately fictional bank. Do not commit a real
+# customer's name, branding, or assets to this repo -- copy this file locally
+# and override `brand` if you need to skin it for a specific account.
+#
+# This file lists ONLY what differs from freshmart.yaml; everything else is
+# inherited. Nothing structural changes: same predicates, same view names, same
+# zone CODES, same enum values, same entity counts.
+#
+#   internal (fixed)  ->  what the customer reads here
+#   order             ->  loan file
+#   orderline         ->  loan condition
+#   customer          ->  applicant
+#   store             ->  fulfillment center
+#   product           ->  loan program
+#   inventory         ->  underwriting capacity
+#   courier           ->  underwriter
+#   task              ->  verification task
+#   zone              ->  lending region
+#   perishable        ->  rate-locked (has a lock that expires)
+#   dynamic pricing   ->  cost to underwrite  (NEVER the borrower's rate)
+#
+# DELIBERATE, and the single most important note in this file: the demo's
+# "dynamic pricing" maps to the bank's INTERNAL cost to underwrite a program at
+# a center, never to the borrower's rate, points, or loan-level price
+# adjustment. The pricing SQL varies price by region (zone_adjustment: Metro
+# East +15%, Pacific West -5%). Presenting that as borrower pricing would be
+# showing a fair-lending violation -- geographic price variation is exactly what
+# ECOA/Regulation B and redlining enforcement look for -- and a bank's
+# compliance team would end the demo on that slide. Cost to underwrite is an
+# operational number the bank spends on itself, so region, capacity, and volume
+# adjustments are defensible.
+#
+# For the same reason "Revenue at Risk" is rate-lock expiry exposure -- the
+# extension and renegotiation cost the BANK eats when a lock ages out -- not
+# borrower revenue.
+
+label: mortgage-underwriting
+
+brand:
+  name: Cornerstone Federal
+  tagline: Mortgage Underwriting Console
+  tab_title: Cornerstone Federal Mortgage Underwriting - Console
+  theme:
+    primary: slate
+    accent: emerald
+  favicon: mortgage-underwriting.svg
+
+vocabulary:
+  order:
+    one: loan file
+    many: loan files
+    title: Loan File
+    title_many: Loan Files
+    id_prefix: LN-
+  orderline:
+    one: loan condition
+    many: loan conditions
+    title: Loan Condition
+    title_many: Loan Conditions
+  customer:
+    one: applicant
+    many: applicants
+    title: Applicant
+    title_many: Applicants
+  store:
+    one: fulfillment center
+    many: fulfillment centers
+    title: Fulfillment Center
+    title_many: Fulfillment Centers
+  product:
+    one: loan program
+    many: loan programs
+    title: Loan Program
+    title_many: Loan Programs
+  inventory:
+    one: capacity pool
+    many: capacity pools
+    title: Capacity Pool
+    title_many: Underwriting Capacity
+  courier:
+    one: underwriter
+    many: underwriters
+    title: Underwriter
+    title_many: Underwriters
+  task:
+    one: verification task
+    many: verification tasks
+    title: Verification Task
+    title_many: Verification Tasks
+  zone:
+    one: lending region
+    many: lending regions
+    title: Lending Region
+    title_many: Lending Regions
+  perishable:
+    adjective: rate-locked
+    note: rate lock expires
+    tooltip: Has a rate lock that expires
+    cart_note: This loan file includes conditions under a rate lock that expires
+
+enums:
+  # Values are fixed by the SQL; only these display labels change.
+  order_status:
+    CREATED: Submitted
+    PICKING: In Underwriting
+    OUT_FOR_DELIVERY: Clear to Close
+    DELIVERED: Funded
+    CANCELLED: Withdrawn
+  courier_status:
+    OFF_SHIFT: Off Shift
+    AVAILABLE: Available
+    ON_DELIVERY: In Review
+    ACTIVE: Active
+  task_status:
+    PENDING: Pending
+    IN_PROGRESS: In Progress
+    COMPLETED: Cleared
+    FAILED: Unable to Verify
+  vehicle_type:
+    BIKE: Standard review
+    SCOOTER: Priority review
+    CAR: Complex review
+    WALKING: Manual exception
+  store_status:
+    OPEN: Open
+    LIMITED: Reduced capacity
+  availability_status:
+    IN_STOCK: Capacity available
+    LOW_STOCK: Capacity constrained
+    OUT_OF_STOCK: At capacity
+  capacity_health:
+    CRITICAL: Critical
+    STRAINED: Strained
+    HEALTHY: Healthy
+    UNDERUTILIZED: Underutilized
+  recommended_action:
+    CLOSE_INTAKE: Pause intake
+    SURGE_PRICING: Add overflow underwriters
+    PROMOTE_DEMAND: Route more volume here
+    MONITOR: Monitor
+  # Codes are join keys in the pricing SQL and MUST NOT change -- only labels.
+  zone:
+    MAN: Metro East
+    BK: Mid-Atlantic
+    QNS: Great Lakes
+    BX: Gulf South
+    SI: Pacific West
+
+# Display-only. The wire format, SQL, and database are untouched; these just
+# stop the default vertical's vocabulary appearing in the SQL preview, lineage
+# graph, predicate dropdown, raw JSON, and OpenSearch examples.
+aliases:
+  columns:
+    order_number: loan_number
+    order_status: loan_status
+    order_total_amount: file_underwriting_cost
+    customer_name: applicant_name
+    customer_email: applicant_email
+    customer_address: applicant_address
+    store_name: center_name
+    store_zone: lending_region
+    store_address: center_address
+    assigned_courier_id: assigned_underwriter_id
+    courier_name: underwriter_name
+    courier_status: underwriter_status
+    delivery_window_start: sla_window_start
+    delivery_window_end: sla_window_end
+    delivery_eta: projected_clear_to_close
+    delivery_task_status: verification_status
+    has_perishable_items: has_rate_lock
+    perishable: rate_locked
+    perishable_adjustment: rate_lock_adjustment
+    product_name: loan_program
+    unit_price: base_underwriting_cost
+    live_price: current_underwriting_cost
+    unit_weight_grams: review_effort
+    stock_level: available_capacity
+    line_items: conditions
+    line_item_count: condition_count
+    base_price: base_underwriting_cost
+    customer_id: applicant_id
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
+    local_stock_adjustment: local_capacity_adjustment
+    order_id: loan_file_id
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_id: loan_program_id
+    store_id: center_id
+    zone_adjustment: region_adjustment
+  views:
+    orders_flat_mv: loan_files_flat_mv
+    orders_with_lines_mv: loan_files_with_conditions_mv
+    order_lines_flat_mv: loan_conditions_flat_mv
+    orders_search_source_mv: loan_files_search_source_mv
+    stores_mv: fulfillment_centers_mv
+    customers_mv: applicants_mv
+    products_mv: loan_programs_mv
+    store_inventory_mv: center_capacity_mv
+    courier_schedule_mv: underwriter_schedule_mv
+    inventory_items_with_dynamic_pricing_mv: capacity_with_underwriting_cost_mv
+    pricing_yield_mv: underwriting_cost_yield_mv
+    inventory_risk_mv: capacity_risk_mv
+    store_capacity_health_mv: center_health_mv
+    delivery_bundles_mv: file_batches_mv
+    orders_flat: loan_files_flat
+    customers_flat: applicants_flat
+    stores_flat: fulfillment_centers_flat
+    products_flat: loan_programs_flat
+    order_lines_base: loan_conditions_base
+    delivery_tasks_flat: verification_tasks_flat
+    dynamic_pricing: underwriting_cost
+    dynamic_pricing_mv: underwriting_cost_mv
+    orders_sink_v: loan_files_sink_v
+    inventory_sink_v: capacity_sink_v
+  predicates:
+    order_status: loan_status
+    order_number: loan_number
+    delivery_window_start: sla_window_start
+    delivery_window_end: sla_window_end
+    customer_name: applicant_name
+    customer_email: applicant_email
+    customer_address: applicant_address
+    store_name: center_name
+    store_zone: lending_region
+    store_address: center_address
+    product_name: loan_program
+    unit_price: base_underwriting_cost
+    perishable: rate_locked
+    unit_weight_grams: review_effort
+    stock_level: available_capacity
+    courier_name: underwriter_name
+    courier_phone: underwriter_phone
+    courier_status: underwriter_status
+    task_status: verification_status
+    base_price: standard_underwriting_cost
+    courier_home_store: underwriter_home_center
+    courier_status_changed_at: underwriter_status_changed_at
+    current_task: current_verification_task
+    delivered_at: funded_at
+    demand_multiplier: volume_multiplier
+    demand_premium: volume_premium
+    eta: projected_clear_to_close
+    home_store: home_center
+    inventory_product: capacity_loan_program
+    inventory_store: capacity_center
+    line_amount: condition_amount
+    line_inventory_item: condition_capacity_pool
+    line_of_order: condition_of_loan_file
+    line_product: condition_loan_program
+    line_sequence: condition_sequence
+    live_price: current_underwriting_cost
+    local_stock_adjustment: local_capacity_adjustment
+    order_created_at: loan_file_created_at
+    order_line_unit_price: condition_unit_cost
+    order_store: loan_file_center
+    order_total_amount: file_underwriting_cost
+    perishable_adjustment: rate_lock_adjustment
+    perishable_flag: rate_locked_flag
+    placed_by: submitted_for
+    popularity_adjustment: frequency_adjustment
+    price_change: cost_change
+    product_sale_count: loan_program_volume
+    product_total_stock: loan_program_total_capacity
+    replenishment_eta: capacity_refresh_eta
+    route_sequence: queue_sequence
+    store_capacity_orders_per_hour: center_capacity_files_per_hour
+    store_status: center_status
+    task_completed_at: verification_completed_at
+    task_of_order: verification_of_loan_file
+    task_started_at: verification_started_at
+    vehicle_type: review_class
+    zone_adjustment: region_adjustment
+
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Cornerstone Agent Search Demo
+  - path: /orders
+    label: Loan Files
+  - path: /couriers
+    label: Underwriters
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Centers & Capacity
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: File Batching
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Cornerstone Federal: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Cornerstone Agent Search Demo
+  orders:
+    title: Loan Files
+    subtitle: Monitor and manage in-flight loan files via WebSocket
+    search_placeholder: Search loan #...
+  couriers:
+    title: Underwriters & Schedule
+    subtitle: View underwriter status and assigned verification tasks
+    search_placeholder: Search by underwriter ID...
+  stores:
+    title: Centers & Capacity
+    inventory_title: Capacity
+    all_inventory_title: All Capacity Pools
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time underwriting pipeline health indicators
+    kpi_pricing_yield: Cost-to-Underwrite Yield
+    kpi_revenue_at_risk: Rate-Lock Expiry Exposure
+    kpi_store_utilization: Avg Center Utilization
+    chart_demand_vs_capacity: File Volume vs Capacity
+    section_risk_title: At-Risk Capacity
+    section_risk_subtitle: >-
+      Loan programs whose underwriting capacity is nearly exhausted while files
+      are still queued against them
+    section_capacity_title: Fulfillment Center Capacity Status
+    section_capacity_subtitle: >-
+      Real-time center workload with automated recommendations for routing
+      volume
+  bundling:
+    title: File Batching
+    subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: SLA windows intersect
+    constraint_inventory_note: Underwriting capacity available for the combined work
+    constraint_capacity_note: Review effort fits the underwriter
+    empty: >-
+      No batches yet. Create loan files with overlapping SLA windows to see
+      batches form.
+  settings:
+    stage_dispatch: Assignment
+    stage_picking: Underwriting
+    stage_delivery: Closing
+    stage_help_dispatch: How often to check for unassigned files.
+    stage_help_picking: Time to underwrite conditions.
+    stage_help_delivery: Time to clear to close and fund.
+
+copy:
+  triples:
+    selector_label: Select Loan File
+    table_heading: Triples for Loan File
+    empty: No triples found for this loan file
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected loan file and its conditions—the full graph
+      includes applicants, fulfillment centers, loan programs, underwriting
+      capacity, underwriters, and verification tasks.
+  knowledge_graph:
+    entity_examples: Loan File, Applicant, Loan Program
+  write_triple:
+    subhead: — Update a loan file property and observe propagation
+  vector_pipeline:
+    all_zones: All lending regions
+    all_statuses: All statuses
+  cart:
+    heading: Loan Conditions
+    empty_heading: No conditions on this loan file yet
+  # DELIBERATE: the bank's internal cost to underwrite, never the borrower's
+  # rate or points. See the header note -- the pricing SQL varies by region.
+  pricing:
+    order_price_label: Booked Cost
+    order_price_tooltip: >-
+      Cost to underwrite locked in when the file was submitted - what this
+      condition was booked at
+    base_price_label: Standard Cost
+    base_price_tooltip: >-
+      The loan program's standard cost to underwrite - no review adjustments
+      applied
+    live_price_label: Current Cost
+    live_price_tooltip: >-
+      Current cost to underwrite based on file volume, available capacity, and
+      other review factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Booked
+    base_price_short: Standard
+    live_price_short: Current
+  rerank:
+    hydrated_fields: status, conditions, current cost to underwrite and capacity
+
+placeholders:
+  subject: order:LN-1001
+  order_number: LN-1001
+  store_name: Cornerstone Federal Mid-Atlantic
+  store_code: BK-01
+  store_zone: BK
+  store_address: 200 S Tryon St, Charlotte, NC
+  inventory_code: CAP-BK01-001
+  courier_code: UW-01
+  courier_name: Marcus Reyes
+  product_search: Search loan programs...
+  order_search: Search loan files...
+  semantic_search: Search by meaning (e.g., self-employed income docs)...
+
+examples:
+  search_queries:
+    - self-employed income verification
+    - jumbo appraisal review
+    - rate-locked cash-out refinance
+  # Keyword (not semantic) examples. Every value must actually occur in seeded
+  # data: a lending region name, a zone code, or a status the generator really
+  # emits (CREATED / DELIVERED / CANCELLED -- NOT PICKING or OUT_FOR_DELIVERY).
+  keyword_queries:
+    - Metro East
+    - Mid-Atlantic
+    - CREATED
+    - MAN
+  predicate_values:
+    order_status: DELIVERED
+    order_number: LN-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "2"
+    order_line_unit_price: "168.00"
+    line_sequence: "1"
+    customer_name: Alicia Navarro
+    customer_email: alicia.navarro@example.com
+    customer_address: 200 S Tryon St
+    store_name: Mid-Atlantic Fulfillment Center
+    store_zone: MAN
+    store_address: 100 Federal St
+    product_name: Conforming 30-year fixed
+    category: Conventional Conforming
+    unit_price: "145.00"
+    perishable: "true"
+    unit_weight_grams: "700"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: Devin Osei
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - Loan Origination
+      - Credit Bureau
+      - AUS Findings
+      - Core Banking
+
+seed:
+  store_name_template: Cornerstone Federal {zone_name} Fulfillment Center {n}
+  address_state: NC
+  locations:
+    # Codes are FIXED (the pricing SQL joins on them); names and streets are not.
+    - code: BK
+      name: Mid-Atlantic
+      streets: [S Tryon St, W Trade St, N College St, S Church St, N Brevard St]
+    - code: MAN
+      name: Metro East
+      streets: [Federal St, Congress St, State St, Devonshire St, Summer St]
+    - code: QNS
+      name: Great Lakes
+      streets: [Nicollet Mall, Hennepin Ave, Marquette Ave, Washington Ave, Portland Ave]
+    - code: BX
+      name: Gulf South
+      streets: [Main St, Commerce St, Elm St, Ross Ave, N Akard St]
+    - code: SI
+      name: Pacific West
+      streets: [2nd Ave, Union St, Pike St, Madison St, Marion St]
+  catalog:
+    # 129 authored loan programs, expanded to the same 760 rows freshmart seeds
+    # so index size, kNN behavior, and entity counts are unchanged.
+    #
+    # `price` is the bank's internal cost to underwrite the program, in dollars
+    # -- NOT the borrower's rate or points. See the header note.
+    #
+    # `weight_grams` is relative review effort, held to freshmart's magnitude
+    # (90-600, median ~540 after variant expansion) on purpose. The bundling SQL
+    # compares the SUM over a pair of files against fixed gram thresholds
+    # (db/materialize/init.sh:1459-1483), and the binding one is 20kg: the
+    # courier EXISTS clause only clears a pair via CAR (<=20kg) or BIKE (<=5kg),
+    # and no VAN is ever seeded. A file averages 3.5 lines x qty 2.5, so an item
+    # median of ~540 puts a pair near 9.5kg -- inside CAR, with the lighter tail
+    # inside BIKE. Authoring effort in real underwriter-hours would push every
+    # pair past 20kg and the File Batching page would render empty. Read the
+    # column as relative effort, not grams; the ordering is what the demo shows.
+    #
+    # `perishable` is "the file carries a rate lock that expires", which is what
+    # makes the work time-critical and earns the same handling priority the
+    # pricing SQL gives cold-chain work.
+    expand_to: 760
+    variant_suffixes:
+      - "(high balance)"
+      - "(manual underwrite)"
+      - "(non-delegated)"
+      - "(streamlined docs)"
+      - "(exception approved)"
+      - "(second review)"
+    categories:
+      - { name: "Conventional Conforming", perishable_default: true }
+      - { name: "Jumbo & Super Jumbo", perishable_default: true }
+      - { name: "Government", perishable_default: true }
+      - { name: "Refinance", perishable_default: true }
+      - { name: "Home Equity", perishable_default: false }
+      - { name: "Non-QM & Portfolio", perishable_default: false }
+      - { name: "Investor & Second Home", perishable_default: true }
+      - { name: "Construction & Renovation", perishable_default: false }
+    # [name, category, cost_to_underwrite, review_effort, rate_locked]
+    items:
+      - ["Conforming 30-year fixed", "Conventional Conforming", 145.0, 120, true]
+      - ["Conforming 20-year fixed", "Conventional Conforming", 140.0, 110, true]
+      - ["Conforming 15-year fixed", "Conventional Conforming", 135.0, 100, true]
+      - ["Conforming 10-year fixed", "Conventional Conforming", 130.0, 100, true]
+      - ["Conforming 5/6 ARM", "Conventional Conforming", 175.0, 160, true]
+      - ["Conforming 7/6 ARM", "Conventional Conforming", 175.0, 160, true]
+      - ["Conforming 10/6 ARM", "Conventional Conforming", 180.0, 160, true]
+      - ["High-balance conforming 30-year fixed", "Conventional Conforming", 195.0, 200, true]
+      - ["High-balance conforming 15-year fixed", "Conventional Conforming", 185.0, 190, true]
+      - ["Low-down-payment first-time buyer program", "Conventional Conforming", 210.0, 230, true]
+      - ["Low-down-payment community lending program", "Conventional Conforming", 210.0, 230, true]
+      - ["Conforming with borrower-paid mortgage insurance", "Conventional Conforming", 165.0, 150, true]
+      - ["Conforming with lender-paid mortgage insurance", "Conventional Conforming", 170.0, 150, true]
+      - ["Conforming temporary rate buydown 2-1", "Conventional Conforming", 205.0, 220, true]
+      - ["Conforming temporary rate buydown 3-2-1", "Conventional Conforming", 215.0, 240, true]
+      - ["Conforming single-close lot purchase", "Conventional Conforming", 240.0, 290, true]
+      - ["Conforming manufactured housing", "Conventional Conforming", 265.0, 330, true]
+      - ["Conforming condominium - limited review", "Conventional Conforming", 190.0, 190, true]
+      - ["Conforming condominium - full project review", "Conventional Conforming", 285.0, 380, true]
+      - ["Conforming co-operative share loan", "Conventional Conforming", 310.0, 420, true]
+      - ["Jumbo 30-year fixed", "Jumbo & Super Jumbo", 285.0, 350, true]
+      - ["Jumbo 15-year fixed", "Jumbo & Super Jumbo", 270.0, 320, true]
+      - ["Jumbo 7/6 ARM", "Jumbo & Super Jumbo", 305.0, 390, true]
+      - ["Jumbo 10/6 ARM", "Jumbo & Super Jumbo", 310.0, 400, true]
+      - ["Super jumbo above $3M", "Jumbo & Super Jumbo", 470.0, 570, true]
+      - ["Super jumbo above $5M", "Jumbo & Super Jumbo", 520.0, 600, true]
+      - ["Jumbo interest-only 10-year draw", "Jumbo & Super Jumbo", 395.0, 500, true]
+      - ["Jumbo asset-depletion qualification", "Jumbo & Super Jumbo", 440.0, 540, true]
+      - ["Jumbo pledged-asset program", "Jumbo & Super Jumbo", 415.0, 520, true]
+      - ["Jumbo requiring two appraisals", "Jumbo & Super Jumbo", 360.0, 460, true]
+      - ["Jumbo relationship-pricing tier", "Jumbo & Super Jumbo", 295.0, 370, true]
+      - ["Jumbo foreign-national program", "Jumbo & Super Jumbo", 495.0, 580, true]
+      - ["Jumbo with trust-vested title", "Jumbo & Super Jumbo", 340.0, 430, true]
+      - ["Jumbo non-warrantable condominium", "Jumbo & Super Jumbo", 425.0, 520, true]
+      - ["Jumbo second-lien piggyback", "Jumbo & Super Jumbo", 265.0, 320, true]
+      - ["Jumbo physician and professional program", "Jumbo & Super Jumbo", 320.0, 410, true]
+      - ["FHA 203(b) 30-year fixed", "Government", 195.0, 210, true]
+      - ["FHA 203(k) limited renovation", "Government", 330.0, 430, true]
+      - ["FHA 203(k) standard renovation", "Government", 410.0, 520, true]
+      - ["FHA streamline refinance - non-credit-qualifying", "Government", 130.0, 100, true]
+      - ["FHA streamline refinance - credit-qualifying", "Government", 165.0, 150, true]
+      - ["FHA cash-out refinance", "Government", 245.0, 300, true]
+      - ["FHA energy-efficient mortgage", "Government", 285.0, 370, true]
+      - ["FHA manual underwrite with compensating factors", "Government", 375.0, 480, true]
+      - ["VA purchase - full entitlement", "Government", 190.0, 200, true]
+      - ["VA purchase - partial entitlement", "Government", 235.0, 280, true]
+      - ["VA interest-rate-reduction refinance", "Government", 140.0, 120, true]
+      - ["VA cash-out refinance", "Government", 255.0, 310, true]
+      - ["VA joint loan with non-veteran", "Government", 320.0, 420, true]
+      - ["VA construction-to-permanent", "Government", 400.0, 520, true]
+      - ["USDA guaranteed rural housing", "Government", 225.0, 270, true]
+      - ["USDA streamlined-assist refinance", "Government", 155.0, 140, true]
+      - ["HUD Section 184 native housing", "Government", 355.0, 470, true]
+      - ["State housing finance agency bond program", "Government", 300.0, 390, true]
+      - ["Down-payment assistance second lien", "Government", 210.0, 230, true]
+      - ["Rate-and-term refinance - conforming", "Refinance", 155.0, 140, true]
+      - ["Rate-and-term refinance - jumbo", "Refinance", 265.0, 320, true]
+      - ["Cash-out refinance - conforming", "Refinance", 205.0, 230, true]
+      - ["Cash-out refinance - jumbo", "Refinance", 330.0, 430, true]
+      - ["Cash-out refinance - delayed financing exception", "Refinance", 290.0, 380, true]
+      - ["Limited cash-out with escrow shortage", "Refinance", 175.0, 170, true]
+      - ["Refinance with subordination agreement", "Refinance", 245.0, 300, true]
+      - ["Refinance with partial claim payoff", "Refinance", 285.0, 370, true]
+      - ["Refinance with occupancy conversion to primary", "Refinance", 230.0, 280, true]
+      - ["Refinance with removal of co-borrower", "Refinance", 265.0, 320, true]
+      - ["Refinance for divorce buyout", "Refinance", 340.0, 450, true]
+      - ["Refinance of land-contract payoff", "Refinance", 355.0, 470, true]
+      - ["Refinance as construction-loan takeout", "Refinance", 310.0, 410, true]
+      - ["Refinance of reverse-mortgage payoff", "Refinance", 385.0, 500, true]
+      - ["Equity line - primary residence", "Home Equity", 165.0, 150, false]
+      - ["Equity line - second home", "Home Equity", 205.0, 230, false]
+      - ["Equity line - interest-only draw period", "Home Equity", 190.0, 190, false]
+      - ["Equity line - standalone first lien", "Home Equity", 235.0, 280, false]
+      - ["Equity line credit-limit increase", "Home Equity", 120.0, 90, false]
+      - ["Equity line draw-period extension", "Home Equity", 130.0, 100, false]
+      - ["Closed-end second lien - fixed rate", "Home Equity", 155.0, 140, false]
+      - ["Closed-end second lien - high combined loan-to-value", "Home Equity", 225.0, 270, false]
+      - ["Piggyback second lien at purchase", "Home Equity", 175.0, 170, false]
+      - ["Home-improvement second lien", "Home Equity", 195.0, 200, false]
+      - ["Debt-consolidation second lien", "Home Equity", 185.0, 180, false]
+      - ["Bridge loan against existing equity", "Home Equity", 310.0, 410, false]
+      - ["Shared-appreciation equity advance", "Home Equity", 365.0, 480, false]
+      - ["Home-equity investment agreement review", "Home Equity", 340.0, 450, false]
+      - ["Bank-statement income - 12 month", "Non-QM & Portfolio", 355.0, 470, false]
+      - ["Bank-statement income - 24 month", "Non-QM & Portfolio", 385.0, 500, false]
+      - ["Profit-and-loss-only income", "Non-QM & Portfolio", 410.0, 520, false]
+      - ["1099-only income", "Non-QM & Portfolio", 330.0, 430, false]
+      - ["Asset-depletion qualification", "Non-QM & Portfolio", 400.0, 520, false]
+      - ["Debt-service-coverage ratio - single property", "Non-QM & Portfolio", 285.0, 370, false]
+      - ["Debt-service-coverage ratio - blanket portfolio", "Non-QM & Portfolio", 465.0, 570, false]
+      - ["Interest-only 40-year term", "Non-QM & Portfolio", 375.0, 480, false]
+      - ["Recent credit event - 12 months seasoned", "Non-QM & Portfolio", 430.0, 540, false]
+      - ["Foreign national with no credit score", "Non-QM & Portfolio", 480.0, 580, false]
+      - ["Taxpayer-identification-number program", "Non-QM & Portfolio", 395.0, 510, false]
+      - ["Cross-collateralized relationship loan", "Non-QM & Portfolio", 505.0, 600, false]
+      - ["Non-warrantable condominium - balance sheet", "Non-QM & Portfolio", 350.0, 460, false]
+      - ["Mixed-use property - balance sheet", "Non-QM & Portfolio", 420.0, 530, false]
+      - ["Rural acreage above agency limits", "Non-QM & Portfolio", 365.0, 480, false]
+      - ["Unique-collateral manual exception", "Non-QM & Portfolio", 455.0, 560, false]
+      - ["Self-employed with recent business restructure", "Non-QM & Portfolio", 440.0, 550, false]
+      - ["Trust or LLC-vested balance sheet loan", "Non-QM & Portfolio", 340.0, 440, false]
+      - ["Investment purchase - single family", "Investor & Second Home", 250.0, 310, true]
+      - ["Investment purchase - 2 to 4 unit", "Investor & Second Home", 300.0, 390, true]
+      - ["Investment cash-out refinance", "Investor & Second Home", 320.0, 420, true]
+      - ["Second-home purchase - conforming", "Investor & Second Home", 220.0, 260, true]
+      - ["Second-home purchase - jumbo", "Investor & Second Home", 315.0, 410, true]
+      - ["Short-term-rental income qualification", "Investor & Second Home", 375.0, 480, true]
+      - ["Delayed-financing cash reimbursement", "Investor & Second Home", 285.0, 370, true]
+      - ["1031 exchange replacement financing", "Investor & Second Home", 405.0, 520, true]
+      - ["Multiple-financed-properties exception", "Investor & Second Home", 350.0, 460, true]
+      - ["Fix-and-flip bridge financing", "Investor & Second Home", 390.0, 500, true]
+      - ["Build-to-rent takeout financing", "Investor & Second Home", 420.0, 530, true]
+      - ["Vacation rental with historical revenue", "Investor & Second Home", 360.0, 470, true]
+      - ["Investor blanket refinance - 5 or more properties", "Investor & Second Home", 470.0, 570, true]
+      - ["Non-occupant co-borrower structure", "Investor & Second Home", 265.0, 320, true]
+      - ["One-time-close construction to permanent", "Construction & Renovation", 425.0, 530, false]
+      - ["Two-time-close construction loan", "Construction & Renovation", 395.0, 510, false]
+      - ["Owner-builder construction loan", "Construction & Renovation", 470.0, 570, false]
+      - ["Renovation loan - conforming", "Construction & Renovation", 340.0, 440, false]
+      - ["Renovation loan - jumbo", "Construction & Renovation", 400.0, 520, false]
+      - ["Teardown and rebuild financing", "Construction & Renovation", 455.0, 560, false]
+      - ["Accessory-dwelling-unit addition", "Construction & Renovation", 320.0, 420, false]
+      - ["Manufactured-home construction loan", "Construction & Renovation", 385.0, 500, false]
+      - ["Lot and land acquisition", "Construction & Renovation", 285.0, 370, false]
+      - ["Construction draw-schedule review", "Construction & Renovation", 175.0, 170, false]
+      - ["Construction budget and feasibility review", "Construction & Renovation", 240.0, 290, false]
+      - ["Builder approval and financial review", "Construction & Renovation", 265.0, 320, false]
+      - ["Cost-overrun contingency increase", "Construction & Renovation", 195.0, 200, false]
+      - ["Certificate-of-occupancy conversion to permanent", "Construction & Renovation", 230.0, 280, false]
+
+search:
+  synonyms:
+    - "cash-out, cash out refinance, equity takeout, co refi"
+    - "equity line, home equity line of credit, heloc, line of credit"
+    - "dscr, debt service coverage ratio, rental coverage ratio"
+    - "bank statement loan, bank statement income, self employed income"
+    - "fha, federal housing administration, 203b, 203k"
+    - "va loan, veterans affairs, irrrl, interest rate reduction refinance"
+    - "usda, rural housing, rural development, guaranteed rural"
+    - "jumbo, non conforming, above agency limit, super jumbo"
+    - "arm, adjustable rate mortgage, adjustable rate, hybrid arm"
+    - "ltv, loan to value, cltv, combined loan to value"
+    - "dti, debt to income, debt to income ratio, qualifying ratio"
+    - "appraisal, valuation, desk review, broker price opinion, bpo"
+    - "rate lock, lock expiry, lock extension, relock"
+    - "mortgage insurance, pmi, mi, private mortgage insurance"
+    - "non qm, non qualified mortgage, balance sheet loan, portfolio loan"
+    - "clear to close, ctc, final approval, underwriting approval"
+    - "condition, prior to doc, ptd, prior to funding, ptf, stipulation"
+    - "verification of employment, voe, verification of income, voi"
+
+agent:
+  persona: Underwriting Assistant
+  placeholder: Ask the underwriting assistant...
+  empty_state: Ask me about loan files, capacity, centers, or underwriters.
+  default_store: store:BK-01
+  # Derived from the freshmart prompt with underwriting vocabulary. Tool names,
+  # field names (live_price/base_price/store_id), predicates, and subject
+  # prefixes are deliberately UNCHANGED -- the agent actually calls those.
+  # Like every label's prompt, this restates the dynamic-pricing rules in prose
+  # and must be updated if db/materialize/init.sh:470-721 changes.
+  #
+  # The prose says "cost to underwrite" everywhere, never rate or points. See
+  # the header note: the pricing SQL varies by region, and an assistant that
+  # described that as borrower pricing would be describing a fair-lending
+  # problem out loud in front of a bank.
+  system_prompt: |
+    You are an underwriting assistant for Cornerstone Federal's residential mortgage origination operation.
+
+    ## Vocabulary (say it this way)
+
+    Tool payloads carry fixed field names. Never read a field name, class
+    name, enum value or subject id back to a user as prose -- translate it:
+
+    - `order_number, order_status` describe a **loan file** (plural: loan files)
+    - `line_of_order, line_amount` describe a **loan condition** (plural: loan conditions)
+    - `customer_name, placed_by` describe an **applicant** (plural: applicants)
+    - `store_name, store_zone` describe a **fulfillment center** (plural: fulfillment centers)
+    - `product_name, unit_price` describe a **loan program** (plural: loan programs)
+    - `stock_level, inventory_product` describe a **capacity pool** (plural: capacity pools)
+    - `courier_name, assigned_to` describe an **underwriter** (plural: underwriters)
+    - `task_status, task_of_order` describe a **verification task** (plural: verification tasks)
+    - `delivery_window_start` and `delivery_window_end` are the **SLA window**
+
+    This governs the headings and field labels you invent when you summarise a
+    record, not only your sentences: a tool returning `sla_window_start` is
+    reporting the SLA window, so call it that rather than inventing a label from
+    the field name. Where a tool gives a display name beside an identifier, the
+    display name is the only one a user should ever see.
+
+    **Your Role**: You support Cornerstone Federal underwriting staff and loan-support teams by helping them manage:
+    - Applicant loan files and file modifications
+    - Underwriting-capacity lookups across fulfillment centers
+    - Loan file status updates and tracking
+    - Applicant record creation and management
+
+    **You are NOT a borrower-facing chatbot.** You assist Cornerstone Federal staff members who are working files or managing underwriting operations.
+
+    **You do not make credit decisions.** You surface pre-assembled context so a human underwriter can decide. Never state or imply that an applicant is approved, denied, or qualified, and never quote a rate, points, or a loan-level price adjustment: the cost figures in this system are the bank's internal cost to underwrite, not borrower pricing.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Loan Files link to Applicants via `placed_by`
+    - Loan Files link to Fulfillment Centers via `order_store`
+    - Loan Conditions link to Loan Files via `line_of_order`
+    - Loan Programs link to Underwriting Capacity via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my business?" → Calling get_store_health directly (WRONG!)
+    - User asks "find file 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Loan-Support Staff:**
+    - Look up existing loan files by loan number or applicant name
+    - Add or remove loan programs from files staff are working
+    - Update file status (e.g., move to clear to close, withdraw a file)
+    - Check loan program availability at specific fulfillment centers
+    - Create new files on behalf of applicants in the pipeline
+
+    **For Fulfillment center/Operations Staff:**
+    - Search for loan programs and their underwriting capacity
+    - Check capacity levels across different fulfillment centers
+    - Update file statuses as they move through underwriting
+    - View verification task assignments
+    - Check underwriter availability and workload by fulfillment center
+
+    **For Administrators:**
+    - Create new applicant records
+    - Bulk file lookups and status updates
+    - Capacity and operations reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new applicant record (requires name)
+    - find_customer: Resolve a person's NAME to their real applicant id (use FIRST when the user names a person)
+    - list_stores: List all fulfillment centers with IDs and zone info (use FIRST when user mentions a center by name)
+    - list_couriers: List underwriters with status and verification task info (can filter by store_id or status)
+    - search_inventory: Find loan programs in a fulfillment center's capacity (requires correct store_id)
+    - create_order: Create a loan file with confirmed loan programs
+    - manage_order_lines: Add, update, or delete loan programs from an existing file
+    - search_orders: Search existing loan files
+    - fetch_order_context: Get full details for a loan file
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time operational health metrics (capacity, capacity risk, cost-to-underwrite yield)
+    - write_triples: Update file status or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for file modifications)
+
+    **Example validation flow:**
+    1. User asks to remove a loan program from a file
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When the user names a person instead of giving an id:**
+
+    1. Call find_customer with the name and use the id it returns
+
+    2. Subject ids are opaque -- NEVER build one from a name. `applicant:jane_doe` does not exist,
+
+       and a file pointing at it loses the link to the person: the name goes blank
+
+       on every screen that joins the two, and create_order will reject it
+
+    3. If find_customer returns no match, the person is not on file -- use create_customer,
+
+       then pass the id it gives you
+
+    4. If it returns several, ask which one they mean rather than guessing
+
+
+    **Status values:** say the status in this deployment's words if you like -- the
+
+    write path maps it back to the fixed value. Never invent a new status.
+
+
+    **When searching capacity for a specific fulfillment center:**
+    1. If user mentions a center by name (e.g., "Great Lakes center", "Metro East location"), call list_stores FIRST
+    2. Center IDs use abbreviated region codes: MAN=Metro East, BK=Mid-Atlantic, QNS=Great Lakes, BX=Gulf South, SI=Pacific West
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "Great Lakes center" → list_stores → find store:QNS-01 → search_inventory(store_id="store:QNS-01")
+
+    **When helping staff create or modify loan files:**
+    1. Search for loan programs by name or category using search_inventory
+    2. Present found programs with live_price (current cost to underwrite) and capacity levels
+    3. For new files: use create_order with the confirmed loan programs
+    4. For existing files: use manage_order_lines to add/update/delete loan programs
+    5. Always use live_price (not base_price) from capacity search results - this includes all 8 dynamic cost-to-underwrite factors
+
+    **When looking up loan files:**
+    1. Use search_orders to find files by number, applicant, or status
+    2. Use fetch_order_context to get complete file details
+    3. Present information clearly for the staff member
+
+    **When updating file status:**
+    1. First verify the current status using search_orders
+    2. Use write_triples to update order_status predicate
+    3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking fulfillment center operational health:**
+    1. Use get_store_health to understand current operational state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all fulfillment centers doing?" or "What's our overall operational health?"
+       - **quick_check**: "What's happening at the Mid-Atlantic center?" (requires store_id)
+       - **capacity**: "Which fulfillment centers are overloaded?" or "Can we take on more files?"
+       - **inventory_risk**: "Any capacity emergencies?" or "What loan programs might exhaust capacity?"
+    3. Proactively check fulfillment center health before creating large files or during rate-driven volume spikes
+    4. Include health metrics in your response to provide context for operational decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., pause intake, add overflow underwriters, refresh capacity)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all fulfillment centers are critical" unless literally every fulfillment center has CRITICAL status
+    - **Count accurately** - If 7 fulfillment centers are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific fulfillment centers** - When asked about least/most healthy, name the actual centers with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 centers are CRITICAL (Metro East 1 at 155%, Gulf South 1 at 147%, Mid-Atlantic 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All fulfillment centers are at critical capacity" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we absorb a builder pipeline at the Metro East center?" → Check capacity first
+    - Staff reports: "Applicant says their file is stalled" → Quick check the handling fulfillment center's health
+    - Manager asks: "What's the state of operations right now?" → Get summary view
+    - During file creation: If fulfillment center shows CRITICAL capacity, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with borrowers
+    - **Be precise**: Include loan numbers, loan program IDs, and exact cost-to-underwrite figures
+    - **Confirm changes**: Before modifying files, confirm the change with the staff member
+    - Default center is store:BK-01 (Cornerstone Federal Mid-Atlantic Fulfillment Center 1) unless specified
+    - Show cost to underwrite in USD format ($X.XX)
+    - When working with loan programs, always include current underwriting capacity
+
+    ## Cost-to-Underwrite Guidelines
+
+    - **Always show live_price by default** - this is the current cost to underwrite this loan program at this center
+    - Only show base_price if specifically requested or when explaining cost breakdowns
+    - **CRITICAL: Always fetch fresh cost data** - Whenever a staff member asks about cost to underwrite, program availability, or capacity:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on cost information from conversation memory or previous tool calls
+      - Cost to underwrite is dynamic and changes with capacity, volume, and time
+      - Even if you just searched for a loan program, search again if asked about its cost
+    - These figures are the bank's internal cost to underwrite. They are NOT the borrower's rate, points, or loan-level price adjustment, and must never be presented to or quoted for a borrower.
+    - The live_price includes 8 real-time cost-to-underwrite factors:
+      1. **Region adjustments**: Metro East +15%, Mid-Atlantic +5%, Great Lakes baseline, Gulf South -2%, Pacific West -5%
+      2. **Rate-lock adjustments**: -5% for work under a lock that expires, to prioritize it
+      3. **Local capacity premiums**: +10% for ≤5 units of capacity at the center, +3% for ≤15 units
+      4. **Volume adjustments**: Top 3 loan programs +20%, ranks 4-10 +10%, others -10% (by file volume)
+      5. **Network scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (capacity across all centers)
+      6. **Demand multipliers**: Based on recent file volume trends and velocity
+      7. **Demand premiums**: +5% for high-volume loan programs above average volume
+      8. **Co-occurrence discounts**: -5% for loan programs that frequently
+         appear alongside others on the same file
+    - If showing cost comparisons, format as: "$166.75 (current cost to underwrite, base: $145.00)"
+    - When staff ask about cost, you can explain which factors are affecting a specific loan program
+
+ontology:
+  classes:
+    Customer: An applicant whose mortgage request is being underwritten
+    Store: A fulfillment center that underwrites loan files
+    Product: A loan program that can be requested on a file
+    InventoryItem: Center-by-loan-program underwriting capacity record
+    Order: A loan file opened for an applicant
+    OrderLine: A condition within a loan file
+    Courier: An underwriter who works loan files
+    DeliveryTask: A verification task assigned to an underwriter
+  properties:
+    assigned_to: Assigned underwriter
+    base_price: Standard cost to underwrite before review adjustments
+    category: Loan program category
+    courier_home_store: Underwriter home center
+    courier_name: Underwriter full name
+    courier_status: "Underwriter status. Values: OFF_SHIFT=Off Shift,
+      AVAILABLE=Available, ON_DELIVERY=In Review, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when underwriter status last changed
+    current_task: Current verification task the underwriter is working
+    customer_address: Applicant mailing address
+    customer_email: Applicant email address
+    customer_name: Applicant full name
+    delivered_at: Timestamp when the loan file funded
+    delivery_window_end: SLA window end time
+    delivery_window_start: SLA window start time
+    demand_multiplier: Volume-based cost multiplier for high-volume loan programs
+    demand_premium: Additional premium for exceptionally high-volume loan programs
+    eta: Projected clear-to-close time
+    home_store: Applicant's handling center
+    inventory_product: Loan program this capacity pool covers
+    inventory_store: Center holding this capacity
+    line_amount: "Condition total (derived: quantity * unit cost)"
+    line_inventory_item: Capacity pool used to satisfy this condition
+    line_of_order: Parent loan file
+    line_product: Loan program on this condition
+    line_sequence: Display sequence within the loan file
+    live_price: Current cost to underwrite with all review adjustments applied
+    local_stock_adjustment: Local capacity scarcity multiplier for this specific center
+    order_created_at: Timestamp when the loan file was submitted
+    order_line_unit_price: Cost to underwrite at submission time (snapshot)
+    order_number: Human-readable loan number (LN-XXXX)
+    order_status: "Loan file status. Values: CREATED=Submitted, PICKING=In Underwriting,
+      OUT_FOR_DELIVERY=Clear to Close, DELIVERED=Funded, CANCELLED=Withdrawn"
+    order_store: Center underwriting the loan file
+    order_total_amount: Total cost to underwrite the loan file, in dollars
+    perishable: Whether the loan program carries a rate lock that expires
+    perishable_adjustment: Rate-lock priority multiplier, to clear expiring work first
+    perishable_flag: Denormalized rate-lock flag, for performance
+    placed_by: Applicant the loan file was submitted for
+    popularity_adjustment: Frequency multiplier based on request rank within category
+    price_change: Difference between current and standard cost to underwrite
+    product_name: Loan program display name
+    product_sale_count: Historical request count for this loan program across all centers
+    product_total_stock: Total underwriting capacity for this loan program across all centers
+    quantity: Quantity requested
+    replenishment_eta: Expected capacity refresh time
+    route_sequence: Position in the underwriter's queue
+    scarcity_adjustment: Cross-center scarcity multiplier based on total available capacity
+    stock_level: Current available underwriting capacity
+    store_address: Center physical address
+    store_capacity_orders_per_hour: Maximum loan files per hour
+    store_name: Center display name
+    store_status: "Center operational status. Values: OPEN=Open,
+      LIMITED=Reduced capacity"
+    store_zone: Center lending region code
+    task_completed_at: Timestamp when the verification task was cleared
+    task_of_order: Loan file the verification task belongs to
+    task_started_at: When the current review phase started (for timing completion)
+    task_status: "Verification task status. Values: PENDING=Pending,
+      IN_PROGRESS=In Progress, COMPLETED=Cleared, FAILED=Unable to Verify"
+    unit_price: Standard cost to underwrite, in dollars
+    unit_weight_grams: Relative review effort for this loan program
+    vehicle_type: "Review class. Values: BIKE=Standard review,
+      SCOOTER=Priority review, CAR=Complex review, WALKING=Manual exception"
+    zone_adjustment: Region-based cost multiplier (e.g., Metro East premium)
