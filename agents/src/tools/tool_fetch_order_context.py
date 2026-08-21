@@ -1,10 +1,32 @@
 """Tool for fetching detailed order context from OpenSearch."""
 
+import json
+
 import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
 from src.demo_label import alias_payload
+
+
+def _as_line_items(raw: object) -> list[dict]:
+    """Line items as a list, whether OpenSearch returned a list or a JSON string.
+
+    The `orders` mapping stores line_items serialized, so iterating it raw hit
+    `'str' object has no attribute 'get'` and the whole tool errored -- which is
+    why "show me everything on <order>" fell back to search_orders instead of
+    returning live pricing. Normalized here, at the one place the record is
+    assembled, so the enrichment loop below can write live_price back into each
+    item. Pre-dates white-labeling.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [i for i in raw if isinstance(i, dict)]
 
 
 async def _fetch_inventory_pricing(
@@ -129,7 +151,7 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
                         "assigned_courier_id": source.get("assigned_courier_id"),
                         "delivery_task_status": source.get("delivery_task_status"),
                         "delivery_eta": source.get("delivery_eta"),
-                        "line_items": source.get("line_items", []),
+                        "line_items": _as_line_items(source.get("line_items")),
                         "line_item_count": source.get("line_item_count", 0),
                         "has_perishable_items": source.get("has_perishable_items"),
                         "effective_updated_at": source.get("effective_updated_at"),
@@ -142,7 +164,7 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
                 store_id = order.get("store_id")
                 if store_id:
                     store_ids.add(store_id)
-                for item in order.get("line_items", []):
+                for item in order["line_items"]:
                     product_id = item.get("product_id")
                     if product_id:
                         product_ids.add(product_id)
@@ -155,7 +177,7 @@ async def fetch_order_context(order_ids: list[str]) -> list[dict]:
             # Enrich line items with live pricing
             for order in found_orders.values():
                 store_id = order.get("store_id")
-                for item in order.get("line_items", []):
+                for item in order["line_items"]:
                     product_id = item.get("product_id")
                     pricing = pricing_map.get((store_id, product_id), {})
                     item["live_price"] = pricing.get("live_price")
