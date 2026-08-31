@@ -8,6 +8,7 @@ make up LABEL=life-insurance
 make up LABEL=logistics
 make up LABEL=portfolio-risk
 make up LABEL=mortgage-underwriting
+make up LABEL=airline-irops
 make labels                      # list what's available
 make label LABEL=life-insurance  # resolve + validate without starting anything
 ```

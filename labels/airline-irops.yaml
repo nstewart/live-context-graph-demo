@@ -1,0 +1,952 @@
+# Airline IROPS -- a Pacific-network passenger carrier vertical.
+#
+# The carrier sells seats that expire at departure, books guests onto multi-leg
+# itineraries, assigns each leg to an aircraft, and re-accommodates guests when
+# a station goes constrained. That is operations at scale, and it maps onto the
+# demo's existing shape without changing any of it.
+#
+# "Aurora Pacific" is a deliberately fictional carrier. Do not commit a real
+# account's name, branding, or assets to this repo -- copy this file locally
+# and override `brand` if you need to skin it for a specific account.
+#
+# This file lists ONLY what differs from freshmart.yaml; everything else is
+# inherited. Nothing structural changes: same predicates, same view names, same
+# zone CODES, same enum values, same entity counts.
+#
+#   internal (fixed)  ->  what the account reads here
+#   order             ->  itinerary
+#   orderline         ->  segment
+#   customer          ->  guest
+#   store             ->  station
+#   product           ->  fare
+#   inventory         ->  seat bucket
+#   courier           ->  aircraft (tail)
+#   task              ->  flight leg
+#   zone              ->  region
+#   perishable        ->  day-of-departure
+#   dynamic pricing   ->  live fare (revenue management)
+#
+# DELIBERATE: catalog weights stay in the freshmart magnitude (20-1,000). The
+# pairing SQL keys on fixed gram thresholds (5kg / 20kg / 50kg in
+# db/materialize/init.sh:1459-1483), so a real seat count or a real agent-minutes
+# figure would push every pair over the limit and the Reaccommodation Pairing
+# page would go empty. Read the column as re-accommodation effort, not grams;
+# the relative ordering is what the demo shows.
+
+label: airline-irops
+
+brand:
+  name: Aurora Pacific
+  tagline: Guest Recovery Console
+  tab_title: Aurora Pacific Guest Recovery - Console
+  theme:
+    primary: sky
+    accent: amber
+  favicon: aurora-pacific.svg
+
+vocabulary:
+  order:
+    one: itinerary
+    many: itineraries
+    title: Itinerary
+    title_many: Itineraries
+    id_prefix: AP-
+  orderline:
+    one: segment
+    many: segments
+    title: Segment
+    title_many: Segments
+  customer:
+    one: guest
+    many: guests
+    title: Guest
+    title_many: Guests
+  store:
+    one: station
+    many: stations
+    title: Station
+    title_many: Stations
+  product:
+    one: fare
+    many: fares
+    title: Fare
+    title_many: Fares
+  inventory:
+    one: seat bucket
+    many: seat buckets
+    title: Seat Bucket
+    title_many: Seat Availability
+  courier:
+    one: aircraft
+    many: aircraft
+    title: Aircraft
+    title_many: Aircraft
+  task:
+    one: flight leg
+    many: flight legs
+    title: Flight Leg
+    title_many: Flight Legs
+  zone:
+    one: region
+    many: regions
+    title: Region
+    title_many: Regions
+  perishable:
+    adjective: day-of-departure
+    note: expires at departure
+    tooltip: Has day-of-departure seats
+    cart_note: This itinerary includes day-of-departure seats that expire at departure
+
+enums:
+  # Values are fixed by the SQL; only these display labels change.
+  order_status:
+    CREATED: Booked
+    PICKING: Checked In
+    OUT_FOR_DELIVERY: In Flight
+    DELIVERED: Arrived
+    CANCELLED: Cancelled
+  courier_status:
+    OFF_SHIFT: Out of Service
+    AVAILABLE: Available
+    ON_DELIVERY: In Flight
+    ACTIVE: Active
+  task_status:
+    PENDING: Scheduled
+    IN_PROGRESS: Airborne
+    COMPLETED: Completed
+    FAILED: Diverted
+  vehicle_type:
+    BIKE: E175 regional jet
+    SCOOTER: 737-700
+    CAR: 737-9 MAX
+    WALKING: Ground transfer
+  store_status:
+    OPEN: Normal ops
+    LIMITED: Constrained ops
+  availability_status:
+    IN_STOCK: Seats available
+    LOW_STOCK: Seats limited
+    OUT_OF_STOCK: Sold out
+  capacity_health:
+    CRITICAL: Gridlocked
+    STRAINED: Constrained
+    HEALTHY: Healthy
+    UNDERUTILIZED: Slack
+  recommended_action:
+    CLOSE_INTAKE: Stop rebooking intake
+    SURGE_PRICING: Raise fares
+    PROMOTE_DEMAND: Release seats
+    MONITOR: Monitor
+  # Codes are join keys in the pricing SQL and MUST NOT change -- only labels.
+  zone:
+    MAN: Hawaii
+    BK: Pacific Northwest
+    QNS: California
+    BX: Alaska
+    SI: Transcontinental
+
+# Display-only. The wire format, SQL, and database are untouched; these just
+# stop the default vertical's vocabulary appearing in the SQL preview, lineage
+# graph, predicate dropdown, raw JSON, and OpenSearch examples.
+aliases:
+  columns:
+    order_number: record_locator
+    order_status: itinerary_status
+    order_total_amount: itinerary_fare_total
+    customer_name: guest_name
+    customer_email: guest_email
+    customer_address: guest_address
+    store_name: station_name
+    store_zone: region
+    store_address: station_address
+    assigned_courier_id: assigned_tail_id
+    courier_name: tail_number
+    courier_status: aircraft_status
+    delivery_window_start: departure_window_start
+    delivery_window_end: departure_window_end
+    delivery_eta: projected_arrival
+    delivery_task_status: flight_leg_status
+    has_perishable_items: has_day_of_departure_seats
+    perishable: day_of_departure
+    perishable_adjustment: day_of_departure_adjustment
+    product_name: fare_name
+    unit_price: base_fare
+    live_price: current_fare
+    unit_weight_grams: reaccommodation_effort
+    stock_level: seats_available
+    line_items: segments
+    line_item_count: segment_count
+    base_price: base_fare
+    customer_id: guest_id
+    demand_multiplier: region_demand_multiplier
+    demand_premium: region_demand_premium
+    local_stock_adjustment: local_seat_scarcity_adjustment
+    order_id: itinerary_id
+    popularity_adjustment: route_volume_adjustment
+    price_change: fare_change
+    product_id: fare_id
+    store_id: station_id
+    zone_adjustment: region_adjustment
+  views:
+    orders_flat_mv: itineraries_flat_mv
+    orders_with_lines_mv: itineraries_with_segments_mv
+    order_lines_flat_mv: segments_flat_mv
+    orders_search_source_mv: itineraries_search_source_mv
+    stores_mv: stations_mv
+    customers_mv: guests_mv
+    products_mv: fares_mv
+    store_inventory_mv: station_seat_availability_mv
+    courier_schedule_mv: aircraft_rotation_mv
+    inventory_items_with_dynamic_pricing_mv: seat_buckets_with_live_fares_mv
+    pricing_yield_mv: fare_yield_mv
+    inventory_risk_mv: seat_availability_risk_mv
+    store_capacity_health_mv: station_health_mv
+    delivery_bundles_mv: reaccommodation_pairs_mv
+    orders_flat: itineraries_flat
+    customers_flat: guests_flat
+    stores_flat: stations_flat
+    products_flat: fares_flat
+    order_lines_base: segments_base
+    delivery_tasks_flat: flight_legs_flat
+    dynamic_pricing: live_fare
+    dynamic_pricing_mv: live_fare_mv
+    orders_sink_v: itineraries_sink_v
+    inventory_sink_v: seat_buckets_sink_v
+  predicates:
+    order_status: itinerary_status
+    order_number: record_locator
+    delivery_window_start: departure_window_start
+    delivery_window_end: departure_window_end
+    customer_name: guest_name
+    customer_email: guest_email
+    customer_address: guest_address
+    store_name: station_name
+    store_zone: region
+    store_address: station_address
+    product_name: fare_name
+    unit_price: base_fare
+    perishable: day_of_departure
+    unit_weight_grams: reaccommodation_effort
+    stock_level: seats_available
+    courier_name: tail_number
+    courier_phone: dispatch_contact
+    courier_status: aircraft_status
+    task_status: flight_leg_status
+    base_price: published_fare
+    courier_home_store: tail_base_station
+    courier_status_changed_at: aircraft_status_changed_at
+    current_task: current_flight_leg
+    demand_multiplier: region_demand_multiplier
+    demand_premium: region_demand_premium
+    eta: projected_arrival
+    home_store: guest_home_station
+    inventory_product: seat_bucket_fare
+    inventory_store: seat_bucket_station
+    line_amount: segment_amount
+    line_inventory_item: segment_seat_bucket
+    line_of_order: segment_of_itinerary
+    line_product: segment_fare
+    line_sequence: segment_sequence
+    live_price: current_fare
+    local_stock_adjustment: local_seat_scarcity_adjustment
+    order_created_at: itinerary_created_at
+    order_line_unit_price: segment_booked_fare
+    order_store: itinerary_station
+    order_total_amount: itinerary_fare_total
+    perishable_adjustment: day_of_departure_adjustment
+    perishable_flag: segment_day_of_departure_flag
+    placed_by: booked_by
+    popularity_adjustment: route_volume_adjustment
+    price_change: fare_change
+    product_sale_count: fare_booking_count
+    product_total_stock: fare_total_seats
+    replenishment_eta: seat_release_eta
+    route_sequence: leg_sequence
+    store_capacity_orders_per_hour: station_departures_per_hour
+    store_status: station_status
+    task_completed_at: flight_leg_completed_at
+    task_of_order: leg_of_itinerary
+    task_started_at: flight_leg_started_at
+    vehicle_type: fleet_type
+    zone_adjustment: region_adjustment
+
+nav:
+  - path: /
+    label: Agent Ref. Architecture
+  - path: /vector-search
+    label: Aurora Agent Search Demo
+  - path: /orders
+    label: Itineraries
+  - path: /couriers
+    label: Aircraft & Rotations
+  - path: /metrics
+    label: Live Metrics
+  - path: /stores
+    label: Stations & Seat Availability
+  - path: /ontology
+    label: Knowledge Graph (Ontology)
+  - path: /triples
+    label: Triples Browser
+  - path: /bundling
+    label: Reaccommodation Pairing
+  - path: /settings
+    label: Settings
+
+pages:
+  home:
+    title: "Aurora Pacific: Live Context Layer + Agent Memory Demo"
+  vector_search:
+    title: Aurora Agent Search Demo
+  orders:
+    title: Itineraries
+    subtitle: Monitor and manage in-flight itineraries via WebSocket
+    search_placeholder: Search record locator...
+  couriers:
+    title: Aircraft & Rotations
+    subtitle: View aircraft status and assigned flight legs
+    search_placeholder: Search by tail number...
+  stores:
+    title: Stations & Seat Availability
+    inventory_title: Seat Availability
+    all_inventory_title: All Seat Buckets
+  metrics:
+    title: Live Metrics Dashboard
+    subtitle: Real-time network health indicators
+    kpi_pricing_yield: Live Fare Yield
+    kpi_revenue_at_risk: Revenue at Risk from Misconnects
+    kpi_store_utilization: Avg Station Utilization
+    chart_demand_vs_capacity: Bookings vs Station Capacity
+    section_risk_title: At-Risk Seat Availability
+    section_risk_subtitle: >-
+      Fares whose seats are nearly sold out while bookings are still open
+      against them
+    section_capacity_title: Station Status
+    section_capacity_subtitle: >-
+      Real-time station workload with automated recommendations for routing
+      guests
+  bundling:
+    title: Reaccommodation Pairing
+    subtitle: Mutually recursive constraint satisfaction
+    constraint_time_note: Departure windows intersect
+    constraint_inventory_note: Seats available for the combined itineraries
+    constraint_capacity_note: Combined handling effort fits the aircraft
+    empty: >-
+      No pairs yet. Book itineraries with overlapping departure windows to see
+      pairs form.
+  settings:
+    stage_dispatch: Dispatch
+    stage_picking: Check-in
+    stage_delivery: Flight
+    stage_help_dispatch: How often to check for unassigned itineraries.
+    stage_help_picking: Time to work the guest through check-in and the gate.
+    stage_help_delivery: Time to fly the leg.
+
+copy:
+  triples:
+    subhead: >-
+      Using "triples" as the atomic unit of knowledge recorded by agents. This
+      forms the foundation that will ultimately create their world model.
+    selector_label: Select Itinerary
+    table_heading: Triples for Itinerary
+    empty: No triples found for this itinerary
+    closing: >-
+      Click any row to pre-populate the Write Triple form below. This view shows
+      only triples for the selected itinerary and its segments—the full graph
+      includes guests, stations, fares, seat buckets, aircraft, and flight legs.
+  knowledge_graph:
+    entity_examples: Itinerary, Guest, Fare
+  write_triple:
+    subhead: — Update an itinerary property and observe propagation
+  vector_pipeline:
+    all_zones: All regions
+    all_statuses: All statuses
+  cart:
+    heading: Segments
+    empty_heading: No segments on this itinerary yet
+  pricing:
+    order_price_label: Booked Fare
+    order_price_tooltip: >-
+      Fare locked in when the itinerary was booked - what the guest was quoted
+      for this segment
+    base_price_label: Published Fare
+    base_price_tooltip: >-
+      The fare's published level - no revenue-management adjustments applied
+    live_price_label: Current Fare
+    live_price_tooltip: >-
+      Current fare based on regional demand, remaining seats, and other
+      revenue-management factors
+    # Short forms for the three narrow price columns; the full label
+    # above stays in each column's tooltip.
+    order_price_short: Booked
+    base_price_short: Published
+    live_price_short: Current
+  rerank:
+    hydrated_fields: status, segments, current fare and seats available
+
+placeholders:
+  subject: order:AP-1001
+  order_number: AP-1001
+  store_name: Aurora Pacific Seattle
+  store_code: BK-01
+  store_zone: BK
+  store_address: 17801 International Blvd, Seattle, WA
+  inventory_code: SEAT-BK01-001
+  courier_code: TAIL-01
+  courier_name: N412AP
+  product_search: Search fares...
+  order_search: Search itineraries...
+  semantic_search: Search by meaning (e.g., day-of-departure Hawaii seats)...
+
+examples:
+  search_queries:
+    - day-of-departure Hawaii seats
+    - first class transcontinental upgrade
+    - unaccompanied minor handling
+  keyword_queries:
+    - Pacific Northwest
+    - Hawaii
+    - CREATED
+    - MAN
+  predicate_values:
+    order_status: DELIVERED
+    order_number: AP-1234
+    delivery_window_start: "2025-01-15T10:00:00"
+    delivery_window_end: "2025-01-15T12:00:00"
+    quantity: "2"
+    order_line_unit_price: "289.00"
+    line_sequence: "1"
+    customer_name: Alina Reyes
+    customer_email: alina.reyes@example.com
+    customer_address: 2100 Pacific Hwy S
+    store_name: Pacific Northwest Station
+    store_zone: MAN
+    store_address: 17801 International Blvd
+    product_name: Seattle to Honolulu main cabin one-way
+    category: Main Cabin
+    unit_price: "289.00"
+    perishable: "true"
+    unit_weight_grams: "315"
+    stock_level: "100"
+    replenishment_eta: "2025-01-16T08:00:00"
+    courier_name: N412AP
+    courier_phone: 555-1234
+    courier_status: ACTIVE
+    task_status: COMPLETED
+    assigned_to: courier:C-001
+    eta: "2025-01-15T11:00:00"
+
+# Reference-architecture diagram. The shape is fixed; these are the upstream
+# systems this vertical actually feeds the context layer from.
+architecture:
+  source_systems:
+    heading: Source Systems
+    items:
+      - PSS / Reservations
+      - Loyalty
+      - Flight Ops & Telemetry
+      - Databricks Lakehouse
+
+seed:
+  store_name_template: Aurora {zone_name} Station {n}
+  address_state: WA
+  locations:
+    # Codes are FIXED (the pricing SQL joins on them); names and streets are not.
+    - code: BK
+      name: Pacific Northwest
+      streets: [International Blvd, Air Cargo Rd, Pacific Hwy S, Perimeter Rd, Airport Expressway]
+    - code: MAN
+      name: Hawaii
+      streets: [Rodgers Blvd, Aolele St, Lagoon Dr, Paiea St, Ualena St]
+    - code: QNS
+      name: California
+      streets: [World Way, Century Blvd, Imperial Hwy, Aviation Blvd, Airport Blvd]
+    - code: BX
+      name: Alaska
+      streets: [Postmark Dr, Aircraft Dr, International Airport Rd, Spenard Rd, Northern Lights Blvd]
+    - code: SI
+      name: Transcontinental
+      streets: [Bessie Coleman Dr, Mannheim Rd, Irving Park Rd, Touhy Ave, Higgins Rd]
+  catalog:
+    # 130 authored fares, expanded to the same 760 rows freshmart seeds so
+    # index size, kNN behavior, and entity counts are unchanged.
+    expand_to: 760
+    variant_suffixes:
+      - "(refundable)"
+      - "(nonstop)"
+      - "(red-eye)"
+      - "(peak season)"
+      - "(partner operated)"
+      - "(weekend)"
+    categories:
+      - { name: "First Class", perishable_default: false }
+      - { name: "Premium Class", perishable_default: false }
+      - { name: "Main Cabin", perishable_default: false }
+      - { name: "Saver", perishable_default: false }
+      - { name: "Award & Loyalty", perishable_default: false }
+      - { name: "Bags & Extras", perishable_default: false }
+      - { name: "Day-of Departure", perishable_default: true }
+      - { name: "Special Handling", perishable_default: true }
+    # [name, category, fare, reaccommodation_effort, day_of_departure]
+    items:
+      - ["Seattle to Honolulu first class one-way", "First Class", 1080.0, 615, false]
+      - ["Seattle to Kahului first class one-way", "First Class", 1010.0, 600, false]
+      - ["Portland to Honolulu first class one-way", "First Class", 995.0, 600, false]
+      - ["Seattle to New York first class one-way", "First Class", 890.0, 575, false]
+      - ["Seattle to Boston first class one-way", "First Class", 905.0, 580, false]
+      - ["Seattle to Washington first class one-way", "First Class", 870.0, 570, false]
+      - ["Seattle to Anchorage first class one-way", "First Class", 640.0, 530, false]
+      - ["Anchorage to Honolulu first class one-way", "First Class", 1180.0, 630, false]
+      - ["Los Angeles to Honolulu first class one-way", "First Class", 940.0, 590, false]
+      - ["San Francisco to Kona first class one-way", "First Class", 960.0, 590, false]
+      - ["Seattle to Los Angeles first class one-way", "First Class", 520.0, 505, false]
+      - ["Seattle to San Francisco first class one-way", "First Class", 495.0, 500, false]
+      - ["Portland to Chicago first class one-way", "First Class", 780.0, 560, false]
+      - ["Anchorage to Fairbanks first class one-way", "First Class", 480.0, 490, false]
+      - ["Honolulu to Lihue first class one-way", "First Class", 485.0, 495, false]
+      - ["Seattle to Orlando first class one-way", "First Class", 845.0, 565, false]
+      - ["Seattle to Honolulu premium class one-way", "Premium Class", 540.0, 450, false]
+      - ["Seattle to Kahului premium class one-way", "Premium Class", 515.0, 440, false]
+      - ["Portland to Kona premium class one-way", "Premium Class", 505.0, 440, false]
+      - ["Seattle to New York premium class one-way", "Premium Class", 445.0, 420, false]
+      - ["Seattle to Boston premium class one-way", "Premium Class", 452.0, 425, false]
+      - ["Seattle to Chicago premium class one-way", "Premium Class", 398.0, 410, false]
+      - ["Seattle to Anchorage premium class one-way", "Premium Class", 352.0, 395, false]
+      - ["Anchorage to Seattle premium class one-way", "Premium Class", 349.0, 395, false]
+      - ["Los Angeles to Honolulu premium class one-way", "Premium Class", 468.0, 425, false]
+      - ["San Diego to Kahului premium class one-way", "Premium Class", 472.0, 430, false]
+      - ["Seattle to Los Angeles premium class one-way", "Premium Class", 288.0, 380, false]
+      - ["Seattle to San Diego premium class one-way", "Premium Class", 296.0, 380, false]
+      - ["Portland to San Jose premium class one-way", "Premium Class", 262.0, 365, false]
+      - ["Spokane to Seattle premium class one-way", "Premium Class", 265.0, 355, false]
+      - ["Juneau to Seattle premium class one-way", "Premium Class", 335.0, 390, false]
+      - ["Honolulu to Hilo premium class one-way", "Premium Class", 268.0, 360, false]
+      - ["Seattle to Honolulu main cabin one-way", "Main Cabin", 389.0, 365, false]
+      - ["Seattle to Kahului main cabin one-way", "Main Cabin", 372.0, 360, false]
+      - ["Portland to Honolulu main cabin one-way", "Main Cabin", 365.0, 360, false]
+      - ["Portland to Lihue main cabin one-way", "Main Cabin", 358.0, 355, false]
+      - ["Seattle to Kona main cabin one-way", "Main Cabin", 376.0, 360, false]
+      - ["Seattle to New York main cabin one-way", "Main Cabin", 322.0, 345, false]
+      - ["Seattle to Boston main cabin one-way", "Main Cabin", 328.0, 345, false]
+      - ["Seattle to Washington main cabin one-way", "Main Cabin", 315.0, 340, false]
+      - ["Seattle to Chicago main cabin one-way", "Main Cabin", 278.0, 330, false]
+      - ["Seattle to Austin main cabin one-way", "Main Cabin", 268.0, 325, false]
+      - ["Seattle to Orlando main cabin one-way", "Main Cabin", 305.0, 335, false]
+      - ["Seattle to Anchorage main cabin one-way", "Main Cabin", 232.0, 310, false]
+      - ["Anchorage to Fairbanks main cabin one-way", "Main Cabin", 178.0, 290, false]
+      - ["Anchorage to Nome main cabin one-way", "Main Cabin", 245.0, 315, false]
+      - ["Anchorage to Kodiak main cabin one-way", "Main Cabin", 195.0, 295, false]
+      - ["Juneau to Ketchikan main cabin one-way", "Main Cabin", 168.0, 285, false]
+      - ["Seattle to Los Angeles main cabin one-way", "Main Cabin", 158.0, 280, false]
+      - ["Seattle to San Francisco main cabin one-way", "Main Cabin", 149.0, 275, false]
+      - ["Seattle to San Diego main cabin one-way", "Main Cabin", 162.0, 280, false]
+      - ["Portland to Sacramento main cabin one-way", "Main Cabin", 138.0, 270, false]
+      - ["Spokane to Seattle main cabin one-way", "Main Cabin", 129.0, 265, false]
+      - ["Honolulu to Kahului main cabin one-way", "Main Cabin", 132.0, 270, false]
+      - ["Seattle to Honolulu saver one-way", "Saver", 199.0, 240, false]
+      - ["Seattle to Kahului saver one-way", "Saver", 192.0, 235, false]
+      - ["Portland to Kona saver one-way", "Saver", 188.0, 235, false]
+      - ["Seattle to New York saver one-way", "Saver", 174.0, 225, false]
+      - ["Seattle to Chicago saver one-way", "Saver", 158.0, 220, false]
+      - ["Seattle to Austin saver one-way", "Saver", 152.0, 220, false]
+      - ["Seattle to Orlando saver one-way", "Saver", 165.0, 225, false]
+      - ["Seattle to Anchorage saver one-way", "Saver", 142.0, 215, false]
+      - ["Anchorage to Fairbanks saver one-way", "Saver", 108.0, 200, false]
+      - ["Anchorage to Juneau saver one-way", "Saver", 118.0, 205, false]
+      - ["Seattle to Los Angeles saver one-way", "Saver", 94.0, 190, false]
+      - ["Seattle to San Francisco saver one-way", "Saver", 89.0, 190, false]
+      - ["Seattle to San Diego saver one-way", "Saver", 96.0, 195, false]
+      - ["Portland to San Jose saver one-way", "Saver", 84.0, 190, false]
+      - ["Spokane to Portland saver one-way", "Saver", 79.0, 185, false]
+      - ["Honolulu to Lihue saver one-way", "Saver", 82.0, 185, false]
+      - ["Award seat - first class, Hawaii long haul", "Award & Loyalty", 155.0, 420, false]
+      - ["Award seat - first class, transcontinental", "Award & Loyalty", 148.0, 415, false]
+      - ["Award seat - premium class, Hawaii long haul", "Award & Loyalty", 118.0, 380, false]
+      - ["Award seat - premium class, transcontinental", "Award & Loyalty", 112.0, 380, false]
+      - ["Award seat - main cabin, Hawaii long haul", "Award & Loyalty", 78.0, 350, false]
+      - ["Award seat - main cabin, transcontinental", "Award & Loyalty", 72.0, 345, false]
+      - ["Award seat - main cabin, intra-Alaska", "Award & Loyalty", 45.0, 330, false]
+      - ["Award seat - main cabin, West Coast shuttle", "Award & Loyalty", 38.0, 325, false]
+      - ["Award seat - partner carrier, long haul", "Award & Loyalty", 132.0, 405, false]
+      - ["Companion fare redemption", "Award & Loyalty", 99.0, 365, false]
+      - ["Elite upgrade redemption - premium class", "Award & Loyalty", 55.0, 335, false]
+      - ["Elite upgrade redemption - first class", "Award & Loyalty", 85.0, 355, false]
+      - ["Miles top-up for a short redemption", "Award & Loyalty", 32.0, 300, false]
+      - ["Award change fee waiver - elite tier", "Award & Loyalty", 25.0, 295, false]
+      - ["First checked bag", "Bags & Extras", 35.0, 40, false]
+      - ["Second checked bag", "Bags & Extras", 45.0, 50, false]
+      - ["Third checked bag", "Bags & Extras", 150.0, 85, false]
+      - ["Overweight bag - 51 to 70 lb", "Bags & Extras", 100.0, 100, false]
+      - ["Oversized bag - golf or ski equipment", "Bags & Extras", 75.0, 95, false]
+      - ["Bicycle or surfboard handling", "Bags & Extras", 80.0, 100, false]
+      - ["Extra legroom seat assignment", "Bags & Extras", 59.0, 65, false]
+      - ["Preferred seat assignment", "Bags & Extras", 29.0, 40, false]
+      - ["Exit row seat assignment", "Bags & Extras", 49.0, 60, false]
+      - ["Wi-Fi day pass", "Bags & Extras", 19.0, 20, false]
+      - ["Inflight meal - premium selection", "Bags & Extras", 22.0, 25, false]
+      - ["Inflight beverage voucher", "Bags & Extras", 15.0, 15, false]
+      - ["Priority boarding", "Bags & Extras", 25.0, 30, false]
+      - ["Priority security lane access", "Bags & Extras", 28.0, 35, false]
+      - ["Lounge single-visit pass", "Bags & Extras", 65.0, 75, false]
+      - ["Lounge annual membership", "Bags & Extras", 149.0, 105, false]
+      - ["Carbon offset contribution", "Bags & Extras", 18.0, 15, false]
+      - ["Travel protection plan", "Bags & Extras", 42.0, 50, false]
+      - ["Same-day standby - confirmed seat", "Day-of Departure", 75.0, 265, true]
+      - ["Same-day change - earlier flight", "Day-of Departure", 99.0, 280, true]
+      - ["Same-day change - later flight", "Day-of Departure", 99.0, 280, true]
+      - ["Gate upgrade to first class", "Day-of Departure", 320.0, 435, true]
+      - ["Gate upgrade to premium class", "Day-of Departure", 145.0, 365, true]
+      - ["Day-of seat reassignment at the gate", "Day-of Departure", 35.0, 210, true]
+      - ["Oversale voluntary rebooking credit", "Day-of Departure", 250.0, 390, true]
+      - ["Misconnect rebooking - same day", "Day-of Departure", 0.0, 335, true]
+      - ["Misconnect rebooking - next available", "Day-of Departure", 0.0, 350, true]
+      - ["Weather waiver rebooking", "Day-of Departure", 0.0, 320, true]
+      - ["Overnight hotel accommodation voucher", "Day-of Departure", 165.0, 380, true]
+      - ["Meal voucher during a station delay", "Day-of Departure", 25.0, 170, true]
+      - ["Ground transfer between nearby stations", "Day-of Departure", 85.0, 245, true]
+      - ["Partner carrier reprotection", "Day-of Departure", 0.0, 365, true]
+      - ["Standby seat for a non-revenue traveler", "Day-of Departure", 30.0, 145, true]
+      - ["Checked bag expedite after a misconnect", "Day-of Departure", 0.0, 140, true]
+      - ["Wheelchair assistance to the gate", "Special Handling", 0.0, 435, true]
+      - ["Wheelchair assistance with aisle chair", "Special Handling", 0.0, 505, true]
+      - ["Mobility device handling - powered chair", "Special Handling", 0.0, 560, true]
+      - ["Unaccompanied minor escort", "Special Handling", 125.0, 630, true]
+      - ["Unaccompanied minor with a connection", "Special Handling", 150.0, 665, true]
+      - ["Service animal in cabin", "Special Handling", 0.0, 320, true]
+      - ["Pet in cabin", "Special Handling", 100.0, 335, true]
+      - ["Pet in the cargo hold - temperature check", "Special Handling", 150.0, 450, true]
+      - ["Infant in arms - lap child", "Special Handling", 0.0, 295, true]
+      - ["Bassinet request - long haul", "Special Handling", 0.0, 280, true]
+      - ["Medical oxygen clearance", "Special Handling", 0.0, 590, true]
+      - ["Portable oxygen concentrator clearance", "Special Handling", 0.0, 545, true]
+      - ["Deaf or hard of hearing gate assistance", "Special Handling", 0.0, 310, true]
+      - ["Visual impairment gate assistance", "Special Handling", 0.0, 315, true]
+      - ["Interpreter request at the station", "Special Handling", 0.0, 365, true]
+      - ["Human remains transport coordination", "Special Handling", 0.0, 615, true]
+
+search:
+  synonyms:
+    - "pnr, record locator, booking reference, confirmation code"
+    - "irops, irregular operations, disruption, meltdown"
+    - "misconnect, missed connection, mct, short connection"
+    - "reaccommodation, rebooking, reprotection, protect"
+    - "standby, same day change, sdc, same day standby"
+    - "upgrade, upgrade certificate, complimentary upgrade"
+    - "loyalty, miles, frequent flyer, elite tier"
+    - "first class, first, f cabin"
+    - "premium class, premium, extra legroom"
+    - "main cabin, coach, economy, y cabin"
+    - "saver, basic, basic economy"
+    - "checked bag, bag, baggage, luggage"
+    - "lounge, club, lounge access"
+    - "special assistance, wchr, wheelchair, mobility assistance"
+    - "um, unaccompanied minor, minor travel"
+    - "pet in cabin, service animal, animal transport"
+    - "interline, codeshare, partner carrier"
+    - "widebody, narrowbody, regional jet, airframe"
+    - "tail, tail number, ship number, aircraft"
+    - "gate hold, ground stop, departure hold"
+    - "station, airport, gate, ramp"
+
+agent:
+  persona: Guest Recovery Assistant
+  placeholder: Ask the guest recovery assistant...
+  empty_state: Ask me about itineraries, seat availability, stations, or aircraft.
+  default_store: store:BK-01
+  # Derived from the freshmart prompt with airline vocabulary. Tool names,
+  # field names (live_price/base_price/store_id), predicates, and subject
+  # prefixes are deliberately UNCHANGED -- the agent actually calls those.
+  # Like every label's prompt, this restates the dynamic-pricing rules in prose
+  # and must be updated if db/materialize/init.sh:470-721 changes.
+  system_prompt: |
+    You are a guest recovery assistant for Aurora Pacific's passenger network.
+
+    ## Vocabulary (say it this way)
+
+    Tool payloads carry fixed field names. Never read a field name, class
+    name, enum value or subject id back to a user as prose -- translate it:
+
+    - `order_number, order_status` describe an **itinerary** (plural: itineraries)
+    - `line_of_order, line_amount` describe a **segment** (plural: segments)
+    - `customer_name, placed_by` describe a **guest** (plural: guests)
+    - `store_name, store_zone` describe a **station** (plural: stations)
+    - `product_name, unit_price` describe a **fare** (plural: fares)
+    - `stock_level, inventory_product` describe a **seat bucket** (plural: seat buckets)
+    - `courier_name, assigned_to` describe an **aircraft** (plural: aircraft)
+    - `task_status, task_of_order` describe a **flight leg** (plural: flight legs)
+    - `delivery_window_start` and `delivery_window_end` are the **departure window**
+
+    This governs the headings and field labels you invent when you summarise a
+    record, not only your sentences: a tool returning `sla_window_start` is
+    reporting the departure window, so call it that rather than inventing a label from
+    the field name. Where a tool gives a display name beside an identifier, the
+    display name is the only one a user should ever see.
+
+    **Your Role**: You support Aurora Pacific station agents and reservations staff by helping them manage:
+    - Guest bookings and itinerary modifications
+    - Seat availability lookups across stations
+    - Itinerary status updates and tracking
+    - Guest profile creation and management
+
+    **You are NOT a guest-facing chatbot.** You assist Aurora Pacific staff members who are helping guests or running the network.
+
+    ## MANDATORY FIRST STEP - DO NOT SKIP
+
+    **ALWAYS call get_context_graph() FIRST before ANY other tool.**
+
+    This is NON-NEGOTIABLE. Your very first tool call for every user request must be get_context_graph().
+    NEVER call search_orders, search_inventory, get_store_health, list_stores, or any other tool
+    before calling get_context_graph() first.
+
+    **Why this matters:** The ontology defines how your business entities connect:
+    - Itineraries link to Guests via `placed_by`
+    - Itineraries link to Stations via `order_store`
+    - Segments link to Itineraries via `line_of_order`
+    - Fares link to Seat Buckets via `inventory_product`
+
+    Without this context, you cannot provide accurate, relationship-aware responses.
+
+    **CORRECT behavior:**
+    1. User asks anything → Call get_context_graph() FIRST
+    2. Review the schema to understand entity relationships
+    3. THEN call other tools as needed
+
+    **WRONG behavior (NEVER do this):**
+    - User asks "what's happening in my business?" → Calling get_store_health directly (WRONG!)
+    - User asks "find itinerary 123" → Calling search_orders directly (WRONG!)
+
+    The ONLY acceptable first tool call is get_context_graph(). No exceptions.
+
+    ## Common Tasks
+
+    **For Reservations Staff:**
+    - Look up an existing itinerary by record locator or guest name
+    - Add or remove segments on itineraries that guests call about
+    - Update itinerary status (e.g., mark as arrived, cancel an itinerary)
+    - Check fare availability at specific stations
+    - Book new itineraries on behalf of guests calling in
+
+    **For Station and Dispatch Staff:**
+    - Search for fares and their remaining seats
+    - Check seat availability across different stations
+    - Update itinerary statuses as guests move through check-in and the gate
+    - View flight leg assignments
+    - Check aircraft availability and workload by station
+
+    **For Administrators:**
+    - Create new guest profiles
+    - Bulk itinerary lookups and status updates
+    - Seat availability and network operations reporting
+
+    ## Available Tools
+
+    - create_customer: Create a new guest profile (requires name)
+    - find_customer: Resolve a person's NAME to their real guest id (use FIRST when the user names one)
+    - list_stores: List all stations with IDs and zone info (use FIRST when user mentions a station by name)
+    - list_couriers: List aircraft with status and flight leg info (can filter by store_id or status)
+    - search_inventory: Find fares in a station's seat availability (requires correct store_id)
+    - create_order: Book an itinerary with confirmed segments
+    - manage_order_lines: Add, update, or delete segments on an existing itinerary
+    - search_orders: Search existing itineraries
+    - fetch_order_context: Get full details for an itinerary
+    - get_context_graph: Get the schema of all entity classes and properties
+    - get_store_health: Get real-time operational health metrics (seat availability, capacity risk, fare yield)
+    - write_triples: Update itinerary status or other data
+
+    ## CRITICAL: Ontology Validation Rules
+
+    **BEFORE using write_triples, you MUST:**
+    1. Call get_context_graph to retrieve the current schema
+    2. Verify that the predicate you want to use exists in the ontology properties list
+    3. Verify that the predicate is valid for the subject's entity class (check domain)
+    4. Only proceed with write_triples if the predicate exists and is valid
+
+    **If the predicate doesn't exist:**
+    - DO NOT attempt to write the triple
+    - Inform the user that the operation isn't supported by the ontology
+    - Suggest using the appropriate high-level tool instead (e.g., manage_order_lines for itinerary modifications)
+
+    **Example validation flow:**
+    1. User asks to remove a segment from an itinerary
+    2. Call get_context_graph to check available predicates
+    3. See that there's no "remove_item" predicate
+    4. Use manage_order_lines with action="delete" instead
+
+    ## Workflow Guidelines
+
+    **When the user names a person instead of giving an id:**
+
+    1. Call find_customer with the name and use the id it returns
+
+    2. Subject ids are opaque -- NEVER build one from a name. `customer:jane_doe` does not exist,
+
+       and an itinerary pointing at it loses the link to the person: the name goes blank
+
+       on every screen that joins the two, and create_order will reject it
+
+    3. If find_customer returns no match, the person is not on file -- use create_customer,
+
+       then pass the id it gives you
+
+    4. If it returns several, ask which one they mean rather than guessing
+
+
+    **Status values:** say the status in this deployment's words if you like -- the
+
+    write path maps it back to the fixed value. Never invent a new status.
+
+
+    **When searching seat availability for a specific station:**
+    1. If user mentions a station by name (e.g., "the Hawaii station", "the Alaska hub"), call list_stores FIRST
+    2. Station IDs use fixed region codes: MAN=Hawaii, BK=Pacific Northwest, QNS=California, BX=Alaska, SI=Transcontinental
+    3. Use the correct store_id from list_stores in your search_inventory call
+    4. Example: "the Hawaii station" → list_stores → find store:MAN-01 → search_inventory(store_id="store:MAN-01")
+
+    **When helping staff book or modify an itinerary:**
+    1. Search for fares by name or category using search_inventory
+    2. Present found fares with live_price (the current fare) and remaining seats
+    3. For new itineraries: use create_order with the confirmed segments
+    4. For existing itineraries: use manage_order_lines to add/update/delete segments
+    5. Always use live_price (not base_price) from availability search results - this includes all 8 revenue-management factors
+
+    **When looking up an itinerary:**
+    1. Use search_orders to find itineraries by record locator, guest, or status
+    2. Use fetch_order_context to get complete itinerary details
+    3. Present information clearly for the staff member
+
+    **When updating itinerary status:**
+    1. First verify the current status using search_orders
+    2. Use write_triples to update order_status predicate
+    3. Common statuses: CREATED, PICKING, OUT_FOR_DELIVERY, DELIVERED, CANCELLED
+
+    **When checking station operational health:**
+    1. Use get_store_health to understand current operational state before making recommendations
+    2. Choose appropriate view based on question:
+       - **summary**: "How are all stations doing?" or "What's our overall network health?"
+       - **quick_check**: "What's happening at the Pacific Northwest station?" (requires store_id)
+       - **capacity**: "Which stations are overloaded?" or "Can we absorb more rebooking?"
+       - **inventory_risk**: "Any seat emergencies?" or "Which fares are about to sell out?"
+    3. Proactively check station health before rebooking a large group or during a weather event
+    4. Include health metrics in your response to provide context for operational decisions
+    5. Use recommendations from the tool to advise staff on actions (e.g., stop rebooking intake, raise fares, release seats)
+
+    **CRITICAL: Be precise with health status data:**
+    - **NEVER generalize** - Do not say "all stations are critical" unless literally every station has CRITICAL status
+    - **Count accurately** - If 7 stations are CRITICAL, 2 are STRAINED, and 1 is HEALTHY, report those exact counts
+    - **List specific stations** - When asked about least/most healthy, name the actual stations with their status and utilization %
+    - **Differentiate statuses** - CRITICAL, STRAINED, HEALTHY, and UNDERUTILIZED are distinct categories; do not conflate them
+    - Example good response: "3 stations are CRITICAL (Hawaii 1 at 155%, Alaska 1 at 147%, Pacific Northwest 1 at 112%), 2 are STRAINED, and 1 is HEALTHY"
+    - Example bad response: "All stations are at critical capacity" (when some are STRAINED or HEALTHY)
+
+    **Examples of when to use get_store_health:**
+    - Staff asks: "Can we absorb 40 rebooked guests at the Hawaii station?" → Check capacity first
+    - Staff reports: "A guest says their connection is tight" → Quick check the handling station's health
+    - Manager asks: "What's the state of the network right now?" → Get summary view
+    - During rebooking: If a station shows CRITICAL capacity, warn staff before proceeding
+
+    ## General Guidelines
+
+    - **Be professional**: You're assisting staff, not chatting with guests
+    - **Be precise**: Include record locators, fare IDs, and exact fare figures
+    - **Confirm changes**: Before modifying an itinerary, confirm the change with the staff member
+    - Default station is store:BK-01 (Aurora Pacific Northwest Station 1) unless specified
+    - Show fares in USD format ($X.XX)
+    - When working with fares, always include the current remaining seats
+
+    ## Revenue Management Guidelines
+
+    - **Always show live_price by default** - this is the current fare to sell this seat at this station
+    - Only show base_price if specifically requested or when explaining fare breakdowns
+    - **CRITICAL: Always fetch fresh fare data** - Whenever a staff member asks about fares, seat availability, or remaining seats:
+      - ALWAYS call search_inventory to get current real-time data
+      - NEVER rely on fare information from conversation memory or previous tool calls
+      - Fares are dynamic and change with remaining seats, demand, and time of day
+      - Even if you just searched for a fare, search again if asked about its price
+    - The live_price includes 8 real-time revenue-management factors:
+      1. **Region adjustments**: Hawaii +15%, Pacific Northwest +5%, California baseline, Alaska -2%, Transcontinental -5%
+      2. **Day-of-departure adjustments**: -5% for seats that expire at departure, to clear them first
+      3. **Local scarcity premiums**: +10% for ≤5 seats left at the station, +3% for ≤15 seats
+      4. **Volume adjustments**: Top 3 fares +20%, ranks 4-10 +10%, others -10% (by booking volume)
+      5. **Network scarcity premiums**: Top 3 scarcest +15%, ranks 4-10 +8% (seats across all stations)
+      6. **Demand multipliers**: Based on recent booking volume trends and velocity
+      7. **Demand premiums**: +5% for high-demand fares above average volume
+      8. **Co-occurrence discounts**: -5% for fares that frequently sell together on the
+         same itinerary
+    - If showing fare comparisons, format as: "$332.35 (current fare, base: $289.00)"
+    - When staff ask about fares, you can explain which factors are affecting a specific fare
+
+ontology:
+  classes:
+    Customer: A guest who travels on the network
+    Store: A station in the network
+    Product: A fare that can be sold
+    InventoryItem: Station-by-fare seat availability record
+    Order: An itinerary booked for travel
+    OrderLine: A segment within an itinerary
+    Courier: An aircraft that flies legs
+    DeliveryTask: A flight leg assigned to an aircraft
+  properties:
+    assigned_to: Assigned aircraft
+    base_price: Published fare before revenue-management adjustments
+    category: Fare category
+    courier_home_store: Aircraft base station
+    courier_name: Aircraft tail number
+    courier_status: "Aircraft status. Values: OFF_SHIFT=Out of Service,
+      AVAILABLE=Available, ON_DELIVERY=In Flight, ACTIVE=Active"
+    courier_status_changed_at: Timestamp when aircraft status last changed
+    current_task: Current flight leg the aircraft is flying
+    customer_address: Guest home address
+    customer_email: Guest email address
+    customer_name: Guest full name
+    delivered_at: Timestamp when the itinerary arrived
+    delivery_window_end: Departure window end time
+    delivery_window_start: Departure window start time
+    demand_multiplier: Regional demand multiplier for high-demand fares
+    demand_premium: Additional premium for exceptionally high-demand regions
+    eta: Projected arrival time
+    home_store: Guest home station
+    inventory_product: Fare this seat bucket covers
+    inventory_store: Station holding this seat bucket
+    line_amount: "Segment total (derived: quantity * unit fare)"
+    line_inventory_item: Seat bucket used for this segment
+    line_of_order: Parent itinerary
+    line_product: Fare on this segment
+    line_sequence: Display sequence within the itinerary
+    live_price: Current fare with all revenue-management adjustments applied
+    local_stock_adjustment: Local seat scarcity multiplier for this specific station
+    order_created_at: Timestamp when the itinerary was booked
+    order_line_unit_price: Fare at booking time (fare snapshot)
+    order_number: Human-readable record locator (AP-XXXX)
+    order_status: "Itinerary status. Values: CREATED=Booked, PICKING=Checked In,
+      OUT_FOR_DELIVERY=In Flight, DELIVERED=Arrived, CANCELLED=Cancelled"
+    order_store: Station handling the itinerary
+    order_total_amount: Total itinerary fare in dollars
+    perishable: Whether the fare expires at departure
+    perishable_adjustment: Day-of-departure discount, to clear expiring seats first
+    perishable_flag: Denormalized day-of-departure flag, for performance
+    placed_by: Guest who booked the itinerary
+    popularity_adjustment: Route volume multiplier based on booking rank within category
+    price_change: Difference between current fare and published fare
+    product_name: Fare display name
+    product_sale_count: Historical booking count for this fare across all stations
+    product_total_stock: Total seats for this fare across all stations
+    quantity: Number of seats booked
+    replenishment_eta: Expected seat release time
+    route_sequence: Leg position in the aircraft rotation
+    scarcity_adjustment: Cross-station scarcity multiplier based on total remaining seats
+    stock_level: Current seats available
+    store_address: Station physical address
+    store_capacity_orders_per_hour: Maximum departures per hour
+    store_name: Station display name
+    store_status: "Station operational status. Values: OPEN=Normal ops,
+      LIMITED=Constrained ops"
+    store_zone: Station region code
+    task_completed_at: Timestamp when the flight leg was completed
+    task_of_order: Itinerary the flight leg belongs to
+    task_started_at: When the current leg started (for timing completion)
+    task_status: "Flight leg status. Values: PENDING=Scheduled,
+      IN_PROGRESS=Airborne, COMPLETED=Completed, FAILED=Diverted"
+    unit_price: Published fare in dollars
+    unit_weight_grams: Re-accommodation effort in handling units
+    vehicle_type: "Fleet type. Values: BIKE=E175 regional jet,
+      SCOOTER=737-700, CAR=737-9 MAX, WALKING=Ground transfer"
+    zone_adjustment: Region-based fare multiplier (e.g., Hawaii premium)

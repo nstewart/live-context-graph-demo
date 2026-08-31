@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Aurora Pacific">
+  <rect width="32" height="32" rx="7" fill="#0284c7"/>
+  <!-- aurora band -->
+  <path d="M3 9c5 4 9-2 13 1s7 1 13-3" stroke="#fbbf24" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <!-- wing -->
+  <path d="M6 22.5 26 11l-3.2 8.4-9.6 1.2-2.4 3.4z" fill="#f0f9ff"/>
+  <!-- tail -->
+  <path d="M13.2 20.6 9 25.5l4.6-1.1z" fill="#bae6fd"/>
+</svg>

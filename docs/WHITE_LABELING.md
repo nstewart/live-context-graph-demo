@@ -43,6 +43,7 @@ make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
 make up LABEL=portfolio-risk       # buy-side risk and portfolio analytics
 make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
+make up LABEL=airline-irops      # passenger airline guest recovery / IROPS
 ```
 
 `LABEL` is optional everywhere and defaults to `freshmart`. It works on:
@@ -399,11 +400,11 @@ Rows are `[name, category, price, weight_grams, perishable]`. The last two are
 mandatory in every vertical because the dynamic-pricing and bundling SQL key on
 them — reinterpret them rather than dropping them:
 
-| Column | freshmart | life-insurance | logistics | mortgage-underwriting | portfolio-risk |
-|---|---|---|---|---|---|
-| `price` | item price | cost to serve | freight rate | cost to underwrite | reference price / adjusted valuation |
-| `weight_grams` | grams | handling effort | billable handling weight | review effort | risk weight |
-| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires | is near expiry |
+| Column | freshmart | life-insurance | logistics | mortgage-underwriting | portfolio-risk | airline-irops |
+|---|---|---|---|---|---|---|
+| `price` | item price | cost to serve | freight rate | cost to underwrite | reference price / adjusted valuation | fare |
+| `weight_grams` | grams | handling effort | billable handling weight | review effort | risk weight | re-accommodation effort |
+| `perishable` | needs cold chain | has a statutory deadline | needs reefer equipment | has a rate lock that expires | is near expiry | expires at departure |
 
 Keep `weight_grams` in freshmart's magnitude whatever it means in your vertical.
 The bundling SQL compares it against fixed gram thresholds, so authoring literal
@@ -421,8 +422,8 @@ and `SCOOTER` and `WALKING` satisfy no branch at all.
 The seeder gives an order 1–6 lines at quantity 1–4, so expected order weight is
 about **8.75 × the catalog's median item weight**, and a pair is twice that. That
 puts the usable ceiling at a median item weight of roughly 1,100 — freshmart sits
-at 454, logistics at 525, mortgage-underwriting at 540. Check yours before you
-commit:
+at 454, airline-irops at 496, logistics at 525, mortgage-underwriting at 540.
+Check yours before you commit:
 
 ```bash
 python3 -c "
