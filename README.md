@@ -52,6 +52,7 @@ make up LABEL=life-insurance     # in-force life insurance / annuity servicing
 make up LABEL=logistics          # LTL freight and final-mile carrier
 make up LABEL=portfolio-risk       # buy-side risk and portfolio analytics
 make up LABEL=mortgage-underwriting  # residential mortgage origination / underwriting
+make up LABEL=airline-irops      # passenger airline guest recovery / IROPS
 make labels                      # list available labels
 ```
 
